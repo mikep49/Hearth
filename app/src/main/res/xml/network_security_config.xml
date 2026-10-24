@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  CasaOS ships without TLS and is normally reached by LAN IP, so plain HTTP must be allowed.
+  The user's login password is sent to the server in the clear in that case; prefer HTTPS via a reverse
+  proxy or a VPN (Tailscale/WireGuard) when connecting from outside the home network.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

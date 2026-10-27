@@ -112,10 +112,16 @@ class CasaClient(private val session: Credentials, baseClient: OkHttpClient = Ok
 
     // region endpoints
 
-    suspend fun utilization(): SystemStats =
-        parseUtilization(get("v1", "sys", "utilization"), System.currentTimeMillis())
+    suspend fun utilization(): SystemStats {
+        val data = get("v1", "sys", "utilization")
+        val now = System.currentTimeMillis()
+        return parsing { parseUtilization(data, now) }
+    }
 
-    suspend fun apps(): List<InstalledApp> = parseApps(get("v2", "app_management", "compose"))
+    suspend fun apps(): List<InstalledApp> {
+        val data = get("v2", "app_management", "compose")
+        return parsing { parseApps(data) }
+    }
 
     suspend fun setAppStatus(id: String, action: AppAction) {
         val req = request("v2", "app_management", "compose", id, "status")
@@ -135,7 +141,8 @@ class CasaClient(private val session: Credentials, baseClient: OkHttpClient = Ok
             addQueryParameter("index", "1")
             addQueryParameter("size", "2000")
         }
-        return parseFolder(path, get(url))
+        val data = get(url)
+        return parsing { parseFolder(path, data) }
     }
 
     suspend fun version(): String? =
@@ -187,6 +194,12 @@ class CasaClient(private val session: Credentials, baseClient: OkHttpClient = Ok
     private suspend fun get(vararg segments: String): JsonElement? = get(urlOf(*segments))
 
     private suspend fun get(url: HttpUrl): JsonElement? = execute(http, Request.Builder().url(url).build())
+
+    /**
+     * Callers resume on the main thread, and a folder can hold thousands of entries:
+     * mapping and sorting them there stalls scrolling and screen transitions.
+     */
+    private suspend fun <T> parsing(block: () -> T): T = withContext(Dispatchers.Default) { block() }
 
     /** Runs the call and returns the envelope's `data`. */
     private suspend fun execute(client: OkHttpClient, req: Request): JsonElement? = withContext(Dispatchers.IO) {

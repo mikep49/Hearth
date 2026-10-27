@@ -7,12 +7,17 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.Crossfade
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -50,6 +55,8 @@ import dev.hearth.casaos.ui.files.FilesScreen
 import dev.hearth.casaos.ui.files.FilesViewModel
 import dev.hearth.casaos.ui.settings.SettingsScreen
 import dev.hearth.casaos.ui.settings.SettingsViewModel
+import dev.hearth.casaos.ui.terminal.TerminalScreen
+import dev.hearth.casaos.ui.terminal.TerminalViewModel
 import dev.hearth.casaos.ui.theme.HearthTheme
 import dev.hearth.casaos.ui.theme.isDark
 
@@ -88,9 +95,11 @@ private enum class Tab(val label: String, val icon: ImageVector) {
     Dashboard("Home", Icons.Rounded.Dashboard),
     Apps("Apps", Icons.Rounded.Apps),
     Files("Files", Icons.Rounded.Folder),
+    Terminal("Terminal", Icons.Rounded.Terminal),
     Settings("Settings", Icons.Rounded.Settings),
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun MainShell(container: AppContainer, session: Session) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
@@ -104,7 +113,9 @@ private fun MainShell(container: AppContainer, session: Session) {
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = {
-            NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+            // The terminal needs every row it can get while typing.
+            val hide = Tab.entries[tab] == Tab.Terminal && WindowInsets.isImeVisible
+            if (!hide) NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
                 Tab.entries.forEachIndexed { i, t ->
                     NavigationBarItem(
                         selected = tab == i,
@@ -119,7 +130,8 @@ private fun MainShell(container: AppContainer, session: Session) {
             }
         },
     ) { padding ->
-        Crossfade(Tab.entries[tab], Modifier.padding(padding), label = "tab") { current ->
+        // Consumed so screens that pad for the keyboard don't also count the space the bottom bar already takes.
+        Crossfade(Tab.entries[tab], Modifier.padding(padding).consumeWindowInsets(padding), label = "tab") { current ->
             when (current) {
                 Tab.Dashboard -> {
                     val vm: DashboardViewModel = viewModel(key = "dash$key", factory = viewModelFactory {
@@ -140,6 +152,12 @@ private fun MainShell(container: AppContainer, session: Session) {
                         initializer { FilesViewModel(container.client, container.downloader) }
                     })
                     FilesScreen(vm, snackbar)
+                }
+                Tab.Terminal -> {
+                    val vm: TerminalViewModel = viewModel(key = "terminal$key", factory = viewModelFactory {
+                        initializer { TerminalViewModel(container.ssh, session, container.session.session) }
+                    })
+                    TerminalScreen(vm)
                 }
                 Tab.Settings -> {
                     val vm: SettingsViewModel = viewModel(key = "settings$key", factory = viewModelFactory {

@@ -24,13 +24,17 @@ interface Credentials {
 class SessionStore(context: Context, private val box: SecretBox = SecretBox()) : Credentials {
     private val prefs = context.getSharedPreferences("session", Context.MODE_PRIVATE)
 
+    // Every request reads the access token, including each app icon, and decrypting goes through the
+    // Keystore. Doing that per request under the lock below made image loads queue up behind each other.
+    private var access: String? = prefs.getString(KEY_ACCESS, null)?.let(box::decrypt)
+
     private val _session = MutableStateFlow(load())
     val session: StateFlow<Session?> = _session.asStateFlow()
 
     override val baseUrl: String? get() = _session.value?.baseUrl
 
     @get:Synchronized
-    override val accessToken: String? get() = prefs.getString(KEY_ACCESS, null)?.let(box::decrypt)
+    override val accessToken: String? get() = access
 
     @get:Synchronized
     override val refreshToken: String? get() = prefs.getString(KEY_REFRESH, null)?.let(box::decrypt)
@@ -47,6 +51,7 @@ class SessionStore(context: Context, private val box: SecretBox = SecretBox()) :
             .putString(KEY_ACCESS, box.encrypt(token.accessToken))
             .putString(KEY_REFRESH, box.encrypt(token.refreshToken))
             .apply()
+        access = token.accessToken
         _session.value = Session(baseUrl, username)
     }
 
@@ -56,19 +61,20 @@ class SessionStore(context: Context, private val box: SecretBox = SecretBox()) :
             .putString(KEY_ACCESS, box.encrypt(token.accessToken))
             .putString(KEY_REFRESH, box.encrypt(token.refreshToken))
             .apply()
+        access = token.accessToken
     }
 
     @Synchronized
     override fun signOut() {
         prefs.edit().remove(KEY_URL).remove(KEY_USER).remove(KEY_ACCESS).remove(KEY_REFRESH).apply()
+        access = null
         _session.value = null
     }
 
     private fun load(): Session? {
         val url = prefs.getString(KEY_URL, null) ?: return null
-        val hasToken = prefs.getString(KEY_ACCESS, null)?.let(box::decrypt) != null
         // An undecryptable token (key invalidated) means we cannot act as this user: force a fresh sign-in.
-        return if (hasToken) Session(url, prefs.getString(KEY_USER, "") ?: "") else null
+        return if (access != null) Session(url, prefs.getString(KEY_USER, "") ?: "") else null
     }
 
     private companion object {

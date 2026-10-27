@@ -28,6 +28,11 @@ android {
         compose = true
         buildConfig = true
     }
+
+    packaging {
+        // The emulator library ships a JNI helper for spawning local processes; the app only talks to remote shells.
+        jniLibs { excludes += "**/libtermux.so" }
+    }
 }
 
 kotlin {
@@ -49,9 +54,12 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
+    implementation(libs.jsch)
+    implementation(libs.termux.terminal.emulator)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation(libs.junit)
     testImplementation(libs.okhttp.mockwebserver)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.sshd.core) // in-process SSH server for the shell tests
 }

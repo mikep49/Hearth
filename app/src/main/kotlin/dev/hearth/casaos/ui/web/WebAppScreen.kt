@@ -1,0 +1,223 @@
+package dev.hearth.casaos.ui.web
+
+import android.annotation.SuppressLint
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.graphics.Bitmap
+import android.net.Uri
+import android.net.http.SslError
+import android.webkit.SslErrorHandler
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.OpenInBrowser
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.net.toUri
+import dev.hearth.casaos.ui.components.EmptyState
+
+/** Shows an app's web UI inside Hearth. Back steps through the page history, then closes. */
+@SuppressLint("SetJavaScriptEnabled")
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun WebAppScreen(appName: String, url: String, onClose: () -> Unit, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    // Survives rotation, which recreates the WebView, so the user stays on the page they were on.
+    var currentUrl by rememberSaveable(url) { mutableStateOf(url) }
+    var pageTitle by remember { mutableStateOf<String?>(null) }
+    var progress by remember { mutableIntStateOf(0) }
+    var canGoBack by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var webView by remember { mutableStateOf<WebView?>(null) }
+
+    // Lets web apps (photo uploads etc.) use the system file picker.
+    var pendingFiles by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        pendingFiles?.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data))
+        pendingFiles = null
+    }
+    val launchPicker by rememberUpdatedState { intent: Intent -> filePicker.launch(intent) }
+
+    BackHandler {
+        val view = webView
+        if (view != null && view.canGoBack()) view.goBack() else onClose()
+    }
+
+    Scaffold(
+        modifier = modifier,
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            Column {
+                TopAppBar(
+                    navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, "Close") } },
+                    title = {
+                        Column {
+                            Text(appName, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                pageTitle?.takeIf { it.isNotBlank() && it != appName } ?: currentUrl.toUri().host.orEmpty(),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { error = null; webView?.reload() }) { Icon(Icons.Rounded.Refresh, "Reload") }
+                        IconButton(onClick = { openExternally(context, currentUrl) }) { Icon(Icons.Rounded.OpenInBrowser, "Open in browser") }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                )
+                if (progress in 1..99) {
+                    LinearProgressIndicator(progress = { progress / 100f }, modifier = Modifier.fillMaxWidth())
+                }
+            }
+        },
+    ) { padding ->
+        Box(Modifier.padding(padding).consumeWindowInsets(padding).imePadding().fillMaxSize()) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx ->
+                    WebView(ctx).apply {
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        settings.useWideViewPort = true
+                        settings.loadWithOverviewMode = true
+                        settings.builtInZoomControls = true
+                        settings.displayZoomControls = false
+                        webViewClient = object : WebViewClient() {
+                            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                                val scheme = request.url.scheme?.lowercase()
+                                if (scheme == "http" || scheme == "https") return false
+                                // mailto:, intent:, app links and the like belong to other apps.
+                                openExternally(ctx, request.url.toString())
+                                return true
+                            }
+
+                            override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+                                error = null
+                            }
+
+                            override fun doUpdateVisitedHistory(view: WebView, url: String, isReload: Boolean) {
+                                currentUrl = url
+                                canGoBack = view.canGoBack()
+                            }
+
+                            override fun onReceivedError(view: WebView, request: WebResourceRequest, err: WebResourceError) {
+                                if (request.isForMainFrame) error = err.description?.toString()?.ifBlank { null } ?: "The page didn't load."
+                            }
+
+                            @SuppressLint("WebViewClientOnReceivedSslError")
+                            override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, err: SslError) {
+                                handler.cancel()
+                                error = "The app's HTTPS certificate isn't trusted by this phone."
+                            }
+                        }
+                        webChromeClient = object : WebChromeClient() {
+                            override fun onProgressChanged(view: WebView, newProgress: Int) {
+                                progress = newProgress
+                            }
+
+                            override fun onReceivedTitle(view: WebView, title: String?) {
+                                pageTitle = title
+                            }
+
+                            override fun onShowFileChooser(
+                                view: WebView,
+                                callback: ValueCallback<Array<Uri>>,
+                                params: FileChooserParams,
+                            ): Boolean {
+                                pendingFiles?.onReceiveValue(null)
+                                pendingFiles = callback
+                                try {
+                                    launchPicker(params.createIntent())
+                                } catch (_: ActivityNotFoundException) {
+                                    callback.onReceiveValue(null)
+                                    pendingFiles = null
+                                }
+                                return true
+                            }
+                        }
+                        // The browser has its own cookies, so this may ask the user to sign in to the app again.
+                        setDownloadListener { downloadUrl, _, _, _, _ -> openExternally(ctx, downloadUrl) }
+                        loadUrl(currentUrl)
+                        webView = this
+                    }
+                },
+                onRelease = { view ->
+                    if (webView === view) webView = null
+                    view.stopLoading()
+                    view.destroy()
+                },
+            )
+
+            error?.let { message ->
+                EmptyState(
+                    "Couldn't open $appName",
+                    message,
+                    // Opaque so the half-loaded page underneath doesn't show through.
+                    Modifier.background(MaterialTheme.colorScheme.background),
+                ) {
+                    Button(onClick = { error = null; webView?.reload() }) { Text("Try again") }
+                }
+            }
+        }
+    }
+}
+
+private fun openExternally(context: Context, url: String) {
+    val intent = if (url.startsWith("intent:")) {
+        // Links come from web content, so only let them reach apps that accept links from a browser.
+        val parsed = runCatching { Intent.parseUri(url, Intent.URI_INTENT_SCHEME) }.getOrNull() ?: return
+        parsed.apply {
+            addCategory(Intent.CATEGORY_BROWSABLE)
+            component = null
+            selector = null
+        }
+    } else {
+        Intent(Intent.ACTION_VIEW, url.toUri())
+    }
+    try {
+        context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    } catch (_: ActivityNotFoundException) {
+        // Nothing on the phone can handle it; leave the user where they are.
+    }
+}

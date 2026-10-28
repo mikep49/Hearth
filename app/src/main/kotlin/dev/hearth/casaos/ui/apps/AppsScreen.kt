@@ -149,35 +149,38 @@ fun AppsScreen(viewModel: AppsViewModel, serverBaseUrl: String, snackbar: Snackb
         apps == null -> EmptyState("Couldn't load apps", state.error.orEmpty())
         apps.isEmpty() -> EmptyState("No apps installed", "Install apps from the CasaOS App Store and they'll show up here.")
         else -> {
-            val shown = apps.filter {
-                when (filter) {
-                    Filter.All -> true
-                    Filter.Running -> it.state == AppState.Running
-                    Filter.Stopped -> it.state == AppState.Stopped
+            val shown = remember(apps, filter) {
+                apps.filter {
+                    when (filter) {
+                        Filter.All -> true
+                        Filter.Running -> it.state == AppState.Running
+                        Filter.Stopped -> it.state == AppState.Stopped
+                    }
                 }
             }
+            val running = remember(apps) { apps.count { it.state == AppState.Running } }
             LazyColumn(
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                item {
+                item(key = "header", contentType = "header") {
                     Column(Modifier.padding(top = 8.dp, bottom = 4.dp)) {
                         Text("Apps", style = MaterialTheme.typography.headlineMedium)
                         Text(
-                            "${apps.count { it.state == AppState.Running }} of ${apps.size} running",
+                            "$running of ${apps.size} running",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
-                item {
+                item(key = "filters", contentType = "filters") {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Filter.entries.forEach { f ->
                             FilterChip(selected = filter == f, onClick = { filter = f }, label = { Text(f.label) })
                         }
                     }
                 }
-                items(shown, key = { it.id }) { app ->
+                items(shown, key = { it.id }, contentType = { "app" }) { app ->
                     AppRow(
                         app = app,
                         busy = app.id in state.busy,

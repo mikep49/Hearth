@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Article
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Stop
@@ -67,6 +68,7 @@ import dev.hearth.casaos.data.AppState
 import dev.hearth.casaos.data.CasaClient
 import dev.hearth.casaos.data.CasaException
 import dev.hearth.casaos.data.InstalledApp
+import dev.hearth.casaos.data.OpenAppsIn
 import dev.hearth.casaos.data.webUrl
 import dev.hearth.casaos.ui.components.AppIcon
 import dev.hearth.casaos.ui.components.EmptyState
@@ -135,7 +137,13 @@ private enum class Filter(val label: String) { All("All"), Running("Running"), S
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AppsScreen(viewModel: AppsViewModel, serverBaseUrl: String, snackbar: SnackbarHostState) {
+fun AppsScreen(
+    viewModel: AppsViewModel,
+    serverBaseUrl: String,
+    snackbar: SnackbarHostState,
+    openAppsIn: OpenAppsIn,
+    onOpenInHearth: (appName: String, url: String) -> Unit,
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var filter by rememberSaveable { mutableStateOf(Filter.All) }
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -204,6 +212,12 @@ fun AppsScreen(viewModel: AppsViewModel, serverBaseUrl: String, snackbar: Snackb
             app = selected,
             busy = selected.id in state.busy,
             serverBaseUrl = serverBaseUrl,
+            openAppsIn = openAppsIn,
+            onOpenInHearth = { url ->
+                // The sheet is its own window and would sit on top of the in-app browser.
+                selectedId = null
+                onOpenInHearth(selected.name, url)
+            },
             onDismiss = { selectedId = null },
             onAction = { viewModel.perform(selected, it) },
             loadLogs = { viewModel.logs(selected.id) },
@@ -263,6 +277,8 @@ private fun AppSheet(
     app: InstalledApp,
     busy: Boolean,
     serverBaseUrl: String,
+    openAppsIn: OpenAppsIn,
+    onOpenInHearth: (url: String) -> Unit,
     onDismiss: () -> Unit,
     onAction: (AppAction) -> Unit,
     loadLogs: suspend () -> Result<String>,
@@ -302,12 +318,18 @@ private fun AppSheet(
                 Button(
                     onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
-                        context.startActivity(Intent(Intent.ACTION_VIEW, webUrl.toUri()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        when (openAppsIn) {
+                            OpenAppsIn.Hearth -> onOpenInHearth(webUrl)
+                            OpenAppsIn.Browser -> context.startActivity(
+                                Intent(Intent.ACTION_VIEW, webUrl.toUri()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                            )
+                        }
                     },
                     enabled = app.state == AppState.Running,
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                 ) {
-                    Icon(Icons.AutoMirrored.Rounded.OpenInNew, null, Modifier.size(18.dp))
+                    val icon = if (openAppsIn == OpenAppsIn.Hearth) Icons.Rounded.Public else Icons.AutoMirrored.Rounded.OpenInNew
+                    Icon(icon, null, Modifier.size(18.dp))
                     Text("Open", Modifier.padding(start = 8.dp), maxLines = 1)
                 }
             }

@@ -1,12 +1,15 @@
 package dev.hearth.casaos
 
 import android.app.Application
+import android.webkit.CookieManager
+import android.webkit.WebStorage
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import dev.hearth.casaos.data.CasaClient
 import dev.hearth.casaos.data.FileDownloader
+import dev.hearth.casaos.data.PrefsStore
 import dev.hearth.casaos.data.SessionStore
 import dev.hearth.casaos.data.SshProfileStore
 import dev.hearth.casaos.ui.theme.ThemeStore
@@ -21,11 +24,23 @@ class AppContainer(app: Application) {
     val downloader = FileDownloader(app, client)
     val theme = ThemeStore(app)
     val ssh = SshProfileStore(app)
+    val prefs = PrefsStore(app)
 
     init {
         // Signing out removes the server's logins from the phone, SSH included (whatever triggered it).
         CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate).launch {
-            session.session.collect { if (it == null) ssh.forgetPasswords() }
+            var signedIn = false
+            session.session.collect {
+                if (it == null) {
+                    ssh.forgetPasswords()
+                    // Logins made inside the in-app browser go too. Skipped at a signed-out launch to avoid starting a WebView.
+                    if (signedIn) {
+                        CookieManager.getInstance().removeAllCookies(null)
+                        WebStorage.getInstance().deleteAllData()
+                    }
+                }
+                signedIn = it != null
+            }
         }
     }
 }

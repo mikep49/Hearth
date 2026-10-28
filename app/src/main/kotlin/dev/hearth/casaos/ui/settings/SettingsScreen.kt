@@ -40,7 +40,9 @@ import androidx.lifecycle.viewModelScope
 import dev.hearth.casaos.BuildConfig
 import dev.hearth.casaos.data.CasaClient
 import dev.hearth.casaos.data.CasaException
+import dev.hearth.casaos.data.OpenAppsIn
 import dev.hearth.casaos.data.PowerAction
+import dev.hearth.casaos.data.PrefsStore
 import dev.hearth.casaos.data.SessionStore
 import dev.hearth.casaos.ui.components.HearthCard
 import dev.hearth.casaos.ui.components.SectionLabel
@@ -58,6 +60,7 @@ class SettingsViewModel(
     private val client: CasaClient,
     private val session: SessionStore,
     private val themeStore: ThemeStore,
+    private val prefs: PrefsStore,
 ) : ViewModel() {
     private val _version = MutableStateFlow<String?>(null)
     val version: StateFlow<String?> = _version.asStateFlow()
@@ -65,6 +68,10 @@ class SettingsViewModel(
     val theme: StateFlow<ThemeSettings> = themeStore.settings
 
     fun setTheme(settings: ThemeSettings) = themeStore.update(settings)
+
+    val openAppsIn: StateFlow<OpenAppsIn> = prefs.openAppsIn
+
+    fun setOpenAppsIn(value: OpenAppsIn) = prefs.setOpenAppsIn(value)
 
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val messages: SharedFlow<String> = _messages.asSharedFlow()
@@ -91,6 +98,7 @@ class SettingsViewModel(
 fun SettingsScreen(viewModel: SettingsViewModel, username: String, serverLabel: String, snackbar: SnackbarHostState) {
     val version by viewModel.version.collectAsStateWithLifecycle()
     val theme by viewModel.theme.collectAsStateWithLifecycle()
+    val openAppsIn by viewModel.openAppsIn.collectAsStateWithLifecycle()
     var confirm by remember { mutableStateOf<PowerAction?>(null) }
     LaunchedEffect(viewModel) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
 
@@ -122,6 +130,9 @@ fun SettingsScreen(viewModel: SettingsViewModel, username: String, serverLabel: 
 
         SectionLabel("Appearance")
         AppearanceSection(theme, viewModel::setTheme)
+
+        SectionLabel("Apps")
+        OpenAppsInSection(openAppsIn, viewModel::setOpenAppsIn)
 
         SectionLabel("Server")
         HearthCard(Modifier.fillMaxWidth()) {

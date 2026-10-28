@@ -1,5 +1,6 @@
 package dev.hearth.casaos.data
 
+import androidx.compose.runtime.Immutable
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -49,6 +50,8 @@ data class SystemStats(
 
 enum class AppState { Running, Stopped, Restarting, Unknown }
 
+/** Immutable so app rows skip recomposing when a refresh returns the same app unchanged. */
+@Immutable
 data class InstalledApp(
     val id: String,
     val name: String,

@@ -24,11 +24,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.State
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,7 +38,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -147,45 +150,56 @@ fun Sparkline(
 /** Status dot; pulses while [pulse] is true (running / restarting). */
 @Composable
 fun StatusDot(color: Color, modifier: Modifier = Modifier, pulse: Boolean = false) {
-    val alpha: State<Float>? = if (pulse) {
+    var dot = modifier.size(8.dp)
+    if (pulse) {
         val t = rememberInfiniteTransition(label = "pulse")
-        t.animateFloat(1f, 0.35f, infiniteRepeatable(tween(1100), RepeatMode.Reverse), label = "alpha")
-    } else null
-    // Read the pulse only while drawing: reading it during composition recomposed the whole app row every frame.
-    Spacer(modifier.size(8.dp).drawBehind { drawCircle(color, alpha = alpha?.value ?: 1f) })
+        val alpha = t.animateFloat(1f, 0.35f, infiniteRepeatable(tween(1100), RepeatMode.Reverse), label = "alpha")
+        // Pulse through the dot's own layer: each frame only changes a layer property, so neither the dot
+        // nor the card around it is redrawn (that kept every visible app card repainting non-stop).
+        dot = dot.graphicsLayer { this.alpha = alpha.value }
+    }
+    Spacer(dot.drawBehind { drawCircle(color) })
 }
 
 /** Remote icon with a lettered tile as placeholder/fallback. */
 @Composable
 fun AppIcon(url: String?, name: String, modifier: Modifier = Modifier, size: Dp = 52.dp) {
     val shape = RoundedCornerShape(size * 0.28f)
-    // Plain AsyncImage rather than SubcomposeAsyncImage: a subcomposition per row is expensive in lazy lists.
-    var loaded by remember(url) { mutableStateOf(false) }
-    val background = if (loaded) {
-        Modifier.background(MaterialTheme.colorScheme.surfaceContainerHigh)
-    } else {
-        Modifier.background(
-            Brush.linearGradient(listOf(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.surfaceContainerHighest)),
+    val scheme = MaterialTheme.colorScheme
+    val measurer = rememberTextMeasurer(cacheSize = 0)
+    val letter = name.firstOrNull()?.uppercase() ?: "?"
+    // The tile is a painter handed to Coil, so swapping it for the loaded image is a redraw, not a
+    // recomposition: rows scrolling into view are composed once instead of twice.
+    val tile = remember(letter, size, scheme, measurer) {
+        LetterTilePainter(
+            measurer.measure(
+                letter,
+                TextStyle(color = scheme.onPrimaryContainer, fontWeight = FontWeight.Bold, fontSize = (size.value * 0.42f).sp),
+            ),
+            Brush.linearGradient(listOf(scheme.primaryContainer, scheme.surfaceContainerHighest)),
         )
     }
-    Box(modifier.size(size).clip(shape).then(background), contentAlignment = Alignment.Center) {
-        if (!loaded) {
-            Text(
-                name.firstOrNull()?.uppercase() ?: "?",
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                fontWeight = FontWeight.Bold,
-                fontSize = (size.value * 0.42f).sp,
-            )
-        }
-        if (url != null) {
-            AsyncImage(
-                model = url,
-                contentDescription = null,
-                modifier = Modifier.matchParentSize(),
-                onSuccess = { loaded = true },
-                onError = { loaded = false },
-            )
-        }
+    Box(modifier.size(size).clip(shape).background(scheme.surfaceContainerHigh)) {
+        AsyncImage(
+            model = url,
+            contentDescription = null,
+            modifier = Modifier.matchParentSize(),
+            placeholder = tile,
+            error = tile,
+            fallback = tile,
+        )
+    }
+}
+
+private class LetterTilePainter(private val letter: TextLayoutResult, private val brush: Brush) : Painter() {
+    override val intrinsicSize: Size get() = Size.Unspecified
+
+    override fun DrawScope.onDraw() {
+        drawRect(brush)
+        drawText(
+            letter,
+            topLeft = Offset((size.width - letter.size.width) / 2f, (size.height - letter.size.height) / 2f),
+        )
     }
 }
 

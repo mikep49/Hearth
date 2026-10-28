@@ -7,7 +7,9 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.Crossfade
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.isImeVisible
@@ -30,6 +32,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -59,6 +62,7 @@ import dev.hearth.casaos.ui.terminal.TerminalScreen
 import dev.hearth.casaos.ui.terminal.TerminalViewModel
 import dev.hearth.casaos.ui.theme.HearthTheme
 import dev.hearth.casaos.ui.theme.isDark
+import dev.hearth.casaos.ui.web.WebAppScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -108,64 +112,78 @@ private fun MainShell(container: AppContainer, session: Session) {
     // Keyed by account so signing in to a different server never shows the previous one's data.
     val key = "${session.baseUrl}|${session.username}"
     val label = session.baseUrl.substringAfter("://")
+    val openAppsIn by container.prefs.openAppsIn.collectAsStateWithLifecycle()
+    // An app's web UI open inside Hearth, drawn over the tabs so they keep their state underneath.
+    var webApp by rememberSaveable { mutableStateOf<String?>(null) }
+    var webUrl by rememberSaveable { mutableStateOf<String?>(null) }
 
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        snackbarHost = { SnackbarHost(snackbar) },
-        bottomBar = {
-            // The terminal needs every row it can get while typing.
-            val hide = Tab.entries[tab] == Tab.Terminal && WindowInsets.isImeVisible
-            if (!hide) NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
-                Tab.entries.forEachIndexed { i, t ->
-                    NavigationBarItem(
-                        selected = tab == i,
-                        onClick = {
-                            if (tab != i) haptic.performHapticFeedback(HapticFeedbackType.SegmentTick)
-                            tab = i
-                        },
-                        icon = { Icon(t.icon, null) },
-                        label = { Text(t.label) },
-                    )
+    Box(Modifier.fillMaxSize()) {
+        Scaffold(
+            containerColor = MaterialTheme.colorScheme.background,
+            snackbarHost = { SnackbarHost(snackbar) },
+            bottomBar = {
+                // The terminal needs every row it can get while typing.
+                val hide = Tab.entries[tab] == Tab.Terminal && WindowInsets.isImeVisible
+                if (!hide) NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+                    Tab.entries.forEachIndexed { i, t ->
+                        NavigationBarItem(
+                            selected = tab == i,
+                            onClick = {
+                                if (tab != i) haptic.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                                tab = i
+                            },
+                            icon = { Icon(t.icon, null) },
+                            label = { Text(t.label) },
+                        )
+                    }
+                }
+            },
+        ) { padding ->
+            // Consumed so screens that pad for the keyboard don't also count the space the bottom bar already takes.
+            Crossfade(Tab.entries[tab], Modifier.padding(padding).consumeWindowInsets(padding), label = "tab") { current ->
+                when (current) {
+                    Tab.Dashboard -> {
+                        val vm: DashboardViewModel = viewModel(key = "dash$key", factory = viewModelFactory {
+                            initializer { DashboardViewModel(container.client) }
+                        })
+                        WhileVisible { vm.poll() }
+                        DashboardScreen(vm, session.username, label)
+                    }
+                    Tab.Apps -> {
+                        val vm: AppsViewModel = viewModel(key = "apps$key", factory = viewModelFactory {
+                            initializer { AppsViewModel(container.client) }
+                        })
+                        WhileVisible { vm.poll() }
+                        AppsScreen(vm, session.baseUrl, snackbar, openAppsIn) { name, url ->
+                            webApp = name
+                            webUrl = url
+                        }
+                    }
+                    Tab.Files -> {
+                        val vm: FilesViewModel = viewModel(key = "files$key", factory = viewModelFactory {
+                            initializer { FilesViewModel(container.client, container.downloader) }
+                        })
+                        FilesScreen(vm, snackbar)
+                    }
+                    Tab.Terminal -> {
+                        val vm: TerminalViewModel = viewModel(key = "terminal$key", factory = viewModelFactory {
+                            initializer { TerminalViewModel(container.ssh, session, container.session.session) }
+                        })
+                        TerminalScreen(vm)
+                    }
+                    Tab.Settings -> {
+                        val vm: SettingsViewModel = viewModel(key = "settings$key", factory = viewModelFactory {
+                            initializer { SettingsViewModel(container.client, container.session, container.theme, container.prefs) }
+                        })
+                        SettingsScreen(vm, session.username, label, snackbar)
+                    }
                 }
             }
-        },
-    ) { padding ->
-        // Consumed so screens that pad for the keyboard don't also count the space the bottom bar already takes.
-        Crossfade(Tab.entries[tab], Modifier.padding(padding).consumeWindowInsets(padding), label = "tab") { current ->
-            when (current) {
-                Tab.Dashboard -> {
-                    val vm: DashboardViewModel = viewModel(key = "dash$key", factory = viewModelFactory {
-                        initializer { DashboardViewModel(container.client) }
-                    })
-                    WhileVisible { vm.poll() }
-                    DashboardScreen(vm, session.username, label)
-                }
-                Tab.Apps -> {
-                    val vm: AppsViewModel = viewModel(key = "apps$key", factory = viewModelFactory {
-                        initializer { AppsViewModel(container.client) }
-                    })
-                    WhileVisible { vm.poll() }
-                    AppsScreen(vm, session.baseUrl, snackbar)
-                }
-                Tab.Files -> {
-                    val vm: FilesViewModel = viewModel(key = "files$key", factory = viewModelFactory {
-                        initializer { FilesViewModel(container.client, container.downloader) }
-                    })
-                    FilesScreen(vm, snackbar)
-                }
-                Tab.Terminal -> {
-                    val vm: TerminalViewModel = viewModel(key = "terminal$key", factory = viewModelFactory {
-                        initializer { TerminalViewModel(container.ssh, session, container.session.session) }
-                    })
-                    TerminalScreen(vm)
-                }
-                Tab.Settings -> {
-                    val vm: SettingsViewModel = viewModel(key = "settings$key", factory = viewModelFactory {
-                        initializer { SettingsViewModel(container.client, container.session, container.theme) }
-                    })
-                    SettingsScreen(vm, session.username, label, snackbar)
-                }
-            }
+        }
+
+        val url = webUrl
+        if (url != null) {
+            WebAppScreen(webApp.orEmpty(), url, onClose = { webUrl = null; webApp = null }, Modifier.fillMaxSize())
         }
     }
 }

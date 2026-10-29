@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.AddToHomeScreen
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.OpenInBrowser
 import androidx.compose.material.icons.rounded.Refresh
@@ -58,12 +59,23 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.net.toUri
 import dev.hearth.casaos.ui.components.EmptyState
 
-/** Shows an app's web UI inside Hearth. Back steps through the page history, then closes. */
+/**
+ * Shows an app's web UI inside Hearth. Back steps through the page history, then closes.
+ * With [canAddToHome], the top bar offers to put the app on the home screen, using [iconUrl] for its icon.
+ */
 @SuppressLint("SetJavaScriptEnabled")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun WebAppScreen(appName: String, url: String, onClose: () -> Unit, modifier: Modifier = Modifier) {
+fun WebAppScreen(
+    appName: String,
+    url: String,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+    iconUrl: String? = null,
+    canAddToHome: Boolean = false,
+) {
     val context = LocalContext.current
+    val addToHome = rememberAddToHomeScreen()
     // Survives rotation, which recreates the WebView, so the user stays on the page they were on.
     var currentUrl by rememberSaveable(url) { mutableStateOf(url) }
     var pageTitle by remember { mutableStateOf<String?>(null) }
@@ -106,6 +118,12 @@ fun WebAppScreen(appName: String, url: String, onClose: () -> Unit, modifier: Mo
                     },
                     actions = {
                         IconButton(onClick = { error = null; webView?.reload() }) { Icon(Icons.Rounded.Refresh, "Reload") }
+                        if (canAddToHome) {
+                            // The app's address, not the current page, so it matches an icon added from the Apps list.
+                            IconButton(onClick = { addToHome(appName, url, iconUrl) }) {
+                                Icon(Icons.AutoMirrored.Rounded.AddToHomeScreen, "Add to Home screen")
+                            }
+                        }
                         IconButton(onClick = { openExternally(context, currentUrl) }) { Icon(Icons.Rounded.OpenInBrowser, "Open in browser") }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),

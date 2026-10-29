@@ -20,6 +20,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.AddToHomeScreen
 import androidx.compose.material.icons.automirrored.rounded.Article
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -30,6 +31,8 @@ import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.SystemUpdateAlt
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
@@ -57,6 +60,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
@@ -75,6 +79,7 @@ import dev.hearth.casaos.ui.components.EmptyState
 import dev.hearth.casaos.ui.components.HearthCard
 import dev.hearth.casaos.ui.components.StatusDot
 import dev.hearth.casaos.ui.theme.hearth
+import dev.hearth.casaos.ui.web.rememberAddToHomeScreen
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -142,12 +147,13 @@ fun AppsScreen(
     serverBaseUrl: String,
     snackbar: SnackbarHostState,
     openAppsIn: OpenAppsIn,
-    onOpenInHearth: (appName: String, url: String) -> Unit,
+    onOpenInHearth: (app: InstalledApp, url: String) -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var filter by rememberSaveable { mutableStateOf(Filter.All) }
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
     val haptic = LocalHapticFeedback.current
+    val addToHome = rememberAddToHomeScreen()
 
     LaunchedEffect(viewModel) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
 
@@ -189,6 +195,7 @@ fun AppsScreen(
                     }
                 }
                 items(shown, key = { it.id }, contentType = { "app" }) { app ->
+                    val webUrl = app.webUrl(serverBaseUrl)
                     AppRow(
                         app = app,
                         busy = app.id in state.busy,
@@ -197,6 +204,8 @@ fun AppsScreen(
                             haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                             viewModel.perform(app, if (app.state == AppState.Running) AppAction.Stop else AppAction.Start)
                         },
+                        // Only apps with a web UI have something to put on the home screen.
+                        onAddToHome = if (webUrl != null) { { addToHome(app.name, webUrl, app.iconUrl) } } else null,
                     )
                 }
                 if (shown.isEmpty()) {
@@ -216,7 +225,7 @@ fun AppsScreen(
             onOpenInHearth = { url ->
                 // The sheet is its own window and would sit on top of the in-app browser.
                 selectedId = null
-                onOpenInHearth(selected.name, url)
+                onOpenInHearth(selected, url)
             },
             onDismiss = { selectedId = null },
             onAction = { viewModel.perform(selected, it) },
@@ -225,9 +234,28 @@ fun AppsScreen(
     }
 }
 
+/** Tapping opens the app's details; long-pressing an app with a web UI offers to add it to the home screen. */
 @Composable
-private fun AppRow(app: InstalledApp, busy: Boolean, onOpen: () -> Unit, onToggle: () -> Unit) {
-    HearthCard(Modifier.fillMaxWidth(), onClick = onOpen) {
+private fun AppRow(app: InstalledApp, busy: Boolean, onOpen: () -> Unit, onToggle: () -> Unit, onAddToHome: (() -> Unit)?) {
+    var menu by remember { mutableStateOf(false) }
+    Box {
+        AppCard(app, busy, onOpen, onToggle, onLongClick = if (onAddToHome != null) { { menu = true } } else null)
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, offset = DpOffset(14.dp, 0.dp)) {
+            DropdownMenuItem(
+                text = { Text("Add to Home screen") },
+                leadingIcon = { Icon(Icons.AutoMirrored.Rounded.AddToHomeScreen, null) },
+                onClick = {
+                    menu = false
+                    onAddToHome?.invoke()
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun AppCard(app: InstalledApp, busy: Boolean, onOpen: () -> Unit, onToggle: () -> Unit, onLongClick: (() -> Unit)?) {
+    HearthCard(Modifier.fillMaxWidth(), onClick = onOpen, onLongClick = onLongClick) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             AppIcon(app.iconUrl, app.name)
             Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {

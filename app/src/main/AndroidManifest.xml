@@ -23,5 +23,13 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Opened only by Hearth's own home screen shortcuts, so other apps can't load pages into it. -->
+        <activity
+            android:name=".WebAppActivity"
+            android:exported="false"
+            android:documentLaunchMode="intoExisting"
+            android:autoRemoveFromRecents="true"
+            android:windowSoftInputMode="adjustResize|stateHidden" />
     </application>
 </manifest>

@@ -45,9 +45,9 @@ suspend fun addToHomeScreen(context: Context, name: String, url: String, iconUrl
     return ShortcutManagerCompat.requestPinShortcut(context, shortcut, null)
 }
 
-/** [addToHomeScreen] for a button: runs in the background and says so if the launcher can't do it. */
+/** "Create app" for a button: [addToHomeScreen] in the background, saying so if the launcher can't do it. */
 @Composable
-fun rememberAddToHomeScreen(): (name: String, url: String, iconUrl: String?) -> Unit {
+fun rememberCreateApp(): (name: String, url: String, iconUrl: String?) -> Unit {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     return remember(context, scope) {
@@ -59,7 +59,7 @@ fun rememberAddToHomeScreen(): (name: String, url: String, iconUrl: String?) -> 
                 scope.launch {
                     try {
                         if (!addToHomeScreen(context, name, url, iconUrl)) {
-                            Toast.makeText(context, "Your home screen app doesn't support adding icons", Toast.LENGTH_LONG).show()
+                            Toast.makeText(context, "Couldn't create the app: your home screen doesn't allow it", Toast.LENGTH_LONG).show()
                         }
                     } finally {
                         working = false

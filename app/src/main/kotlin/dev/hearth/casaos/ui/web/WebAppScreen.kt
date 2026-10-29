@@ -29,8 +29,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.AddToHomeScreen
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.InstallMobile
 import androidx.compose.material.icons.rounded.OpenInBrowser
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Button
@@ -61,7 +61,10 @@ import dev.hearth.casaos.ui.components.EmptyState
 
 /**
  * Shows an app's web UI inside Hearth. Back steps through the page history, then closes.
- * With [canAddToHome], the top bar offers to put the app on the home screen, using [iconUrl] for its icon.
+ *
+ * Inside Hearth, the top bar has reload, open-in-browser and "Create app", which puts the app on the home
+ * screen with [iconUrl] as its icon. A [standalone] app (opened from that icon) is just the page, like a
+ * native app; the top bar is there when the app is opened through Hearth.
  */
 @SuppressLint("SetJavaScriptEnabled")
 @OptIn(ExperimentalMaterial3Api::class)
@@ -72,10 +75,10 @@ fun WebAppScreen(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
     iconUrl: String? = null,
-    canAddToHome: Boolean = false,
+    standalone: Boolean = false,
 ) {
     val context = LocalContext.current
-    val addToHome = rememberAddToHomeScreen()
+    val createApp = rememberCreateApp()
     // Survives rotation, which recreates the WebView, so the user stays on the page they were on.
     var currentUrl by rememberSaveable(url) { mutableStateOf(url) }
     var pageTitle by remember { mutableStateOf<String?>(null) }
@@ -101,7 +104,8 @@ fun WebAppScreen(
         modifier = modifier,
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            Box {
+            // Without a top bar the content padding still keeps the page clear of the status bar.
+            if (!standalone) Box {
                 TopAppBar(
                     navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, "Close") } },
                     title = {
@@ -118,11 +122,9 @@ fun WebAppScreen(
                     },
                     actions = {
                         IconButton(onClick = { error = null; webView?.reload() }) { Icon(Icons.Rounded.Refresh, "Reload") }
-                        if (canAddToHome) {
-                            // The app's address, not the current page, so it matches an icon added from the Apps list.
-                            IconButton(onClick = { addToHome(appName, url, iconUrl) }) {
-                                Icon(Icons.AutoMirrored.Rounded.AddToHomeScreen, "Add to Home screen")
-                            }
+                        // The app's address, not the current page, so it matches an app created from the Apps list.
+                        IconButton(onClick = { createApp(appName, url, iconUrl) }) {
+                            Icon(Icons.Rounded.InstallMobile, "Create app")
                         }
                         IconButton(onClick = { openExternally(context, currentUrl) }) { Icon(Icons.Rounded.OpenInBrowser, "Open in browser") }
                     },

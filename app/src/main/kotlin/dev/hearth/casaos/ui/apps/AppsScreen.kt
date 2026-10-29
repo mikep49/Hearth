@@ -20,9 +20,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.AddToHomeScreen
 import androidx.compose.material.icons.automirrored.rounded.Article
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.InstallMobile
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Refresh
@@ -79,7 +79,7 @@ import dev.hearth.casaos.ui.components.EmptyState
 import dev.hearth.casaos.ui.components.HearthCard
 import dev.hearth.casaos.ui.components.StatusDot
 import dev.hearth.casaos.ui.theme.hearth
-import dev.hearth.casaos.ui.web.rememberAddToHomeScreen
+import dev.hearth.casaos.ui.web.rememberCreateApp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -153,7 +153,7 @@ fun AppsScreen(
     var filter by rememberSaveable { mutableStateOf(Filter.All) }
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
     val haptic = LocalHapticFeedback.current
-    val addToHome = rememberAddToHomeScreen()
+    val createApp = rememberCreateApp()
 
     LaunchedEffect(viewModel) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
 
@@ -204,8 +204,8 @@ fun AppsScreen(
                             haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                             viewModel.perform(app, if (app.state == AppState.Running) AppAction.Stop else AppAction.Start)
                         },
-                        // Only apps with a web UI have something to put on the home screen.
-                        onAddToHome = if (webUrl != null) { { addToHome(app.name, webUrl, app.iconUrl) } } else null,
+                        // Only apps with a web UI can become a home screen app.
+                        onCreateApp = if (webUrl != null) { { createApp(app.name, webUrl, app.iconUrl) } } else null,
                     )
                 }
                 if (shown.isEmpty()) {
@@ -234,19 +234,19 @@ fun AppsScreen(
     }
 }
 
-/** Tapping opens the app's details; long-pressing an app with a web UI offers to add it to the home screen. */
+/** Tapping opens the app's details; long-pressing an app with a web UI offers "Create app". */
 @Composable
-private fun AppRow(app: InstalledApp, busy: Boolean, onOpen: () -> Unit, onToggle: () -> Unit, onAddToHome: (() -> Unit)?) {
+private fun AppRow(app: InstalledApp, busy: Boolean, onOpen: () -> Unit, onToggle: () -> Unit, onCreateApp: (() -> Unit)?) {
     var menu by remember { mutableStateOf(false) }
     Box {
-        AppCard(app, busy, onOpen, onToggle, onLongClick = if (onAddToHome != null) { { menu = true } } else null)
+        AppCard(app, busy, onOpen, onToggle, onLongClick = if (onCreateApp != null) { { menu = true } } else null)
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, offset = DpOffset(14.dp, 0.dp)) {
             DropdownMenuItem(
-                text = { Text("Add to Home screen") },
-                leadingIcon = { Icon(Icons.AutoMirrored.Rounded.AddToHomeScreen, null) },
+                text = { Text("Create app") },
+                leadingIcon = { Icon(Icons.Rounded.InstallMobile, null) },
                 onClick = {
                     menu = false
-                    onAddToHome?.invoke()
+                    onCreateApp?.invoke()
                 },
             )
         }

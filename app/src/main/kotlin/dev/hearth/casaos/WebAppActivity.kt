@@ -46,7 +46,7 @@ class WebAppActivity : ComponentActivity() {
                 enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
             }
             HearthTheme(theme) {
-                WebAppScreen(name, url, onClose = ::finishAndRemoveTask, Modifier.fillMaxSize())
+                WebAppScreen(name, url, onClose = ::finishAndRemoveTask, Modifier.fillMaxSize(), standalone = true)
             }
         }
     }

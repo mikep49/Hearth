@@ -191,7 +191,6 @@ private fun MainShell(container: AppContainer, session: Session) {
                 onClose = { webUrl = null; webApp = null; webIcon = null },
                 Modifier.fillMaxSize(),
                 iconUrl = webIcon,
-                canAddToHome = true,
             )
         }
     }

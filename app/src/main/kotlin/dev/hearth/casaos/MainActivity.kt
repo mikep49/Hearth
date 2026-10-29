@@ -116,6 +116,7 @@ private fun MainShell(container: AppContainer, session: Session) {
     // An app's web UI open inside Hearth, drawn over the tabs so they keep their state underneath.
     var webApp by rememberSaveable { mutableStateOf<String?>(null) }
     var webUrl by rememberSaveable { mutableStateOf<String?>(null) }
+    var webIcon by rememberSaveable { mutableStateOf<String?>(null) }
 
     Box(Modifier.fillMaxSize()) {
         Scaffold(
@@ -154,8 +155,9 @@ private fun MainShell(container: AppContainer, session: Session) {
                             initializer { AppsViewModel(container.client) }
                         })
                         WhileVisible { vm.poll() }
-                        AppsScreen(vm, session.baseUrl, snackbar, openAppsIn) { name, url ->
-                            webApp = name
+                        AppsScreen(vm, session.baseUrl, snackbar, openAppsIn) { app, url ->
+                            webApp = app.name
+                            webIcon = app.iconUrl
                             webUrl = url
                         }
                     }
@@ -183,7 +185,14 @@ private fun MainShell(container: AppContainer, session: Session) {
 
         val url = webUrl
         if (url != null) {
-            WebAppScreen(webApp.orEmpty(), url, onClose = { webUrl = null; webApp = null }, Modifier.fillMaxSize())
+            WebAppScreen(
+                webApp.orEmpty(),
+                url,
+                onClose = { webUrl = null; webApp = null; webIcon = null },
+                Modifier.fillMaxSize(),
+                iconUrl = webIcon,
+                canAddToHome = true,
+            )
         }
     }
 }

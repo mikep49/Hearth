@@ -9,6 +9,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.ColumnScope
@@ -58,12 +59,18 @@ import coil3.compose.AsyncImage
 fun HearthCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val shape = RoundedCornerShape(24.dp)
     val color = MaterialTheme.colorScheme.surfaceContainer
     val border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
-    if (onClick != null) {
+    if (onLongClick != null) {
+        // Surface's own onClick has no long press. Clicking inside it keeps the ripple within the rounded corners.
+        Surface(modifier = modifier, shape = shape, color = color, border = border) {
+            Column(Modifier.combinedClickable(onClick = onClick ?: {}, onLongClick = onLongClick), content = content)
+        }
+    } else if (onClick != null) {
         Surface(onClick = onClick, modifier = modifier, shape = shape, color = color, border = border) {
             Column(content = content)
         }

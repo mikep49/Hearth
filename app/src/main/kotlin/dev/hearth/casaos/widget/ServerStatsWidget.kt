@@ -1,6 +1,9 @@
 package dev.hearth.casaos.widget
 
+import android.appwidget.AppWidgetManager
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.text.format.DateUtils
 import androidx.compose.runtime.Composable
@@ -20,6 +23,7 @@ import androidx.glance.Image
 import androidx.glance.ImageProvider
 import androidx.glance.LocalContext
 import androidx.glance.LocalSize
+import androidx.glance.action.Action
 import androidx.glance.action.ActionParameters
 import androidx.glance.action.actionStartActivity
 import androidx.glance.action.clickable
@@ -31,6 +35,7 @@ import androidx.glance.appwidget.LinearProgressIndicator
 import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.action.actionRunCallback
+import androidx.glance.appwidget.action.actionStartActivity as startActivityWithIntent
 import androidx.glance.appwidget.appWidgetBackground
 import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.provideContent
@@ -58,6 +63,9 @@ import dev.hearth.casaos.BuildConfig
 import dev.hearth.casaos.HearthApp
 import dev.hearth.casaos.MainActivity
 import dev.hearth.casaos.R
+import dev.hearth.casaos.data.ServerProfile
+import dev.hearth.casaos.data.Session
+import dev.hearth.casaos.data.serverLabel
 import dev.hearth.casaos.ui.components.formatBytes
 import dev.hearth.casaos.ui.theme.ThemeMode
 import dev.hearth.casaos.ui.theme.ThemeSettings
@@ -90,6 +98,32 @@ internal enum class StatsLayout(val minSize: DpSize) {
     }
 }
 
+/** What a widget shows, given the server picked for it (if any) and the app's state. */
+internal sealed interface WidgetTarget {
+    /** Follows the app, which isn't signed in to anything. */
+    data object NoServer : WidgetTarget
+    data class Server(val profile: ServerProfile) : WidgetTarget
+    /** The picked server's login ended. */
+    data class SignedOut(val profile: ServerProfile) : WidgetTarget
+    /** The picked server was removed from Hearth. */
+    data object Removed : WidgetTarget
+
+    /** The server whose reading this widget needs, if any. */
+    val serverId: String? get() = (this as? Server)?.profile?.id
+
+    companion object {
+        /** [choice] is the id of the server picked for the widget; null follows whichever server the app shows. */
+        fun of(choice: String?, shown: Session?, profiles: List<ServerProfile>): WidgetTarget {
+            if (choice == null) {
+                val profile = shown?.let { s -> profiles.firstOrNull { it.id == s.id } } ?: return NoServer
+                return Server(profile)
+            }
+            val profile = profiles.firstOrNull { it.id == choice } ?: return Removed
+            return if (profile.signedIn) Server(profile) else SignedOut(profile)
+        }
+    }
+}
+
 /** A home screen widget with the server's CPU, memory and storage use. */
 class ServerStatsWidget : GlanceAppWidget() {
     override val sizeMode = SizeMode.Responsive(StatsLayout.entries.map { it.minSize }.toSet())
@@ -97,21 +131,28 @@ class ServerStatsWidget : GlanceAppWidget() {
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val container = context.container
+        val widgetId = GlanceAppWidgetManager(context).getAppWidgetId(id)
         provideContent {
-            val session by container.session.session.collectAsState()
-            val stats by container.widgetStats.state.collectAsState()
+            val shown by container.session.session.collectAsState()
+            val profiles by container.session.profiles.collectAsState()
+            val choices by container.widgetChoices.choices.collectAsState()
+            val all by container.widgetStats.state.collectAsState()
             val theme by container.theme.settings.collectAsState()
-            val baseUrl = session?.baseUrl
-            // Covers placing the widget, the 30-minute update and signing in; skipped if a reading is recent.
-            LaunchedEffect(baseUrl) { if (baseUrl != null) container.widgetStats.refresh(ServerStatsWidgets.FRESH_MS) }
-            StatsWidget(theme, baseUrl, stats.takeIf { it.snapshot == null || it.snapshot.baseUrl == baseUrl } ?: WidgetStats())
+            val target = WidgetTarget.of(choices[widgetId], shown, profiles)
+            val server = target.serverId
+            // Covers placing the widget, the 30-minute update, signing in and picking a server; skipped if a reading is recent.
+            LaunchedEffect(server) { if (server != null) container.widgetStats.refresh(server, ServerStatsWidgets.FRESH_MS) }
+            val baseUrl = (target as? WidgetTarget.Server)?.profile?.baseUrl
+            val stats = server?.let(all::get)?.takeIf { it.snapshot == null || it.snapshot.baseUrl == baseUrl } ?: WidgetStats()
+            StatsWidget(theme, target, stats, widgetId)
         }
     }
 
     /** What the widget picker shows (Android 15+), drawn with made-up numbers. */
     override suspend fun providePreview(context: Context, widgetCategory: Int) {
         val theme = context.container.theme.settings.value
-        provideContent { StatsWidget(theme, SAMPLE.baseUrl, WidgetStats(SAMPLE), interactive = false) }
+        val sample = WidgetTarget.Server(ServerProfile("sample", SAMPLE.baseUrl, "", signedIn = true))
+        provideContent { StatsWidget(theme, sample, WidgetStats(SAMPLE), widgetId = null) }
     }
 
     private companion object {
@@ -133,7 +174,7 @@ class ServerStatsWidgetReceiver : GlanceAppWidgetReceiver() {
 class RefreshStatsAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         // A few seconds' grace, so a double tap makes one request.
-        ServerStatsWidgets.refresh(context, maxAgeMs = 3_000)
+        ServerStatsWidgets.refresh(context, maxAgeMs = 3_000, only = glanceId)
     }
 }
 
@@ -142,19 +183,30 @@ object ServerStatsWidgets {
     /** A reading younger than this isn't fetched again when a widget or the app asks. */
     const val FRESH_MS = 60_000L
 
-    private suspend fun anyPlaced(context: Context) =
-        GlanceAppWidgetManager(context).getGlanceIds(ServerStatsWidget::class.java).isNotEmpty()
+    private suspend fun placed(context: Context) =
+        GlanceAppWidgetManager(context).getGlanceIds(ServerStatsWidget::class.java)
 
     /** Redraws every placed widget, e.g. after sign-out or a theme change. */
     suspend fun redraw(context: Context) {
-        if (anyPlaced(context)) ServerStatsWidget().updateAll(context)
+        if (placed(context).isNotEmpty()) ServerStatsWidget().updateAll(context)
     }
 
-    /** Fetches a new reading, unless one is younger than [maxAgeMs], and redraws. Does nothing when no widget is placed. */
-    suspend fun refresh(context: Context, maxAgeMs: Long = FRESH_MS) {
-        if (!anyPlaced(context)) return
+    /**
+     * Fetches new readings for the servers the widgets show (or just [only]'s), unless one is younger than
+     * [maxAgeMs], and redraws. Does nothing when no widget is placed.
+     */
+    suspend fun refresh(context: Context, maxAgeMs: Long = FRESH_MS, only: GlanceId? = null) {
+        val ids = placed(context)
+        if (ids.isEmpty()) return
+        val manager = GlanceAppWidgetManager(context)
+        val container = context.container
+        val widgetIds = ids.associateWith { manager.getAppWidgetId(it) }
+        if (only == null) container.widgetChoices.keepOnly(widgetIds.values.toSet())
+        val servers = widgetIds.filterKeys { only == null || it == only }.values
+            .mapNotNull { container.widgetServer(it) }
+            .toSet()
         coroutineScope {
-            launch { context.container.widgetStats.refresh(maxAgeMs) }
+            servers.forEach { launch { container.widgetStats.refresh(it, maxAgeMs) } }
             // Drawn while it loads too, so the refresh button turns into a spinner.
             ServerStatsWidget().updateAll(context)
         }
@@ -226,7 +278,9 @@ private fun StatsSnapshot.stats(colors: WidgetColors): List<Stat> = buildList {
 private fun percent(value: Double) = "${value.coerceIn(0.0, 100.0).roundToInt()}%"
 
 @Composable
-private fun StatsWidget(theme: ThemeSettings, baseUrl: String?, stats: WidgetStats, interactive: Boolean = true) {
+private fun StatsWidget(theme: ThemeSettings, target: WidgetTarget, stats: WidgetStats, widgetId: Int?) {
+    // The picker's preview has no widget yet, so nothing in it can be tapped.
+    val interactive = widgetId != null
     val context = LocalContext.current
     val colors = remember(theme) { WidgetColors.of(context, theme) }
     val layout = StatsLayout.forSize(LocalSize.current)
@@ -236,38 +290,63 @@ private fun StatsWidget(theme: ThemeSettings, baseUrl: String?, stats: WidgetSta
         if (interactive) root = root.clickable(actionStartActivity<MainActivity>())
         val padding = if (layout == StatsLayout.Strip) 8.dp else 14.dp
         Box(root.padding(horizontal = padding, vertical = if (layout == StatsLayout.Strip) 6.dp else 12.dp)) {
-            val snapshot = stats.snapshot
-            when {
-                baseUrl == null -> Message("Sign in to Hearth", "to see your server here", layout)
-                snapshot == null && stats.error != null -> Column(GlanceModifier.fillMaxSize()) {
-                    if (layout != StatsLayout.Strip) Header(baseUrl, stats, interactive)
-                    Message("Can't reach your server", stats.error, layout)
-                }
-                snapshot == null -> Box(GlanceModifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(GlanceModifier.size(20.dp), color = GlanceTheme.colors.primary)
-                }
-                layout == StatsLayout.Strip -> Strip(snapshot.stats(colors), stale = stats.error != null)
-                else -> Column(GlanceModifier.fillMaxSize()) {
-                    Header(baseUrl, stats, interactive)
-                    Spacer(GlanceModifier.defaultWeight())
-                    val rows = snapshot.stats(colors)
-                    rows.forEachIndexed { i, stat ->
-                        if (i > 0) Spacer(GlanceModifier.height(if (layout == StatsLayout.Bars || layout == StatsLayout.WideBars) 6.dp else 8.dp))
-                        when (layout) {
-                            StatsLayout.Detailed -> StackedRow(stat, showDetail = true)
-                            StatsLayout.Stacked -> StackedRow(stat, showDetail = false)
-                            else -> BarRow(stat, showTemp = layout == StatsLayout.WideBars, snapshot)
-                        }
-                    }
-                    Spacer(GlanceModifier.defaultWeight())
-                }
+            val pick = widgetId?.let { pickServerAction(context, it) }
+            when (target) {
+                WidgetTarget.NoServer -> Message("Sign in to Hearth", "to see your server here", layout)
+                WidgetTarget.Removed -> Message("Server removed", "Tap to pick another", layout, onClick = pick)
+                is WidgetTarget.SignedOut -> Message("Signed out of ${target.profile.label}", "Open Hearth to sign in again", layout)
+                is WidgetTarget.Server -> ServerStats(target.profile.baseUrl, stats, layout, colors, interactive, pick)
             }
         }
     }
 }
 
 @Composable
-private fun Header(baseUrl: String, stats: WidgetStats, interactive: Boolean) {
+private fun ServerStats(
+    baseUrl: String,
+    stats: WidgetStats,
+    layout: StatsLayout,
+    colors: WidgetColors,
+    interactive: Boolean,
+    pick: Action?,
+) {
+    val snapshot = stats.snapshot
+    when {
+        snapshot == null && stats.error != null -> Column(GlanceModifier.fillMaxSize()) {
+            if (layout != StatsLayout.Strip) Header(baseUrl, stats, interactive, pick)
+            Message("Can't reach your server", stats.error, layout)
+        }
+        snapshot == null -> Box(GlanceModifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(GlanceModifier.size(20.dp), color = GlanceTheme.colors.primary)
+        }
+        layout == StatsLayout.Strip -> Strip(snapshot.stats(colors), stale = stats.error != null)
+        else -> Column(GlanceModifier.fillMaxSize()) {
+            Header(baseUrl, stats, interactive, pick)
+            Spacer(GlanceModifier.defaultWeight())
+            val rows = snapshot.stats(colors)
+            rows.forEachIndexed { i, stat ->
+                if (i > 0) Spacer(GlanceModifier.height(if (layout == StatsLayout.Bars || layout == StatsLayout.WideBars) 6.dp else 8.dp))
+                when (layout) {
+                    StatsLayout.Detailed -> StackedRow(stat, showDetail = true)
+                    StatsLayout.Stacked -> StackedRow(stat, showDetail = false)
+                    else -> BarRow(stat, showTemp = layout == StatsLayout.WideBars, snapshot)
+                }
+            }
+            Spacer(GlanceModifier.defaultWeight())
+        }
+    }
+}
+
+/** Opens the server picker for one widget. */
+private fun pickServerAction(context: Context, widgetId: Int): Action = startActivityWithIntent(
+    Intent(context, WidgetConfigActivity::class.java)
+        .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
+        // Makes each widget's intent distinct, so tapping one never opens the picker for another.
+        .setData(Uri.parse("hearth://widget/$widgetId")),
+)
+
+@Composable
+private fun Header(baseUrl: String, stats: WidgetStats, interactive: Boolean, pick: Action?) {
     val context = LocalContext.current
     val sampledAt = stats.snapshot?.sampledAtMs
     val time = sampledAt?.let { DateUtils.formatSameDayTime(it, System.currentTimeMillis(), DateFormat.SHORT, DateFormat.SHORT).toString() }
@@ -278,9 +357,12 @@ private fun Header(baseUrl: String, stats: WidgetStats, interactive: Boolean) {
     }
     Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         // The status gets its own line, so a narrow widget doesn't cut the server's name short.
-        Column(GlanceModifier.defaultWeight()) {
+        // Tapping the name picks which server the widget shows.
+        var name = GlanceModifier.defaultWeight()
+        if (pick != null) name = name.clickable(pick)
+        Column(name) {
             Text(
-                baseUrl.substringAfter("://").trimEnd('/'),
+                serverLabel(baseUrl),
                 style = TextStyle(GlanceTheme.colors.onSurface, fontSize = 13.sp, fontWeight = FontWeight.Medium),
                 maxLines = 1,
             )
@@ -398,9 +480,11 @@ private fun Strip(stats: List<Stat>, stale: Boolean) {
 }
 
 @Composable
-private fun Message(title: String, detail: String, layout: StatsLayout) {
+private fun Message(title: String, detail: String, layout: StatsLayout, onClick: Action? = null) {
+    var modifier = GlanceModifier.fillMaxSize()
+    if (onClick != null) modifier = modifier.clickable(onClick)
     Column(
-        GlanceModifier.fillMaxSize(),
+        modifier,
         verticalAlignment = Alignment.CenterVertically,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {

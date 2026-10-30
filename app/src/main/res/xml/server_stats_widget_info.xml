@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Refreshes every 30 minutes (Android's minimum for this setting) without waking the phone, plus on demand. -->
+<!-- Refreshes every 30 minutes (Android's minimum for this setting) without waking the phone, plus on demand.
+     The configure screen picks which server it shows; on Android 12+ it's optional when placing and can be reopened later. -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/widget_stats_description"
     android:initialLayout="@layout/glance_default_loading_layout"
@@ -11,4 +12,6 @@
     android:targetCellHeight="2"
     android:resizeMode="horizontal|vertical"
     android:updatePeriodMillis="1800000"
-    android:widgetCategory="home_screen" />
+    android:widgetCategory="home_screen"
+    android:configure="dev.hearth.casaos.widget.WidgetConfigActivity"
+    android:widgetFeatures="reconfigurable|configuration_optional" />

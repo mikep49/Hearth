@@ -38,10 +38,9 @@ class SshProfileStore(context: Context, private val box: SecretBox = SecretBox()
             .apply()
     }
 
-    fun forgetPasswords() {
-        val keys = prefs.all.keys.filter { it.endsWith("/password") }
-        if (keys.isEmpty()) return
-        prefs.edit().apply { keys.forEach(::remove) }.apply()
+    /** Forgets the remembered SSH password for [server] (the CasaOS server's host), e.g. when signing out of it. */
+    fun forgetPassword(server: String) {
+        prefs.edit().remove("$server/password").apply()
     }
 
     override fun hostKey(id: String): String? = prefs.getString("hostkey/$id", null)

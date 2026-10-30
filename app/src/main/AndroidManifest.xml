@@ -42,6 +42,18 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <!-- Picks the server a stats widget shows. Exported so the launcher can open it; it only acts on Hearth's widgets. -->
+        <activity
+            android:name=".widget.WidgetConfigActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Hearth">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
         <receiver
             android:name=".widget.ServerStatsWidgetReceiver"
             android:exported="true"

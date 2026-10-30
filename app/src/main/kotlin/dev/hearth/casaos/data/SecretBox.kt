@@ -10,9 +10,9 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /** AES-GCM encryption backed by a non-exportable Android Keystore key. Used for auth tokens at rest. */
-class SecretBox(private val alias: String = "hearth_session_key") {
+class SecretBox(private val alias: String = "hearth_session_key") : Secrets {
 
-    fun encrypt(plain: String): String {
+    override fun encrypt(plain: String): String {
         val cipher = Cipher.getInstance(TRANSFORM)
         cipher.init(Cipher.ENCRYPT_MODE, key())
         val body = cipher.doFinal(plain.toByteArray(Charsets.UTF_8))
@@ -20,7 +20,7 @@ class SecretBox(private val alias: String = "hearth_session_key") {
     }
 
     /** Returns null if the blob is corrupt or the key was invalidated (e.g. after a restore onto a new device). */
-    fun decrypt(blob: String): String? = runCatching {
+    override fun decrypt(blob: String): String? = runCatching {
         val raw = Base64.decode(blob, Base64.NO_WRAP)
         val cipher = Cipher.getInstance(TRANSFORM)
         cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(TAG_BITS, raw, 0, IV_BYTES))

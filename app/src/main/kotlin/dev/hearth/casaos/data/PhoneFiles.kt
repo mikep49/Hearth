@@ -71,9 +71,11 @@ class PhoneFiles(private val context: Context, private val client: CasaClient) {
         return FileProvider.getUriForFile(context, "${context.packageName}.files", target)
     }
 
-    /** Empties the cache of opened files; called when the user signs out. */
-    fun clear() {
-        runCatching { openDir.deleteRecursively() }
+    companion object {
+        /** Empties the cache of opened files; called when the user signs out of a server. */
+        fun clearCache(context: Context) {
+            runCatching { File(context.cacheDir, "open").deleteRecursively() }
+        }
     }
 }
 

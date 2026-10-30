@@ -47,6 +47,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import dev.hearth.casaos.data.ServerProfile
 import dev.hearth.casaos.data.Session
 import dev.hearth.casaos.ui.apps.AppSettingsScreen
 import dev.hearth.casaos.ui.apps.AppSettingsViewModel
@@ -62,6 +63,7 @@ import dev.hearth.casaos.ui.dashboard.DashboardScreen
 import dev.hearth.casaos.ui.dashboard.DashboardViewModel
 import dev.hearth.casaos.ui.files.FilesScreen
 import dev.hearth.casaos.ui.files.FilesViewModel
+import dev.hearth.casaos.ui.servers.ServerSheet
 import dev.hearth.casaos.ui.settings.SettingsScreen
 import dev.hearth.casaos.ui.settings.SettingsViewModel
 import dev.hearth.casaos.ui.terminal.TerminalScreen
@@ -86,15 +88,23 @@ class MainActivity : ComponentActivity() {
             }
             HearthTheme(theme) {
                 val session by container.session.session.collectAsStateWithLifecycle()
+                val profiles by container.session.profiles.collectAsStateWithLifecycle()
+                // Kept out here so switching servers stays on the same tab; a fresh sign-in starts at Home.
+                var tab by rememberSaveable { mutableIntStateOf(0) }
+                LaunchedEffect(session == null) { if (session == null) tab = 0 }
                 Crossfade(session, label = "root") { s ->
                     if (s == null) {
+                        // Offers to sign in again to the server that was open, if it's still saved.
+                        val last = remember { container.session.lastProfile }
                         ConnectScreen(
-                            viewModel(factory = viewModelFactory {
-                                initializer { ConnectViewModel(container.client, container.session) }
+                            viewModel(key = "connect|${last?.id}", factory = viewModelFactory {
+                                initializer { ConnectViewModel(container.client, last) }
                             }),
+                            saved = profiles,
+                            onSwitch = { container.session.switchTo(it.id) },
                         )
                     } else {
-                        MainShell(container, s)
+                        MainShell(container, s, profiles, tab) { tab = it }
                     }
                 }
             }
@@ -117,13 +127,25 @@ private enum class Tab(val label: String, val icon: ImageVector) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun MainShell(container: AppContainer, session: Session) {
-    var tab by rememberSaveable { mutableIntStateOf(0) }
+private fun MainShell(container: AppContainer, session: Session, profiles: List<ServerProfile>, tab: Int, onTab: (Int) -> Unit) {
     val snackbar = remember { SnackbarHostState() }
     val haptic = LocalHapticFeedback.current
-    // Keyed by account so signing in to a different server never shows the previous one's data.
-    val key = "${session.baseUrl}|${session.username}"
-    val label = session.baseUrl.substringAfter("://")
+    // Keyed by account so switching servers never shows the previous one's data. Each server's screens get
+    // that server's own client, so anything still running after a switch keeps talking to the right one.
+    val key = session.id
+    val client = remember(session.id) { container.clientFor(session.id) }
+    val label = session.label
+    // The server switcher, and the "Add a server" page (with a saved server to sign in to again, if any).
+    var serversOpen by rememberSaveable { mutableStateOf(false) }
+    var adding by rememberSaveable { mutableStateOf(false) }
+    var addingPrefill by rememberSaveable { mutableStateOf<String?>(null) }
+    var addCount by rememberSaveable { mutableIntStateOf(0) }
+    fun startAdding(prefill: ServerProfile?) {
+        serversOpen = false
+        addingPrefill = prefill?.id
+        addCount++
+        adding = true
+    }
     val openAppsIn by container.prefs.openAppsIn.collectAsStateWithLifecycle()
     // An app's web UI open inside Hearth, drawn over the tabs so they keep their state underneath.
     var webApp by rememberSaveable { mutableStateOf<String?>(null) }
@@ -152,7 +174,7 @@ private fun MainShell(container: AppContainer, session: Session) {
                             selected = tab == i,
                             onClick = {
                                 if (tab != i) haptic.performHapticFeedback(HapticFeedbackType.SegmentTick)
-                                tab = i
+                                onTab(i)
                             },
                             icon = { Icon(t.icon, null) },
                             label = { Text(t.label) },
@@ -166,14 +188,14 @@ private fun MainShell(container: AppContainer, session: Session) {
                 when (current) {
                     Tab.Dashboard -> {
                         val vm: DashboardViewModel = viewModel(key = "dash$key", factory = viewModelFactory {
-                            initializer { DashboardViewModel(container.client) }
+                            initializer { DashboardViewModel(client) }
                         })
                         WhileVisible { vm.poll() }
-                        DashboardScreen(vm, session.username, label)
+                        DashboardScreen(vm, session.username, label, onOpenServers = { serversOpen = true })
                     }
                     Tab.Apps -> {
                         val vm: AppsViewModel = viewModel(key = "apps$key", factory = viewModelFactory {
-                            initializer { AppsViewModel(container.client) }
+                            initializer { AppsViewModel(client) }
                         })
                         WhileVisible { vm.poll() }
                         AppsScreen(
@@ -194,7 +216,7 @@ private fun MainShell(container: AppContainer, session: Session) {
                     }
                     Tab.Files -> {
                         val vm: FilesViewModel = viewModel(key = "files$key", factory = viewModelFactory {
-                            initializer { FilesViewModel(container.client, container.downloader, container.phoneFiles) }
+                            initializer { FilesViewModel(client, container.downloader(client), container.phoneFiles(client)) }
                         })
                         FilesScreen(vm, snackbar)
                     }
@@ -206,9 +228,9 @@ private fun MainShell(container: AppContainer, session: Session) {
                     }
                     Tab.Settings -> {
                         val vm: SettingsViewModel = viewModel(key = "settings$key", factory = viewModelFactory {
-                            initializer { SettingsViewModel(container.client, container.session, container.theme, container.prefs) }
+                            initializer { SettingsViewModel(client, container.session, container.theme, container.prefs) }
                         })
-                        SettingsScreen(vm, session.username, label, snackbar)
+                        SettingsScreen(vm, session.username, label, profiles.size, snackbar, onOpenServers = { serversOpen = true })
                     }
                 }
             }
@@ -228,7 +250,7 @@ private fun MainShell(container: AppContainer, session: Session) {
         val settingsId = settingsAppId
         if (settingsId != null) {
             val vm: AppSettingsViewModel = viewModel(key = "appsettings$key|$settingsId", factory = viewModelFactory {
-                initializer { AppSettingsViewModel(container.client, settingsId) }
+                initializer { AppSettingsViewModel(client, settingsId) }
             })
             AppSettingsScreen(
                 vm,
@@ -241,7 +263,7 @@ private fun MainShell(container: AppContainer, session: Session) {
 
         if (storeOpen) {
             val vm: StoreViewModel = viewModel(key = "store$key", factory = viewModelFactory {
-                initializer { StoreViewModel(container.client) }
+                initializer { StoreViewModel(client) }
             })
             StoreScreen(vm, onClose = { storeOpen = false }, Modifier.fillMaxSize())
         }
@@ -249,7 +271,7 @@ private fun MainShell(container: AppContainer, session: Session) {
         val versionId = versionAppId
         if (versionId != null) {
             val vm: AppVersionViewModel = viewModel(key = "appversion$key|$versionId", factory = viewModelFactory {
-                initializer { AppVersionViewModel(container.client, container.registry, versionId) }
+                initializer { AppVersionViewModel(client, container.registry, versionId) }
             })
             AppVersionScreen(
                 vm,
@@ -259,6 +281,27 @@ private fun MainShell(container: AppContainer, session: Session) {
                 Modifier.fillMaxSize(),
             )
         }
+
+        if (adding) {
+            val prefill = addingPrefill?.let { id -> profiles.firstOrNull { it.id == id } }
+            // A new key each time it opens, so it starts empty rather than where the last one left off.
+            val vm: ConnectViewModel = viewModel(key = "connect-add$addCount", factory = viewModelFactory {
+                initializer { ConnectViewModel(container.client, prefill) }
+            })
+            ConnectScreen(vm, onClose = { adding = false })
+        }
+    }
+
+    if (serversOpen) {
+        ServerSheet(
+            profiles,
+            currentId = session.id,
+            onSwitch = { serversOpen = false; container.session.switchTo(it.id) },
+            onSignInAgain = { startAdding(it) },
+            onAdd = { startAdding(null) },
+            onRemove = { container.session.remove(it.id) },
+            onDismiss = { serversOpen = false },
+        )
     }
 }
 

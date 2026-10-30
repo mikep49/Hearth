@@ -146,6 +146,14 @@ class AppSettingsTest {
         assertEquals("nginx:1.27", service["image"])
     }
 
+    @Test fun `switching the version of an image pinned by tag and digest drops both`() {
+        val yaml = "services:\n  web:\n    image: ghcr.io/team/web:1.0@sha256:abc123\n"
+        val before = parseAppSettings(yaml)
+        val out = applyAppSettings(yaml, before, before.withImageTag(0, "1.1"))
+        val service = (loadComposeYaml(out)["services"] as Map<*, *>)["web"] as Map<*, *>
+        assertEquals("ghcr.io/team/web:1.1", service["image"])
+    }
+
     @Test fun `the store app id comes from x-casaos`() {
         assertEquals("jellyfin", parseStoreAppId("x-casaos:\n  store_app_id: jellyfin\nservices: {}\n"))
         assertNull(parseStoreAppId(casaYaml))

@@ -182,3 +182,29 @@ fun InstalledApp.webUrl(serverBaseUrl: String): String? {
     val hostPart = if (':' in host) "[$host]" else host
     return "$scheme://$hostPart:$port$path"
 }
+
+/**
+ * The App Store listing: `{list: {id: info}, installed: [id…]}`. Each info carries the title, icon and so on
+ * itself; older stores keep them on the main container's entry under `apps`, so that's the fallback.
+ */
+fun parseStoreApps(data: JsonElement?): List<StoreApp> {
+    val root = data.obj() ?: return emptyList()
+    val installed = root["installed"].arr().orEmpty().mapNotNull { it.str()?.lowercase() }.toSet()
+    return root["list"].obj().orEmpty().mapNotNull { (id, value) ->
+        val info = value.obj() ?: return@mapNotNull null
+        val main = info["apps"].obj()?.let { apps -> (info["main"].str()?.let { apps[it] } ?: apps.values.firstOrNull()).obj() }
+        fun field(name: String): JsonElement? = info[name]?.takeIf { it !is JsonNull } ?: main?.get(name)
+        val title = field("title").localized()?.takeIf { it.isNotBlank() } ?: id
+        StoreApp(
+            id = id,
+            title = title,
+            tagline = field("tagline").localized()?.takeIf { it.isNotBlank() },
+            description = field("description").localized()?.trim()?.takeIf { it.isNotBlank() },
+            category = field("category").str()?.takeIf { it.isNotBlank() },
+            developer = field("developer").str()?.takeIf { it.isNotBlank() } ?: field("author").str()?.takeIf { it.isNotBlank() },
+            iconUrl = field("icon").str()?.takeIf { it.startsWith("http") },
+            screenshots = field("screenshot_link").arr().orEmpty().mapNotNull { it.str()?.takeIf { s -> s.startsWith("http") } },
+            installed = id.lowercase() in installed,
+        )
+    }.sortedBy { it.title.lowercase() }
+}

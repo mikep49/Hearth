@@ -215,6 +215,105 @@ class CasaClientTest {
         assertThrows(CasaException.Network::class.java) { runTestBlocking { client.login("127.0.0.1:1", "a", "b") } }
     }
 
+    private suspend fun signedIn() {
+        server.enqueue(json(loginOk)); client.login(hostPort(), "klaus", "pw"); server.takeRequest()
+    }
+
+    private val ok = """{"success":200,"message":"ok","data":null}"""
+
+    @Test fun `file actions send what the CasaOS dashboard sends`() = runTest {
+        signedIn()
+        repeat(4) { server.enqueue(json(ok)) }
+
+        client.createFolder("/DATA/New folder")
+        server.takeRequest().let {
+            assertEquals("POST", it.method); assertEquals("/v1/folder", it.path)
+            assertEquals("""{"path":"/DATA/New folder"}""", it.body.readUtf8())
+        }
+        client.rename("/DATA/a.txt", "/DATA/b.txt")
+        server.takeRequest().let {
+            assertEquals("PUT", it.method); assertEquals("/v1/file/name", it.path)
+            assertEquals("""{"old_path":"/DATA/a.txt","new_path":"/DATA/b.txt"}""", it.body.readUtf8())
+        }
+        client.delete(listOf("/DATA/a", "/DATA/b"))
+        server.takeRequest().let {
+            assertEquals("DELETE", it.method); assertEquals("/v1/file", it.path)
+            assertEquals("""["/DATA/a","/DATA/b"]""", it.body.readUtf8())
+        }
+        client.transfer(listOf("/DATA/a"), "/DATA/Media", move = true)
+        server.takeRequest().let {
+            assertEquals("POST", it.method); assertEquals("/v1/batch/task", it.path)
+            assertEquals("""{"type":"move","to":"/DATA/Media","style":"skip","item":[{"from":"/DATA/a"}]}""", it.body.readUtf8())
+        }
+    }
+
+    @Test fun `a v1 failure inside a 200 is an error`() = runTest {
+        signedIn()
+        server.enqueue(json("""{"success":500,"message":"file exists"}"""))
+        val e = assertThrows(CasaException.Server::class.java) { runTestBlocking { client.createFolder("/DATA/x") } }
+        assertEquals("file exists", e.message)
+    }
+
+    @Test fun `uploads are split into numbered chunks with the folder and name`() = runTest {
+        signedIn()
+        val size = 1024 * 1024 + 10 // one full chunk and a 10-byte one
+        repeat(2) { server.enqueue(json(ok)) }
+        val progress = mutableListOf<Long>()
+        client.upload("/DATA/Photos", "cat.jpg", size.toLong(), ByteArray(size) { 7 }.inputStream()) { done, _ -> progress += done }
+
+        val first = server.takeRequest()
+        assertEquals("/v1/file/upload", first.path)
+        val body1 = first.body.readUtf8()
+        assertEquals("1", formField(body1, "chunkNumber"))
+        assertEquals("2", formField(body1, "totalChunks"))
+        assertEquals("/DATA/Photos", formField(body1, "path"))
+        assertEquals("cat.jpg", formField(body1, "relativePath"))
+        assertTrue(body1.contains("name=\"file\"; filename=\"cat.jpg\""))
+        val body2 = server.takeRequest().body.readUtf8()
+        assertEquals("2", formField(body2, "chunkNumber"))
+        assertEquals("10", formField(body2, "currentChunkSize"))
+        assertEquals(listOf(1024L * 1024, size.toLong()), progress)
+    }
+
+    @Test fun `installing fetches the store's compose file and posts it back`() = runTest {
+        signedIn()
+        val yaml = "name: jellyfin\nservices: {}\n"
+        server.enqueue(MockResponse().setBody(yaml))
+        server.enqueue(json("""{"message":"compose app is being installed asynchronously"}"""))
+        client.installStoreApp("jellyfin")
+
+        val get = server.takeRequest()
+        assertEquals("/v2/app_management/apps/jellyfin/compose", get.path)
+        assertEquals("application/yaml", get.getHeader("Accept"))
+        val post = server.takeRequest()
+        assertEquals("POST", post.method)
+        assertEquals("/v2/app_management/compose?check_port_conflict=true", post.path)
+        assertEquals(yaml, post.body.readUtf8())
+    }
+
+    @Test fun `uninstalling deletes the compose app, keeping data unless asked`() = runTest {
+        signedIn()
+        repeat(2) { server.enqueue(json("""{"message":"ok"}""")) }
+        client.uninstallApp("jellyfin", deleteData = false)
+        server.takeRequest().let {
+            assertEquals("DELETE", it.method)
+            assertEquals("/v2/app_management/compose/jellyfin?delete_config_folder=false", it.path)
+        }
+        client.uninstallApp("jellyfin", deleteData = true)
+        assertEquals("/v2/app_management/compose/jellyfin?delete_config_folder=true", server.takeRequest().path)
+    }
+
+    @Test fun `previews read only the start of a file`() = runTest {
+        signedIn()
+        server.enqueue(MockResponse().setBody("x".repeat(5000)))
+        assertEquals(100, client.readStart("/DATA/log.txt", 100).size)
+        assertEquals("/v1/file?path=%2FDATA%2Flog.txt", server.takeRequest().path)
+    }
+
+    /** The value of a plain field in a multipart form body. */
+    private fun formField(body: String, name: String): String? =
+        Regex("name=\"$name\"\r\n(?:[^\r\n]+\r\n)*\r\n([^\r]*)\r\n").find(body)?.groupValues?.get(1)
+
     /** assertThrows takes a non-suspending lambda; this bridges to the suspend API. */
     private fun runTestBlocking(block: suspend () -> Unit) = kotlinx.coroutines.runBlocking { block() }
 }

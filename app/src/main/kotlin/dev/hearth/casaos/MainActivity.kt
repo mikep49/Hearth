@@ -54,6 +54,8 @@ import dev.hearth.casaos.ui.apps.AppVersionScreen
 import dev.hearth.casaos.ui.apps.AppVersionViewModel
 import dev.hearth.casaos.ui.apps.AppsScreen
 import dev.hearth.casaos.ui.apps.AppsViewModel
+import dev.hearth.casaos.ui.apps.StoreScreen
+import dev.hearth.casaos.ui.apps.StoreViewModel
 import dev.hearth.casaos.ui.connect.ConnectScreen
 import dev.hearth.casaos.ui.connect.ConnectViewModel
 import dev.hearth.casaos.ui.dashboard.DashboardScreen
@@ -134,6 +136,8 @@ private fun MainShell(container: AppContainer, session: Session) {
     var versionAppId by rememberSaveable { mutableStateOf<String?>(null) }
     var versionAppName by rememberSaveable { mutableStateOf<String?>(null) }
     var versionUpdateAvailable by rememberSaveable { mutableStateOf(false) }
+    // The App Store, drawn over everything the same way.
+    var storeOpen by rememberSaveable { mutableStateOf(false) }
 
     Box(Modifier.fillMaxSize()) {
         Scaffold(
@@ -174,7 +178,8 @@ private fun MainShell(container: AppContainer, session: Session) {
                         WhileVisible { vm.poll() }
                         AppsScreen(
                             vm, session.baseUrl, snackbar, openAppsIn,
-                            pageOpen = settingsAppId != null || versionAppId != null,
+                            pageOpen = settingsAppId != null || versionAppId != null || storeOpen,
+                            onOpenStore = { storeOpen = true },
                             onOpenSettings = { app -> settingsAppId = app.id; settingsAppName = app.name },
                             onOpenVersion = { app ->
                                 versionAppId = app.id
@@ -189,7 +194,7 @@ private fun MainShell(container: AppContainer, session: Session) {
                     }
                     Tab.Files -> {
                         val vm: FilesViewModel = viewModel(key = "files$key", factory = viewModelFactory {
-                            initializer { FilesViewModel(container.client, container.downloader) }
+                            initializer { FilesViewModel(container.client, container.downloader, container.phoneFiles) }
                         })
                         FilesScreen(vm, snackbar)
                     }
@@ -232,6 +237,13 @@ private fun MainShell(container: AppContainer, session: Session) {
                 onClose = { settingsAppId = null; settingsAppName = null },
                 Modifier.fillMaxSize(),
             )
+        }
+
+        if (storeOpen) {
+            val vm: StoreViewModel = viewModel(key = "store$key", factory = viewModelFactory {
+                initializer { StoreViewModel(container.client) }
+            })
+            StoreScreen(vm, onClose = { storeOpen = false }, Modifier.fillMaxSize())
         }
 
         val versionId = versionAppId

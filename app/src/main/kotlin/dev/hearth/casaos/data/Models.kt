@@ -89,3 +89,17 @@ sealed class CasaException(message: String, cause: Throwable? = null) : Exceptio
     class Server(val code: Int, message: String) : CasaException(message)
     class Parse(message: String, cause: Throwable? = null) : CasaException(message, cause)
 }
+
+/** An app offered by the App Store. */
+@Immutable
+data class StoreApp(
+    val id: String,
+    val title: String,
+    val tagline: String?,
+    val description: String?,
+    val category: String?,
+    val developer: String?,
+    val iconUrl: String?,
+    val screenshots: List<String>,
+    val installed: Boolean,
+)

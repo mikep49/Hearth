@@ -1,5 +1,6 @@
 package dev.hearth.casaos.ui.theme
 
+import android.content.Context
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -196,19 +197,26 @@ private val HearthShapes = Shapes(
     extraLarge = RoundedCornerShape(32.dp),
 )
 
-@Composable
-fun HearthTheme(settings: ThemeSettings = ThemeSettings(), content: @Composable () -> Unit) {
-    val dark = settings.isDark()
-    val context = LocalContext.current
+/** The app's color scheme for [settings] in light or [dark] mode. Not composable, so home screen widgets can use it too. */
+fun hearthColorScheme(context: Context, settings: ThemeSettings, dark: Boolean): ColorScheme {
     var scheme = if (settings.palette == Palette.Wallpaper && Palette.dynamicSupported) {
         if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
     } else {
         if (dark) DarkBase.withAccent(settings.palette.dark) else LightBase.withAccent(settings.palette.light)
     }
     if (dark && settings.pureBlack) scheme = scheme.pureBlack()
+    return scheme
+}
 
-    // The CPU series follows the accent so the dashboard's hero gauge matches the chosen theme.
-    val hearth = (if (dark) DarkHearth else LightHearth).copy(cpu = scheme.primary)
+/** The chart colors that go with [scheme]. The CPU series follows the accent so the CPU gauge matches the chosen theme. */
+fun hearthColors(scheme: ColorScheme, dark: Boolean): HearthColors =
+    (if (dark) DarkHearth else LightHearth).copy(cpu = scheme.primary)
+
+@Composable
+fun HearthTheme(settings: ThemeSettings = ThemeSettings(), content: @Composable () -> Unit) {
+    val dark = settings.isDark()
+    val scheme = hearthColorScheme(LocalContext.current, settings, dark)
+    val hearth = hearthColors(scheme, dark)
 
     CompositionLocalProvider(LocalHearthColors provides hearth) {
         MaterialTheme(colorScheme = scheme, typography = HearthTypography, shapes = HearthShapes, content = content)

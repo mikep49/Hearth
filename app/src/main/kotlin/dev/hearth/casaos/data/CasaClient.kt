@@ -32,6 +32,7 @@ class CasaClient(private val session: Credentials, baseClient: OkHttpClient = Ok
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
     private val jsonType = "application/json".toMediaType()
+    private val yamlType = "application/yaml".toMediaType()
 
     /** No auth, no authenticator: used for login and for the refresh call itself. */
     private val plain: OkHttpClient = baseClient.newBuilder()
@@ -135,6 +136,30 @@ class CasaClient(private val session: Credentials, baseClient: OkHttpClient = Ok
         return (get(url) as? JsonPrimitive)?.content.orEmpty()
     }
 
+    /**
+     * The app's compose file, as the CasaOS dashboard's settings dialog loads it. CasaOS matches the
+     * `Accept` header exactly, so it must be just `application/yaml`; anything else returns debug JSON.
+     */
+    suspend fun appComposeYaml(id: String): String {
+        val req = request("v2", "app_management", "compose", id).header("Accept", "application/yaml").build()
+        return withContext(Dispatchers.IO) {
+            http.newCall(req).await().use { r ->
+                val text = r.body.string()
+                checkStatus(r.code, text)
+                text
+            }
+        }
+    }
+
+    /**
+     * Saves a new compose file for the app, like the dashboard's settings "Save". CasaOS checks it (and that
+     * its ports are free) before replying, then recreates the containers in the background.
+     */
+    suspend fun applyAppSettings(id: String, composeYaml: String) {
+        val url = urlOf("v2", "app_management", "compose", id) { addQueryParameter("check_port_conflict", "true") }
+        execute(http, Request.Builder().url(url).put(composeYaml.toRequestBody(yamlType)).build())
+    }
+
     suspend fun folder(path: String): FolderListing {
         val url = urlOf("v1", "folder") {
             addQueryParameter("path", path)
@@ -217,7 +242,9 @@ class CasaClient(private val session: Credentials, baseClient: OkHttpClient = Ok
     }
 
     private fun messageFrom(body: String?): String? = runCatching {
-        (json.parseToJsonElement(body ?: return null) as? JsonObject)?.get("message")?.let { (it as? JsonPrimitive)?.content }
+        val root = json.parseToJsonElement(body ?: return null) as? JsonObject ?: return null
+        // A rejected app config says which ports clash in `data`; that's more useful than the bare message.
+        validationMessage(root["data"]) ?: (root["message"] as? JsonPrimitive)?.content
     }.getOrNull()?.takeIf { it.isNotBlank() }
 
     /** Extracts `data`, raising if a v1-style envelope reports failure inside an HTTP 200. */

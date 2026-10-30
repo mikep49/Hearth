@@ -13,6 +13,7 @@ junit = "4.13.2"
 jsch = "2.28.8"
 termux = "0.118.3"
 sshd = "2.19.0"
+snakeyamlEngine = "2.9"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
@@ -31,6 +32,7 @@ kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutine
 coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil" }
 coil-network-okhttp = { module = "io.coil-kt.coil3:coil-network-okhttp", version.ref = "coil" }
 jsch = { module = "com.github.mwiede:jsch", version.ref = "jsch" }
+snakeyaml-engine = { module = "org.snakeyaml:snakeyaml-engine", version.ref = "snakeyamlEngine" }
 termux-terminal-emulator = { module = "com.github.termux.termux-app:terminal-emulator", version.ref = "termux" }
 sshd-core = { module = "org.apache.sshd:sshd-core", version.ref = "sshd" }
 junit = { module = "junit:junit", version.ref = "junit" }

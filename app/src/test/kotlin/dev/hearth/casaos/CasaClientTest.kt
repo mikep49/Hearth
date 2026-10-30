@@ -149,6 +149,39 @@ class CasaClientTest {
         assertEquals("/v2/app_management/compose/x/logs?lines=50", server.takeRequest().path)
     }
 
+    @Test fun `app settings are fetched as raw YAML with an exact Accept header`() = runTest {
+        server.enqueue(json(loginOk)); client.login(hostPort(), "klaus", "pw"); server.takeRequest()
+        val yaml = "name: jellyfin\nservices:\n  jellyfin:\n    image: linuxserver/jellyfin\n"
+        server.enqueue(MockResponse().setBody(yaml).setHeader("Content-Type", "text/plain; charset=UTF-8"))
+        assertEquals(yaml, client.appComposeYaml("my app"))
+        val req = server.takeRequest()
+        assertEquals("/v2/app_management/compose/my%20app", req.path)
+        // CasaOS compares the header as a plain string; anything extra gets its debug JSON instead.
+        assertEquals("application/yaml", req.getHeader("Accept"))
+    }
+
+    @Test fun `saving app settings puts the YAML and checks ports`() = runTest {
+        server.enqueue(json(loginOk)); client.login(hostPort(), "klaus", "pw"); server.takeRequest()
+        server.enqueue(json("""{"message":"compose app is being applied with changes asynchroniously"}"""))
+        client.applyAppSettings("jellyfin", "services: {}\n")
+        val req = server.takeRequest()
+        assertEquals("PUT", req.method)
+        assertEquals("/v2/app_management/compose/jellyfin?check_port_conflict=true", req.path)
+        assertTrue(req.getHeader("Content-Type")!!.startsWith("application/yaml"))
+        assertEquals("services: {}\n", req.body.readUtf8())
+    }
+
+    @Test fun `a port clash says which port`() = runTest {
+        server.enqueue(json(loginOk)); client.login(hostPort(), "klaus", "pw"); server.takeRequest()
+        server.enqueue(json("""{"message":"there are ports in use","data":{"ports_in_use":{"TCP":["8080"],"UDP":["1900"]}}}""", 400))
+        val e = assertThrows(CasaException.Server::class.java) { runTestBlocking { client.applyAppSettings("x", "services: {}") } }
+        assertEquals("Ports 8080, 1900/udp are already used by something else on the server.", e.message)
+
+        server.enqueue(json("""{"message":"yaml: line 3: mapping values are not allowed"}""", 400))
+        val e2 = assertThrows(CasaException.Server::class.java) { runTestBlocking { client.applyAppSettings("x", "services: {}") } }
+        assertEquals("yaml: line 3: mapping values are not allowed", e2.message)
+    }
+
     @Test fun `folder listing encodes the path and parses entries`() = runTest {
         server.enqueue(json(loginOk)); client.login(hostPort(), "klaus", "pw"); server.takeRequest()
         server.enqueue(json("""{"success":200,"data":{"content":[{"name":"x y.txt","is_dir":false,"size":3,"path":"/DATA/a b/x y.txt"}]}}"""))

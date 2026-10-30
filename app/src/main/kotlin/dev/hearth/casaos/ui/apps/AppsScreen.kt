@@ -29,6 +29,7 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.SystemUpdateAlt
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -147,6 +148,9 @@ fun AppsScreen(
     serverBaseUrl: String,
     snackbar: SnackbarHostState,
     openAppsIn: OpenAppsIn,
+    /** True while an app's settings page is open on top; the app's sheet steps aside until it closes. */
+    settingsOpen: Boolean,
+    onOpenSettings: (InstalledApp) -> Unit,
     onOpenInHearth: (app: InstalledApp, url: String) -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -216,7 +220,8 @@ fun AppsScreen(
     }
 
     val selected = apps?.firstOrNull { it.id == selectedId }
-    if (selected != null) {
+    // The sheet is its own window and would cover the settings page; it comes back when settings close.
+    if (selected != null && !settingsOpen) {
         AppSheet(
             app = selected,
             busy = selected.id in state.busy,
@@ -229,6 +234,7 @@ fun AppsScreen(
             },
             onDismiss = { selectedId = null },
             onAction = { viewModel.perform(selected, it) },
+            onOpenSettings = { onOpenSettings(selected) },
             loadLogs = { viewModel.logs(selected.id) },
         )
     }
@@ -309,6 +315,7 @@ private fun AppSheet(
     onOpenInHearth: (url: String) -> Unit,
     onDismiss: () -> Unit,
     onAction: (AppAction) -> Unit,
+    onOpenSettings: () -> Unit,
     loadLogs: suspend () -> Result<String>,
 ) {
     val context = LocalContext.current
@@ -390,10 +397,14 @@ private fun AppSheet(
                 Text(webUrl, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.outline)
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedButton(onClick = { showLogs = !showLogs; if (showLogs && logs == null) fetch() }) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedButton(onClick = { showLogs = !showLogs; if (showLogs && logs == null) fetch() }, Modifier.weight(1f)) {
                     Icon(Icons.AutoMirrored.Rounded.Article, null, Modifier.size(18.dp))
-                    Text(if (showLogs) "Hide logs" else "View logs", Modifier.padding(start = 8.dp))
+                    Text(if (showLogs) "Hide logs" else "View logs", Modifier.padding(start = 8.dp), maxLines = 1)
+                }
+                OutlinedButton(onClick = onOpenSettings, Modifier.weight(1f)) {
+                    Icon(Icons.Rounded.Tune, null, Modifier.size(18.dp))
+                    Text("Settings", Modifier.padding(start = 8.dp), maxLines = 1)
                 }
                 if (showLogs) {
                     IconButton(onClick = ::fetch, enabled = !loadingLogs) { Icon(Icons.Rounded.Refresh, "Refresh logs") }

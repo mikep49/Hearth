@@ -100,6 +100,11 @@ class ParsersTest {
         assertNull(custom.iconUrl)
     }
 
+    @Test fun `an app renamed in its settings shows the new name`() {
+        val apps = parseApps(json("""{"jf": {"status": "running", "store_info": {"title": {"en_us": "Jellyfin", "custom": "Movies"}}}}"""))
+        assertEquals("Movies", apps.single().name)
+    }
+
     @Test fun `webUrl is null without a port and ignores the server port`() {
         val app = parseApps(json("""{"x":{"status":"running"}}""")).single()
         assertNull(app.webUrl("http://10.0.0.2"))

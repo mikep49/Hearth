@@ -53,10 +53,14 @@ fun parseUtilization(data: JsonElement?, nowMs: Long): SystemStats {
     )
 }
 
-/** Picks the best localized string from a `{ "en_us": "…" }` map, falling back to any entry. */
+/**
+ * Picks the best localized string from a `{ "en_us": "…" }` map, falling back to any entry. A name the user
+ * gave the app in its settings is stored as `custom` and wins.
+ */
 private fun JsonElement?.localized(): String? {
     val o = this.obj() ?: return this.str()
-    return (o["en_us"] ?: o["en_US"] ?: o.values.firstOrNull { it.str()?.isNotBlank() == true }).str()
+    return listOf("custom", "en_us", "en_US").firstNotNullOfOrNull { k -> o[k].str()?.takeIf { it.isNotBlank() } }
+        ?: o.values.firstOrNull { it.str()?.isNotBlank() == true }.str()
 }
 
 fun parseApps(data: JsonElement?): List<InstalledApp> {
@@ -105,6 +109,25 @@ fun appState(raw: String): AppState {
         "stop" in s || "exit" in s || "created" in s || "paused" in s || "down" in s -> AppState.Stopped
         else -> AppState.Unknown
     }
+}
+
+/**
+ * Explains why CasaOS refused an app's compose file, from the `data` of its 400 reply:
+ * `{"ports_in_use": {"TCP": ["8080"], "UDP": []}}` or `{"ports_out_of_range": ["70000"]}`. Null for anything else.
+ */
+fun validationMessage(data: JsonElement?): String? {
+    val o = data.obj() ?: return null
+    o["ports_in_use"].obj()?.let { inUse ->
+        val ports = inUse["TCP"].arr().orEmpty().mapNotNull { it.str() } +
+            inUse["UDP"].arr().orEmpty().mapNotNull { it.str()?.let { p -> "$p/udp" } }
+        if (ports.isNotEmpty()) {
+            return if (ports.size == 1) "Port ${ports[0]} is already used by something else on the server."
+            else "Ports ${ports.joinToString(", ")} are already used by something else on the server."
+        }
+    }
+    val outOfRange = o["ports_out_of_range"].arr().orEmpty().mapNotNull { it.str() }
+    if (outOfRange.isNotEmpty()) return "Port ${outOfRange.joinToString(", ")} is out of range (1 to 65535)."
+    return null
 }
 
 fun parseFolder(path: String, data: JsonElement?): FolderListing {

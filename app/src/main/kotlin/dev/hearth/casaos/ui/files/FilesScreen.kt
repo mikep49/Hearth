@@ -71,6 +71,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -96,17 +97,25 @@ import dev.hearth.casaos.data.CasaClient
 import dev.hearth.casaos.data.CasaException
 import dev.hearth.casaos.data.FileDownloader
 import dev.hearth.casaos.data.FileEntry
+import dev.hearth.casaos.data.FileIndex
 import dev.hearth.casaos.data.FolderListing
 import dev.hearth.casaos.data.PhoneFiles
 import dev.hearth.casaos.data.PickedFile
+import dev.hearth.casaos.data.SearchHits
+import dev.hearth.casaos.data.INDEX_MAX_ENTRIES
 import dev.hearth.casaos.data.mimeTypeOf
 import dev.hearth.casaos.data.previewKind
+import dev.hearth.casaos.data.renamed
+import dev.hearth.casaos.data.searchFiles
 import dev.hearth.casaos.data.uniqueName
+import dev.hearth.casaos.data.walkFolders
+import dev.hearth.casaos.data.without
 import dev.hearth.casaos.ui.components.EmptyState
 import dev.hearth.casaos.ui.components.HearthCard
 import dev.hearth.casaos.ui.components.SearchField
 import dev.hearth.casaos.ui.components.formatBytes
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -117,6 +126,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -179,6 +189,13 @@ class FilesViewModel(
 
     private var loadJob: Job? = null
 
+    /** Everything on the server, for searching past the open folder. Built the first time the user searches. */
+    private val _index = MutableStateFlow<FileIndex?>(null)
+    val index: StateFlow<FileIndex?> = _index.asStateFlow()
+    private var indexJob: Job? = null
+    /** Set when files may have changed since the index was built; the next search rebuilds it. */
+    private var indexStale = false
+
     init { open(ROOT) }
 
     fun open(path: String) {
@@ -196,7 +213,46 @@ class FilesViewModel(
 
     fun up() { if (_state.value.canGoUp) open(parentOf(_state.value.path)) }
 
-    fun reload() = open(_state.value.path)
+    fun reload() {
+        indexStale = true
+        open(_state.value.path)
+    }
+
+    // region search
+
+    /** Builds the server-wide index if there's none yet or it may be out of date. Called when a search starts. */
+    fun ensureIndex() {
+        if (indexJob?.isActive == true) return
+        if (_index.value != null && !indexStale) return
+        indexStale = false
+        val previous = _index.value
+        // While rebuilding, keep showing the old results instead of a partial list that grows back.
+        if (previous != null) _index.value = previous.copy(done = false)
+        indexJob = viewModelScope.launch {
+            try {
+                _index.value = walkFolders(ROOT, client::folder) { partial -> if (previous == null) _index.value = partial }
+            } catch (e: CasaException) {
+                _messages.emit("Couldn't search the whole server: ${e.message}")
+                _index.update { it?.copy(done = true) }
+                indexStale = true
+            }
+        }
+    }
+
+    /** Patches the index after a change on the server, or marks it for a rebuild if a walk is running. */
+    private fun patchIndex(change: (FileIndex) -> FileIndex) {
+        if (indexJob?.isActive == true) indexStale = true
+        _index.update { it?.let(change) }
+    }
+
+    /** Names already used in [dir], to warn before a rename or new folder would collide. */
+    fun namesIn(dir: String): Set<String> {
+        val listing = _state.value.listing
+        if (listing != null && listing.path == dir) return listing.entries.map { it.name }.toSet()
+        return _index.value?.entries.orEmpty().filter { parentOf(it.path) == dir }.map { it.name }.toSet()
+    }
+
+    // endregion
 
     /** Reloads only if the user is still looking at [dir]. */
     private fun reloadIfShowing(dir: String) { if (_state.value.path == dir) reload() }
@@ -311,6 +367,7 @@ class FilesViewModel(
                 )
             } finally {
                 _state.update { it.copy(transfer = null) }
+                indexStale = true
                 reloadIfShowing(dir)
             }
         }
@@ -335,7 +392,10 @@ class FilesViewModel(
     fun createFolder(name: String) {
         val dir = _state.value.path
         viewModelScope.launch {
-            if (change("Couldn't create the folder") { client.createFolder(join(dir, name.trim())) }) reloadIfShowing(dir)
+            if (change("Couldn't create the folder") { client.createFolder(join(dir, name.trim())) }) {
+                indexStale = true
+                reloadIfShowing(dir)
+            }
         }
     }
 
@@ -344,7 +404,11 @@ class FilesViewModel(
         if (name == entry.name) return
         val dir = parentOf(entry.path)
         viewModelScope.launch {
-            if (change("Couldn't rename ${entry.name}") { client.rename(entry.path, join(dir, name)) }) reloadIfShowing(dir)
+            val newPath = join(dir, name)
+            if (change("Couldn't rename ${entry.name}") { client.rename(entry.path, newPath) }) {
+                patchIndex { it.renamed(entry.path, newPath) }
+                reloadIfShowing(dir)
+            }
         }
     }
 
@@ -353,6 +417,7 @@ class FilesViewModel(
         val dir = parentOf(entries[0].path)
         viewModelScope.launch {
             if (change("Couldn't delete") { client.delete(entries.map { it.path }) }) {
+                patchIndex { it.without(entries.map { e -> e.path }) }
                 _messages.emit(if (entries.size == 1) "Deleted ${entries[0].name}" else "Deleted ${plural(entries.size, "item")}")
                 reloadIfShowing(dir)
             }
@@ -383,6 +448,7 @@ class FilesViewModel(
                 client.transfer(clip.entries.map { it.path }, dest, move = clip.move)
             }
             if (!ok) return@launch
+            indexStale = true
             // The server does the work in the background: give small items a moment to land before reloading.
             _messages.emit(if (clip.move) "Moving $what here" else "Copying $what here. Big folders take a while; pull down to refresh.")
             delay(800)
@@ -422,13 +488,22 @@ private sealed interface FileDialog {
 @Composable
 fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val index by viewModel.index.collectAsStateWithLifecycle()
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
     var dialog by remember { mutableStateOf<FileDialog?>(null) }
     var previewPath by rememberSaveable { mutableStateOf<String?>(null) }
     var addMenu by remember { mutableStateOf(false) }
-    // Searches the open folder; opening another folder starts a fresh search.
+    // Searches the open folder and the whole server; opening another folder starts a fresh search.
     var query by rememberSaveable(state.path) { mutableStateOf("") }
+    val q = query.trim()
+    val searching = q.isNotEmpty()
+    LaunchedEffect(searching) { if (searching) viewModel.ensureIndex() }
+    // Matches outside the open folder. Filtering a big index takes a moment, so it runs off the main thread.
+    val elsewhere by produceState(SearchHits(emptyList(), 0), index, q, state.path) {
+        val entries = index?.entries.orEmpty()
+        value = withContext(Dispatchers.Default) { searchFiles(entries, q, skipDir = state.path) }
+    }
 
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { viewModel.upload(it) }
     val pickFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { viewModel.upload(it) }
@@ -471,9 +546,8 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState) {
             Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 8.dp)) {
                 Text("Files", style = MaterialTheme.typography.headlineMedium)
                 Breadcrumbs(state.path, onNavigate = viewModel::open)
-                val count = state.listing?.takeIf { it.path == state.path }?.entries?.size ?: 0
-                if (count > 0 || query.isNotEmpty()) {
-                    SearchField(query, { query = it }, "Search ${plural(count, "item")} in ${folderName(state.path)}", Modifier.padding(top = 4.dp))
+                if (state.listing != null || query.isNotEmpty()) {
+                    SearchField(query, { query = it }, "Search all files on the server", Modifier.padding(top = 4.dp))
                 }
             }
             state.transfer?.let { TransferBar(it) }
@@ -481,47 +555,56 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState) {
                 ClipboardBar(clip, onCancel = viewModel::clearClipboard, onPaste = viewModel::paste)
             }
 
-            PullToRefreshBox(isRefreshing = state.loading && state.listing != null, onRefresh = viewModel::reload, modifier = Modifier.weight(1f)) {
+            PullToRefreshBox(
+                isRefreshing = state.loading && state.listing != null,
+                onRefresh = { viewModel.reload(); if (searching) viewModel.ensureIndex() },
+                modifier = Modifier.weight(1f),
+            ) {
                 val listing = state.listing
                 when {
                     listing == null && state.loading -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
                     listing == null -> EmptyState("Couldn't open this folder", state.error.orEmpty()) {
                         TextButton(onClick = viewModel::reload) { Text("Try again") }
                     }
-                    listing.entries.isEmpty() -> EmptyState("Empty folder", "There's nothing in ${state.path}. Tap + to upload files or make a folder.")
+                    listing.entries.isEmpty() && !searching ->
+                        EmptyState("Empty folder", "There's nothing in ${state.path}. Tap + to upload files or make a folder.")
                     else -> {
-                        val q = query.trim()
                         val shown = remember(listing, q) { if (q.isEmpty()) listing.entries else listing.entries.filter { it.name.contains(q, true) } }
+                        val onAction: (FileEntry, FileAction) -> Unit = { entry, action ->
+                            when (action) {
+                                FileAction.OpenWith -> viewModel.openWith(entry, share = false)
+                                FileAction.Share -> viewModel.openWith(entry, share = true)
+                                FileAction.Download -> viewModel.download(entry)
+                                FileAction.Rename -> dialog = FileDialog.Rename(entry)
+                                FileAction.Copy -> viewModel.cut(listOf(entry), move = false)
+                                FileAction.Move -> viewModel.cut(listOf(entry), move = true)
+                                FileAction.Delete -> dialog = FileDialog.Delete(entry)
+                            }
+                        }
                         LazyColumn(
                             // Room at the bottom so the last row isn't under the + button.
                             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 96.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            if (shown.isEmpty()) {
-                                item(key = "no-match") {
-                                    Text(
-                                        "Nothing in ${folderName(state.path)} matches \"$q\".",
-                                        Modifier.padding(top = 24.dp),
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
+                            if (searching && shown.isNotEmpty()) {
+                                item(key = "here-header") { SectionLabel("In ${folderName(state.path)}") }
                             }
                             items(shown, key = { it.path }) { entry ->
-                                FileRow(
-                                    entry,
-                                    onClick = { openEntry(entry) },
-                                    onAction = { action ->
-                                        when (action) {
-                                            FileAction.OpenWith -> viewModel.openWith(entry, share = false)
-                                            FileAction.Share -> viewModel.openWith(entry, share = true)
-                                            FileAction.Download -> viewModel.download(entry)
-                                            FileAction.Rename -> dialog = FileDialog.Rename(entry)
-                                            FileAction.Copy -> viewModel.cut(listOf(entry), move = false)
-                                            FileAction.Move -> viewModel.cut(listOf(entry), move = true)
-                                            FileAction.Delete -> dialog = FileDialog.Delete(entry)
-                                        }
-                                    },
-                                )
+                                FileRow(entry, onClick = { openEntry(entry) }, onAction = { onAction(entry, it) })
+                            }
+                            if (searching) {
+                                item(key = "elsewhere-header") { SectionLabel("Everywhere else") }
+                                item(key = "elsewhere-status") {
+                                    SearchStatus(index, elsewhere, nothingHere = shown.isEmpty(), query = q)
+                                }
+                                items(elsewhere.entries, key = { "elsewhere:" + it.path }) { entry ->
+                                    FileRow(
+                                        entry,
+                                        location = locationOf(entry),
+                                        onClick = { openEntry(entry) },
+                                        onAction = { onAction(entry, it) },
+                                    )
+                                }
                             }
                         }
                     }
@@ -567,7 +650,7 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState) {
             title = "Rename",
             initial = d.entry.name,
             confirm = "Rename",
-            taken = state.listing?.entries?.map { it.name }?.toSet().orEmpty() - d.entry.name,
+            taken = viewModel.namesIn(parentOf(d.entry.path)) - d.entry.name,
             onDismiss = { dialog = null },
             onConfirm = { viewModel.rename(d.entry, it); dialog = null },
         )
@@ -592,7 +675,10 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState) {
 
     state.pendingUpload?.let { UploadConflictDialog(it, onChoice = viewModel::resolveUpload) }
 
-    val previewEntry = previewPath?.let { p -> state.listing?.entries?.firstOrNull { it.path == p } }
+    // A preview can be opened from the folder or from search results anywhere on the server.
+    val previewEntry = previewPath?.let { p ->
+        state.listing?.entries?.firstOrNull { it.path == p } ?: index?.entries?.firstOrNull { it.path == p }
+    }
     if (previewEntry != null) {
         FilePreview(
             entry = previewEntry,
@@ -602,6 +688,53 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState) {
         )
     }
 }
+
+@Composable
+private fun SectionLabel(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 8.dp),
+    )
+}
+
+/** How far the server-wide search has got, or why there's nothing (more) to show. */
+@Composable
+private fun SearchStatus(index: FileIndex?, hits: SearchHits, nothingHere: Boolean, query: String) {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val style = MaterialTheme.typography.bodyMedium
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (index == null || !index.done) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                val scanned = index?.foldersScanned ?: 0
+                Text(
+                    if (scanned == 0) "Searching the server…" else "Searching the server… ${plural(scanned, "folder")} checked",
+                    Modifier.padding(start = 10.dp),
+                    style = style,
+                    color = muted,
+                )
+            }
+        } else if (hits.total == 0) {
+            Text(
+                if (nothingHere) "Nothing on the server matches \"$query\"." else "No other matches on the server.",
+                style = style,
+                color = muted,
+            )
+        }
+        if (hits.total > hits.entries.size) {
+            Text("Showing the best ${hits.entries.size} of ${hits.total} matches. Type more to narrow it down.", style = style, color = muted)
+        }
+        if (index?.truncated == true) {
+            Text("The server has a lot of files: only the first ${"%,d".format(INDEX_MAX_ENTRIES)} were searched.", style = style, color = muted)
+        }
+    }
+}
+
+/** The folder an entry is in, relative to the top of Files, e.g. "Media/Movies". */
+private fun locationOf(entry: FileEntry): String =
+    parentOf(entry.path).removePrefix(ROOT).trim('/').ifEmpty { folderName(ROOT) }
 
 @Composable
 private fun TransferBar(t: Transfer) {
@@ -663,7 +796,7 @@ private enum class FileAction(val label: String, val icon: ImageVector, val file
 
 /** Tap opens; long-press or the ⋮ button shows the item's actions. */
 @Composable
-private fun FileRow(entry: FileEntry, onClick: () -> Unit, onAction: (FileAction) -> Unit) {
+private fun FileRow(entry: FileEntry, onClick: () -> Unit, onAction: (FileAction) -> Unit, location: String? = null) {
     var menu by remember { mutableStateOf(false) }
     val haptic = LocalHapticFeedback.current
     Box {
@@ -682,6 +815,15 @@ private fun FileRow(entry: FileEntry, onClick: () -> Unit, onAction: (FileAction
                     Text(entry.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     val meta = remember(entry) {
                         listOfNotNull(if (entry.isDir) null else formatBytes(entry.size), formatModified(entry.modified)).joinToString(" · ")
+                    }
+                    if (location != null) {
+                        Text(
+                            "in $location",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                     if (meta.isNotEmpty()) {
                         Text(meta, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)

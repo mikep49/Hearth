@@ -47,6 +47,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import dev.hearth.casaos.data.AppUsageSource
 import dev.hearth.casaos.data.ServerProfile
 import dev.hearth.casaos.data.Session
 import dev.hearth.casaos.ui.apps.AppSettingsScreen
@@ -72,6 +73,7 @@ import dev.hearth.casaos.ui.terminal.TerminalViewModel
 import dev.hearth.casaos.ui.theme.HearthTheme
 import dev.hearth.casaos.ui.theme.isDark
 import dev.hearth.casaos.ui.web.WebAppScreen
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 // A FragmentActivity because the system unlock prompt needs one.
@@ -194,10 +196,24 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
                 when (current) {
                     Tab.Dashboard -> {
                         val vm: DashboardViewModel = viewModel(key = "dash$key", factory = viewModelFactory {
-                            initializer { DashboardViewModel(client) }
+                            initializer {
+                                val server = session.baseUrl.toHttpUrl().host
+                                DashboardViewModel(
+                                    client,
+                                    AppUsageSource({ container.ssh.load(server) }, container.ssh),
+                                    container.prefs.appsCardCollapsed,
+                                )
+                            }
                         })
                         WhileVisible { vm.poll() }
-                        DashboardScreen(vm, session.username, label, onOpenServers = { serversOpen = true })
+                        val appsCollapsed by container.prefs.appsCardCollapsed.collectAsStateWithLifecycle()
+                        DashboardScreen(
+                            vm, session.username, label,
+                            onOpenServers = { serversOpen = true },
+                            appsCollapsed = appsCollapsed,
+                            onAppsCollapsedChange = container.prefs::setAppsCardCollapsed,
+                            onOpenTerminal = { onTab(Tab.Terminal.ordinal) },
+                        )
                     }
                     Tab.Apps -> {
                         val vm: AppsViewModel = viewModel(key = "apps$key", factory = viewModelFactory {

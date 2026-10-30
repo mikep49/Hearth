@@ -6,7 +6,6 @@ import android.content.Intent
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -15,16 +14,19 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.core.net.toUri
+import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.hearth.casaos.ui.lock.LockGate
 import dev.hearth.casaos.ui.theme.HearthTheme
 import dev.hearth.casaos.ui.theme.isDark
 import dev.hearth.casaos.ui.web.WebAppScreen
 
 /**
  * An app's web UI on its own, opened from a home screen icon. Each address gets its own task, so it shows
- * up in Recents as a separate app, like an installed web app. It doesn't need a Hearth sign-in.
+ * up in Recents as a separate app, like an installed web app. It doesn't need a Hearth sign-in, but it is
+ * behind Hearth's lock when that's on.
  */
-class WebAppActivity : ComponentActivity() {
+class WebAppActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val url = intent.dataString
@@ -46,7 +48,9 @@ class WebAppActivity : ComponentActivity() {
                 enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
             }
             HearthTheme(theme) {
-                WebAppScreen(name, url, onClose = ::finishAndRemoveTask, Modifier.fillMaxSize(), standalone = true)
+                LockGate(container.lock) {
+                    WebAppScreen(name, url, onClose = ::finishAndRemoveTask, Modifier.fillMaxSize(), standalone = true)
+                }
             }
         }
     }

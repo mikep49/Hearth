@@ -86,8 +86,17 @@ fun parseApps(data: JsonElement?): List<InstalledApp> {
             webPort = port,
             webPath = store?.get("index").str()?.takeIf { it.isNotBlank() } ?: "/",
             scheme = store?.get("scheme").str()?.takeIf { it.isNotBlank() } ?: "http",
+            image = mainImage(app["compose"].obj(), store?.get("main").str()),
         )
     }.sortedBy { it.name.lowercase() }
+}
+
+/** The image of the app's main container: the one the store names, else the first. */
+private fun mainImage(compose: JsonObject?, main: String?): String? {
+    val services = compose?.get("services").obj() ?: return null
+    val name = main?.takeIf { it.isNotBlank() } ?: compose?.get("x-casaos").obj()?.get("main").str()
+    val service = (name?.let { services[it] } ?: services.values.firstOrNull()).obj()
+    return service?.get("image").str()?.takeIf { it.isNotBlank() }
 }
 
 private fun firstPublishedPort(compose: JsonObject?): String? {

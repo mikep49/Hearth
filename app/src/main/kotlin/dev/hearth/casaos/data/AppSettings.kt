@@ -114,6 +114,16 @@ fun AppSettings.normalized(): AppSettings = copy(
     },
 )
 
+/**
+ * The settings with container [serviceIndex] switched to image tag [tag]. An image pinned by digest
+ * (`name@sha256:…`) drops the digest, or the tag would be ignored.
+ */
+fun AppSettings.withImageTag(serviceIndex: Int, tag: String): AppSettings = copy(
+    services = services.mapIndexed { i, s ->
+        if (i == serviceIndex) s.copy(image = s.image.substringBefore('@'), tag = tag) else s
+    },
+)
+
 private val PortSpec = Regex("""\d{1,5}(-\d{1,5})?""")
 private val ContainerNamePattern = Regex("""[a-zA-Z0-9][a-zA-Z0-9_.-]*""")
 private val TagPattern = Regex("""[\w][\w.-]{0,127}""")

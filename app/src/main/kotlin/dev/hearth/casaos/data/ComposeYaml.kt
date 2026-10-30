@@ -108,6 +108,10 @@ fun parseAppSettings(yaml: String): AppSettings {
     return AppSettings(app, parsed.sortedByDescending { it.name == main })
 }
 
+/** The App Store's id for the app (`x-casaos.store_app_id`), or null for an app that didn't come from the store. */
+fun parseStoreAppId(yaml: String): String? =
+    loadComposeYaml(yaml)["x-casaos"].map()?.get("store_app_id").scalar()?.trim()?.ifEmpty { null }
+
 /** A user-set name (`custom`, what the dashboard writes when renaming) beats the store's English title. */
 private fun localizedTitle(raw: Any?): String? {
     val m = raw.map() ?: return raw.scalar()?.ifBlank { null }

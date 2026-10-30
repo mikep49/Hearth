@@ -182,6 +182,26 @@ class CasaClientTest {
         assertEquals("yaml: line 3: mapping values are not allowed", e2.message)
     }
 
+    @Test fun `updating an app patches its compose app`() = runTest {
+        server.enqueue(json(loginOk)); client.login(hostPort(), "klaus", "pw"); server.takeRequest()
+        server.enqueue(json("""{"message":"compose app is being updated asynchronously"}"""))
+        client.updateApp("jellyfin")
+        val req = server.takeRequest()
+        assertEquals("PATCH", req.method)
+        assertEquals("/v2/app_management/compose/jellyfin", req.path)
+        assertEquals("A1", req.getHeader("Authorization"))
+    }
+
+    @Test fun `the store's version comes from the stable endpoint, and is null for non-store apps`() = runTest {
+        server.enqueue(json(loginOk)); client.login(hostPort(), "klaus", "pw"); server.takeRequest()
+        server.enqueue(json("""{"message":"ok","data":{"tag":"10.9.1"}}"""))
+        assertEquals("10.9.1", client.storeStableTag("jellyfin"))
+        assertEquals("/v2/app_management/apps/jellyfin/stable", server.takeRequest().path)
+
+        server.enqueue(json("""{"message":"Not Found"}""", 404))
+        assertNull(client.storeStableTag("my-custom-app"))
+    }
+
     @Test fun `folder listing encodes the path and parses entries`() = runTest {
         server.enqueue(json(loginOk)); client.login(hostPort(), "klaus", "pw"); server.takeRequest()
         server.enqueue(json("""{"success":200,"data":{"content":[{"name":"x y.txt","is_dir":false,"size":3,"path":"/DATA/a b/x y.txt"}]}}"""))

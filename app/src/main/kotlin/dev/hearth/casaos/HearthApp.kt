@@ -3,10 +3,14 @@ package dev.hearth.casaos
 import android.app.Application
 import android.webkit.CookieManager
 import android.webkit.WebStorage
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import dev.hearth.casaos.data.AppLock
 import dev.hearth.casaos.data.CasaClient
 import dev.hearth.casaos.data.FileDownloader
 import dev.hearth.casaos.data.ImageRegistry
@@ -57,6 +61,7 @@ class AppContainer(private val app: Application) {
     val theme = ThemeStore(app)
     val ssh = SshProfileStore(app)
     val prefs = PrefsStore(app)
+    val lock = AppLock.create(app)
     val widgetStats = WidgetStatsStore(PrefsWidgetStorage(app), session::credentialsFor, ::clientFor)
     val widgetChoices = WidgetServerChoices(PrefsWidgetStorage(app, key = "server_choices"))
 
@@ -67,6 +72,11 @@ class AppContainer(private val app: Application) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     init {
+        // The lock counts time away from the whole app, so moving between its screens or rotating doesn't lock it.
+        ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onStart(owner: LifecycleOwner) = lock.onForeground()
+            override fun onStop(owner: LifecycleOwner) = lock.onBackground()
+        })
         // Signing out of a server removes its logins from the phone, SSH included (whatever triggered it).
         scope.launch {
             var before: List<ServerProfile>? = null // unknown until the first value

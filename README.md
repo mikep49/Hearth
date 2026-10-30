@@ -8,7 +8,7 @@ A native Android client for [CasaOS](https://casaos.io): live system stats, app 
 
 - **Connect**: server address + your CasaOS login. Tokens are stored encrypted with an Android Keystore key and refreshed automatically.
 - **Home**: live CPU / memory / storage gauges, CPU history, network throughput (polled every 2.5 s, only while the screen is visible).
-- **Apps**: installed apps with status, start / stop / restart, open the app's web UI (inside Hearth or in your browser, your choice in Settings), view logs. **Create app** (long-press an app, or the button in the in-app browser's top bar) puts an app's web UI on your home screen with its icon. It opens full-screen in its own window with no toolbar, like a native app; open the app through Hearth when you want the toolbar.
+- **Apps**: installed apps with status, start / stop / restart, open the app's web UI (inside Hearth or in your browser, your choice in Settings), view logs. **Settings** (next to View logs) shows an app's container settings, the same ones the CasaOS dashboard's settings dialog has: image and tag, name, icon, web UI address, network, ports, volumes, environment variables (passwords hidden until tapped), devices, command, privileged mode, memory limit, CPU shares, restart policy and capabilities. The pencil edits them in a form; **Edit as YAML** in the menu edits the app's whole compose file for anything else. CasaOS checks changes (including ports already in use) before saving, then restarts the app with them. **Create app** (long-press an app, or the button in the in-app browser's top bar) puts an app's web UI on your home screen with its icon. It opens full-screen in its own window with no toolbar, like a native app; open the app through Hearth when you want the toolbar.
 - **Files**: browse `/DATA`, download to `Downloads/Hearth` (no storage permission needed).
 - **Terminal**: a shell on the server over SSH, with color, scrollback (drag), pinch-to-zoom text, an extra-keys row (Ctrl, Alt, Esc, Tab, arrows…), paste, and a one-tap **Update server** that runs `sudo apt update && sudo apt upgrade -y`. The session keeps running while you switch tabs.
 - **Settings**: server version, where apps open (Hearth or browser), restart / shut down (with confirmation), sign out. Signing out also clears logins made inside Hearth's in-app browser.
@@ -50,6 +50,7 @@ Emulator note: on this machine the headless emulator crashes with the default so
 | Login / refresh | `POST /v1/users/login`, `POST /v1/users/refresh` |
 | Stats | `GET /v1/sys/utilization` |
 | Apps | `GET /v2/app_management/compose`, `PUT .../compose/{id}/status`, `GET .../compose/{id}/logs` |
+| App settings | `GET /v2/app_management/compose/{id}` with `Accept: application/yaml`, `PUT .../compose/{id}?check_port_conflict=true` with the YAML |
 | Files | `GET /v1/folder?path=`, `GET /v1/file?path=` |
 | Power | `PUT /v1/sys/state/{restart\|off}` |
 
@@ -67,6 +68,7 @@ CasaOS expects the raw JWT in the `Authorization` header (no `Bearer`). Endpoint
 
 ```
 app/src/main/kotlin/dev/hearth/casaos/
-  data/   CasaClient (OkHttp + refresh), Parsers (lenient JSON), SessionStore + SecretBox (Keystore), FileDownloader
+  data/   CasaClient (OkHttp + refresh), Parsers (lenient JSON), AppSettings + ComposeYaml (app settings <-> compose YAML),
+          SessionStore + SecretBox (Keystore), FileDownloader
   ui/     theme, components, and one package per screen (screen + ViewModel together)
 ```

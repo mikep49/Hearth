@@ -104,6 +104,7 @@ import dev.hearth.casaos.data.previewKind
 import dev.hearth.casaos.data.uniqueName
 import dev.hearth.casaos.ui.components.EmptyState
 import dev.hearth.casaos.ui.components.HearthCard
+import dev.hearth.casaos.ui.components.SearchField
 import dev.hearth.casaos.ui.components.formatBytes
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -152,6 +153,7 @@ data class FilesState(
 private fun join(dir: String, name: String) = dir.trimEnd('/') + "/" + name
 private fun parentOf(path: String) = path.trimEnd('/').substringBeforeLast('/').ifEmpty { "/" }
 private fun plural(n: Int, one: String, many: String = one + "s") = if (n == 1) "1 $one" else "$n $many"
+private fun folderName(path: String) = path.trimEnd('/').substringAfterLast('/').ifEmpty { "/" }
 
 /** Null when [name] can be used for a file or folder, else why not. */
 private fun nameProblem(name: String): String? = when {
@@ -425,11 +427,15 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState) {
     var dialog by remember { mutableStateOf<FileDialog?>(null) }
     var previewPath by rememberSaveable { mutableStateOf<String?>(null) }
     var addMenu by remember { mutableStateOf(false) }
+    // Searches the open folder; opening another folder starts a fresh search.
+    var query by rememberSaveable(state.path) { mutableStateOf("") }
 
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { viewModel.upload(it) }
     val pickFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { viewModel.upload(it) }
 
     BackHandler(enabled = state.canGoUp) { viewModel.up() }
+    // Registered later, so it wins: back clears a search before going up a folder.
+    BackHandler(enabled = query.isNotEmpty()) { query = "" }
     LaunchedEffect(viewModel) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
     LaunchedEffect(viewModel) {
         viewModel.launches.collect { l ->
@@ -465,6 +471,10 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState) {
             Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 8.dp)) {
                 Text("Files", style = MaterialTheme.typography.headlineMedium)
                 Breadcrumbs(state.path, onNavigate = viewModel::open)
+                val count = state.listing?.takeIf { it.path == state.path }?.entries?.size ?: 0
+                if (count > 0 || query.isNotEmpty()) {
+                    SearchField(query, { query = it }, "Search ${plural(count, "item")} in ${folderName(state.path)}", Modifier.padding(top = 4.dp))
+                }
             }
             state.transfer?.let { TransferBar(it) }
             state.clipboard?.let { clip ->
@@ -479,27 +489,40 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState) {
                         TextButton(onClick = viewModel::reload) { Text("Try again") }
                     }
                     listing.entries.isEmpty() -> EmptyState("Empty folder", "There's nothing in ${state.path}. Tap + to upload files or make a folder.")
-                    else -> LazyColumn(
-                        // Room at the bottom so the last row isn't under the + button.
-                        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 96.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        items(listing.entries, key = { it.path }) { entry ->
-                            FileRow(
-                                entry,
-                                onClick = { openEntry(entry) },
-                                onAction = { action ->
-                                    when (action) {
-                                        FileAction.OpenWith -> viewModel.openWith(entry, share = false)
-                                        FileAction.Share -> viewModel.openWith(entry, share = true)
-                                        FileAction.Download -> viewModel.download(entry)
-                                        FileAction.Rename -> dialog = FileDialog.Rename(entry)
-                                        FileAction.Copy -> viewModel.cut(listOf(entry), move = false)
-                                        FileAction.Move -> viewModel.cut(listOf(entry), move = true)
-                                        FileAction.Delete -> dialog = FileDialog.Delete(entry)
-                                    }
-                                },
-                            )
+                    else -> {
+                        val q = query.trim()
+                        val shown = remember(listing, q) { if (q.isEmpty()) listing.entries else listing.entries.filter { it.name.contains(q, true) } }
+                        LazyColumn(
+                            // Room at the bottom so the last row isn't under the + button.
+                            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 96.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            if (shown.isEmpty()) {
+                                item(key = "no-match") {
+                                    Text(
+                                        "Nothing in ${folderName(state.path)} matches \"$q\".",
+                                        Modifier.padding(top = 24.dp),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                            items(shown, key = { it.path }) { entry ->
+                                FileRow(
+                                    entry,
+                                    onClick = { openEntry(entry) },
+                                    onAction = { action ->
+                                        when (action) {
+                                            FileAction.OpenWith -> viewModel.openWith(entry, share = false)
+                                            FileAction.Share -> viewModel.openWith(entry, share = true)
+                                            FileAction.Download -> viewModel.download(entry)
+                                            FileAction.Rename -> dialog = FileDialog.Rename(entry)
+                                            FileAction.Copy -> viewModel.cut(listOf(entry), move = false)
+                                            FileAction.Move -> viewModel.cut(listOf(entry), move = true)
+                                            FileAction.Delete -> dialog = FileDialog.Delete(entry)
+                                        }
+                                    },
+                                )
+                            }
                         }
                     }
                 }

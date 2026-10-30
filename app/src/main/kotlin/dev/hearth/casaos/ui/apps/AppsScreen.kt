@@ -1,6 +1,7 @@
 package dev.hearth.casaos.ui.apps
 
 import android.content.Intent
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -89,6 +90,7 @@ import dev.hearth.casaos.data.webUrl
 import dev.hearth.casaos.ui.components.AppIcon
 import dev.hearth.casaos.ui.components.EmptyState
 import dev.hearth.casaos.ui.components.HearthCard
+import dev.hearth.casaos.ui.components.SearchField
 import dev.hearth.casaos.ui.components.StatusDot
 import dev.hearth.casaos.ui.theme.hearth
 import dev.hearth.casaos.ui.web.rememberCreateApp
@@ -171,6 +173,10 @@ class AppsViewModel(private val client: CasaClient) : ViewModel() {
 
 private enum class Filter(val label: String) { All("All"), Running("Running"), Stopped("Stopped") }
 
+/** True if [q] appears in the app's name, id, tagline or image, ignoring case. */
+internal fun InstalledApp.matches(q: String): Boolean =
+    name.contains(q, true) || id.contains(q, true) || tagline?.contains(q, true) == true || image?.contains(q, true) == true
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppsScreen(
@@ -187,12 +193,15 @@ fun AppsScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var filter by rememberSaveable { mutableStateOf(Filter.All) }
+    var query by rememberSaveable { mutableStateOf("") }
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
     var uninstallId by rememberSaveable { mutableStateOf<String?>(null) }
     val haptic = LocalHapticFeedback.current
     val createApp = rememberCreateApp()
 
     LaunchedEffect(viewModel) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
+    // Back clears a search before it leaves the screen.
+    BackHandler(enabled = query.isNotEmpty()) { query = "" }
 
     val apps = state.apps
     when {
@@ -205,13 +214,15 @@ fun AppsScreen(
             }
         }
         else -> {
-            val shown = remember(apps, filter) {
+            val q = query.trim()
+            val shown = remember(apps, filter, q) {
                 apps.filter {
-                    when (filter) {
+                    val inFilter = when (filter) {
                         Filter.All -> true
                         Filter.Running -> it.state == AppState.Running
                         Filter.Stopped -> it.state == AppState.Stopped
                     }
+                    inFilter && (q.isEmpty() || it.matches(q))
                 }
             }
             val running = remember(apps) { apps.count { it.state == AppState.Running } }
@@ -234,6 +245,9 @@ fun AppsScreen(
                             Text("App Store", Modifier.padding(start = 8.dp))
                         }
                     }
+                }
+                item(key = "search", contentType = "search") {
+                    SearchField(query, { query = it }, "Search ${apps.size} apps")
                 }
                 item(key = "filters", contentType = "filters") {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -258,7 +272,17 @@ fun AppsScreen(
                     )
                 }
                 if (shown.isEmpty()) {
-                    item { Text("Nothing here.", Modifier.padding(top = 24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    item {
+                        Text(
+                            when {
+                                q.isEmpty() -> "Nothing here."
+                                filter == Filter.All -> "No apps match \"$q\"."
+                                else -> "No ${filter.label.lowercase()} apps match \"$q\"."
+                            },
+                            Modifier.padding(top = 24.dp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         }

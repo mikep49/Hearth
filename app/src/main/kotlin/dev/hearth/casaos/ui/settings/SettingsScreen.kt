@@ -116,7 +116,6 @@ fun SettingsScreen(
     viewModel: SettingsViewModel,
     username: String,
     serverLabel: String,
-    serverCount: Int,
     snackbar: SnackbarHostState,
     onOpenServers: () -> Unit,
 ) {
@@ -172,32 +171,20 @@ fun SettingsScreen(
 
         SectionLabel("Server")
         HearthCard(Modifier.fillMaxWidth()) {
-            ActionRow(Icons.Rounded.RestartAlt, "Restart server", "Reboots the machine running CasaOS", MaterialTheme.colorScheme.onSurface) {
+            ActionRow(Icons.Rounded.RestartAlt, "Restart server", MaterialTheme.colorScheme.onSurface) {
                 confirm = PowerAction.Restart
             }
             HorizontalDivider(Modifier.padding(horizontal = 18.dp), color = MaterialTheme.colorScheme.outlineVariant)
-            ActionRow(Icons.Rounded.PowerSettingsNew, "Shut down", "You'll need physical access to turn it back on", MaterialTheme.colorScheme.error) {
+            ActionRow(Icons.Rounded.PowerSettingsNew, "Shut down", MaterialTheme.colorScheme.error) {
                 confirm = PowerAction.Shutdown
             }
         }
 
         SectionLabel("Account")
         HearthCard(Modifier.fillMaxWidth()) {
-            ActionRow(
-                Icons.Rounded.SwapHoriz,
-                "Switch server",
-                if (serverCount > 1) "$serverCount servers saved. Add or remove servers" else "Add another CasaOS server",
-                MaterialTheme.colorScheme.onSurface,
-                onClick = onOpenServers,
-            )
+            ActionRow(Icons.Rounded.SwapHoriz, "Switch server", MaterialTheme.colorScheme.onSurface, onClick = onOpenServers)
             HorizontalDivider(Modifier.padding(horizontal = 18.dp), color = MaterialTheme.colorScheme.outlineVariant)
-            ActionRow(
-                Icons.AutoMirrored.Rounded.Logout,
-                "Sign out",
-                "Removes this server's login from the phone. It stays in your list of servers",
-                MaterialTheme.colorScheme.onSurface,
-                onClick = viewModel::signOut,
-            )
+            ActionRow(Icons.AutoMirrored.Rounded.Logout, "Sign out", MaterialTheme.colorScheme.onSurface, onClick = viewModel::signOut)
         }
 
         Text(
@@ -230,14 +217,11 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun ActionRow(icon: ImageVector, title: String, subtitle: String, tint: Color, onClick: () -> Unit) {
+private fun ActionRow(icon: ImageVector, title: String, tint: Color, onClick: () -> Unit) {
     androidx.compose.material3.Surface(onClick = onClick, color = Color.Transparent) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, null, tint = tint)
-            Column(Modifier.padding(start = 16.dp)) {
-                Text(title, style = MaterialTheme.typography.titleMedium, color = tint)
-                Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+            Text(title, Modifier.padding(start = 16.dp), style = MaterialTheme.typography.titleMedium, color = tint)
         }
     }
 }

@@ -52,14 +52,6 @@ fun OpenAppsInSection(value: OpenAppsIn, onChange: (OpenAppsIn) -> Unit) {
                     ) { Text(option.label, maxLines = 1) }
                 }
             }
-            Text(
-                when (value) {
-                    OpenAppsIn.Hearth -> "Apps open inside Hearth. Back steps through the app's pages, then returns here."
-                    OpenAppsIn.Browser -> "Apps open in your phone's default browser."
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }

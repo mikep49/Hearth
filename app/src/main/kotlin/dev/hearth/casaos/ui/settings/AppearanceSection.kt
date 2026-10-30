@@ -104,15 +104,12 @@ fun AppearanceSection(settings: ThemeSettings, onChange: (ThemeSettings) -> Unit
                 .padding(horizontal = 18.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(Modifier.weight(1f).padding(end = 12.dp)) {
-                val tint = if (dark) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline
-                Text("Pure black", style = MaterialTheme.typography.titleMedium, color = tint)
-                Text(
-                    if (dark) "True black backgrounds. Easier on OLED screens and battery." else "Only applies in dark mode",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            Text(
+                "Pure black",
+                Modifier.weight(1f).padding(end = 12.dp),
+                style = MaterialTheme.typography.titleMedium,
+                color = if (dark) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline,
+            )
             // The row handles the toggle so the whole line is one large touch target.
             Switch(checked = settings.pureBlack, onCheckedChange = null, enabled = dark)
         }

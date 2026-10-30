@@ -252,7 +252,7 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
                         val vm: SettingsViewModel = viewModel(key = "settings$key", factory = viewModelFactory {
                             initializer { SettingsViewModel(client, container.session, container.theme, container.prefs, container.lock) }
                         })
-                        SettingsScreen(vm, session.username, label, profiles.size, snackbar, onOpenServers = { serversOpen = true })
+                        SettingsScreen(vm, session.username, label, snackbar, onOpenServers = { serversOpen = true })
                     }
                 }
             }

@@ -65,6 +65,8 @@ data class InstalledApp(
     val webPort: String?,
     val webPath: String,
     val scheme: String,
+    /** The main container's image, e.g. `linuxserver/jellyfin:10.9.1`. */
+    val image: String? = null,
 )
 
 enum class AppAction(val wire: String) { Start("start"), Stop("stop"), Restart("restart") }

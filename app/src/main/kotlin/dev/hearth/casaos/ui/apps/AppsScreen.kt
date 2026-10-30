@@ -21,11 +21,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Article
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.InstallMobile
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Sell
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.SystemUpdateAlt
@@ -43,6 +45,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -74,6 +77,7 @@ import dev.hearth.casaos.data.CasaClient
 import dev.hearth.casaos.data.CasaException
 import dev.hearth.casaos.data.InstalledApp
 import dev.hearth.casaos.data.OpenAppsIn
+import dev.hearth.casaos.data.versionLabel
 import dev.hearth.casaos.data.webUrl
 import dev.hearth.casaos.ui.components.AppIcon
 import dev.hearth.casaos.ui.components.EmptyState
@@ -148,9 +152,10 @@ fun AppsScreen(
     serverBaseUrl: String,
     snackbar: SnackbarHostState,
     openAppsIn: OpenAppsIn,
-    /** True while an app's settings page is open on top; the app's sheet steps aside until it closes. */
-    settingsOpen: Boolean,
+    /** True while an app's settings or version page is open on top; the app's sheet steps aside until it closes. */
+    pageOpen: Boolean,
     onOpenSettings: (InstalledApp) -> Unit,
+    onOpenVersion: (InstalledApp) -> Unit,
     onOpenInHearth: (app: InstalledApp, url: String) -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -220,8 +225,8 @@ fun AppsScreen(
     }
 
     val selected = apps?.firstOrNull { it.id == selectedId }
-    // The sheet is its own window and would cover the settings page; it comes back when settings close.
-    if (selected != null && !settingsOpen) {
+    // The sheet is its own window and would cover the page opened from it; it comes back when the page closes.
+    if (selected != null && !pageOpen) {
         AppSheet(
             app = selected,
             busy = selected.id in state.busy,
@@ -235,6 +240,7 @@ fun AppsScreen(
             onDismiss = { selectedId = null },
             onAction = { viewModel.perform(selected, it) },
             onOpenSettings = { onOpenSettings(selected) },
+            onOpenVersion = { onOpenVersion(selected) },
             loadLogs = { viewModel.logs(selected.id) },
         )
     }
@@ -316,6 +322,7 @@ private fun AppSheet(
     onDismiss: () -> Unit,
     onAction: (AppAction) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenVersion: () -> Unit,
     loadLogs: suspend () -> Result<String>,
 ) {
     val context = LocalContext.current
@@ -397,6 +404,8 @@ private fun AppSheet(
                 Text(webUrl, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.outline)
             }
 
+            VersionRow(app, onOpenVersion)
+
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedButton(onClick = { showLogs = !showLogs; if (showLogs && logs == null) fetch() }, Modifier.weight(1f)) {
                     Icon(Icons.AutoMirrored.Rounded.Article, null, Modifier.size(18.dp))
@@ -411,6 +420,40 @@ private fun AppSheet(
                 }
             }
             if (showLogs) LogView(logs, loadingLogs)
+        }
+    }
+}
+
+/** The version the app runs, opening the page to switch it; highlighted when CasaOS has an update. */
+@Composable
+private fun VersionRow(app: InstalledApp, onClick: () -> Unit) {
+    val update = app.updateAvailable
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(16.dp),
+        color = if (update) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        val fg = if (update) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(if (update) Icons.Rounded.SystemUpdateAlt else Icons.Rounded.Sell, null, Modifier.size(20.dp), tint = fg)
+            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                Text(
+                    if (update) "Update available" else "Version",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (update) fg else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    app.image?.let(::versionLabel) ?: "Choose a version",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontFamily = if (app.image != null) FontFamily.Monospace else null,
+                    color = fg,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Text(if (update) "Update" else "Change", style = MaterialTheme.typography.labelLarge, color = if (update) fg else MaterialTheme.colorScheme.primary)
+            Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, Modifier.size(20.dp), tint = if (update) fg else MaterialTheme.colorScheme.primary)
         }
     }
 }

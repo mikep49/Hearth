@@ -22,7 +22,18 @@ class PrefsStore(context: Context) {
         _openAppsIn.value = value
     }
 
+    private val _appsCardCollapsed = MutableStateFlow(prefs.getBoolean(KEY_APPS_COLLAPSED, false))
+
+    /** Whether the per-app list on Home is folded down to its title. */
+    val appsCardCollapsed: StateFlow<Boolean> = _appsCardCollapsed.asStateFlow()
+
+    fun setAppsCardCollapsed(value: Boolean) {
+        prefs.edit().putBoolean(KEY_APPS_COLLAPSED, value).apply()
+        _appsCardCollapsed.value = value
+    }
+
     private companion object {
         const val KEY_OPEN_IN = "open_apps_in"
+        const val KEY_APPS_COLLAPSED = "apps_card_collapsed"
     }
 }

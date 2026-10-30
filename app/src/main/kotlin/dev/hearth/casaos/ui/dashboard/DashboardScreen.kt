@@ -34,8 +34,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.hearth.casaos.data.AppUsage
+import dev.hearth.casaos.data.AppUsageSource
 import dev.hearth.casaos.data.CasaClient
 import dev.hearth.casaos.data.CasaException
+import dev.hearth.casaos.data.ContainerUsage
+import dev.hearth.casaos.data.InstalledApp
+import dev.hearth.casaos.data.UsageUnavailable
+import dev.hearth.casaos.data.groupUsage
 import dev.hearth.casaos.data.SystemStats
 import dev.hearth.casaos.ui.components.EmptyState
 import dev.hearth.casaos.ui.components.HearthCard
@@ -46,14 +52,19 @@ import dev.hearth.casaos.ui.components.formatBytes
 import dev.hearth.casaos.ui.components.formatRate
 import dev.hearth.casaos.ui.theme.hearth
 import java.util.Calendar
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 
 private const val HISTORY = 40
 private const val POLL_MS = 2_500L
+private const val APPS_POLL_MS = 3_000L
+private const val APPS_LIST_MS = 60_000L
 
 data class DashboardState(
     val stats: SystemStats? = null,
@@ -63,7 +74,24 @@ data class DashboardState(
     val rxRate: Long = 0,
     val txRate: Long = 0,
     val error: String? = null,
+    val apps: AppsUsageState = AppsUsageState.Loading,
 )
+
+/** The per-app list, which comes over SSH and so can be unavailable while the server totals still work. */
+sealed interface AppsUsageState {
+    data object Loading : AppsUsageState
+
+    /** [needsSignIn]: the Terminal tab can fix it by saving an SSH sign-in. */
+    data class Unavailable(val message: String, val needsSignIn: Boolean) : AppsUsageState
+
+    /** [error] is set when the latest reading failed and [apps] is the last good one. */
+    data class Ready(val apps: List<AppUsage>, val error: String? = null) : AppsUsageState
+}
+
+/** A failed reading keeps the last list on screen; with nothing to show, it replaces it. */
+internal fun AppsUsageState.failed(e: UsageUnavailable): AppsUsageState =
+    if (this is AppsUsageState.Ready && !e.needsSignIn) copy(error = e.message)
+    else AppsUsageState.Unavailable(e.message.orEmpty(), e.needsSignIn)
 
 internal fun DashboardState.advance(next: SystemStats): DashboardState {
     val prev = stats
@@ -89,12 +117,26 @@ internal fun DashboardState.advance(next: SystemStats): DashboardState {
     )
 }
 
-class DashboardViewModel(private val client: CasaClient) : ViewModel() {
+class DashboardViewModel(
+    private val client: CasaClient,
+    private val usage: AppUsageSource,
+    /** While the Apps card is collapsed nothing reads it, so it isn't polled and its SSH login is closed. */
+    private val appsCollapsed: StateFlow<Boolean>,
+) : ViewModel() {
     private val _state = MutableStateFlow(DashboardState())
     val state: StateFlow<DashboardState> = _state.asStateFlow()
 
+    /** Installed apps, for names and icons. Refreshed now and then, and when an unknown app shows up. */
+    private var installed: List<InstalledApp>? = null
+    private var installedAtMs = 0L
+
     /** Runs until cancelled; the screen scopes it to the STARTED lifecycle so it stops in the background. */
-    suspend fun poll() {
+    suspend fun poll() = coroutineScope {
+        launch { pollServer() }
+        launch { appsCollapsed.collectLatest { collapsed -> if (!collapsed) pollApps() } }
+    }
+
+    private suspend fun pollServer() {
         while (true) {
             try {
                 val sample = client.utilization()
@@ -106,10 +148,48 @@ class DashboardViewModel(private val client: CasaClient) : ViewModel() {
             delay(POLL_MS)
         }
     }
+
+    private suspend fun pollApps() {
+        try {
+            while (true) {
+                try {
+                    val containers = usage.sample()
+                    val apps = installedApps(containers)
+                    _state.update { it.copy(apps = AppsUsageState.Ready(groupUsage(containers, apps))) }
+                } catch (e: UsageUnavailable) {
+                    _state.update { it.copy(apps = it.apps.failed(e)) }
+                }
+                // `docker stats` itself takes about two seconds, so this refreshes every five or so.
+                delay(APPS_POLL_MS)
+            }
+        } finally {
+            usage.close() // don't hold an SSH login open while Home isn't showing
+        }
+    }
+
+    private suspend fun installedApps(containers: List<ContainerUsage>): List<InstalledApp> {
+        val known = installed
+        val now = System.currentTimeMillis()
+        val unknown = known != null && containers.any { c -> c.project != null && known.none { it.id == c.project } }
+        if (known != null && !unknown && now - installedAtMs < APPS_LIST_MS) return known
+        return try {
+            client.apps().also { installed = it; installedAtMs = now }
+        } catch (e: CasaException) {
+            known.orEmpty() // names fall back to container names until the next try
+        }
+    }
 }
 
 @Composable
-fun DashboardScreen(viewModel: DashboardViewModel, username: String, serverLabel: String, onOpenServers: () -> Unit) {
+fun DashboardScreen(
+    viewModel: DashboardViewModel,
+    username: String,
+    serverLabel: String,
+    onOpenServers: () -> Unit,
+    appsCollapsed: Boolean,
+    onAppsCollapsedChange: (Boolean) -> Unit,
+    onOpenTerminal: () -> Unit,
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val stats = state.stats
 
@@ -147,6 +227,7 @@ fun DashboardScreen(viewModel: DashboardViewModel, username: String, serverLabel
         }
 
         Overview(stats)
+        AppsCard(state.apps, stats, appsCollapsed, onAppsCollapsedChange, onOpenTerminal)
         CpuCard(stats, state.cpuHistory)
         NetworkCard(state)
         MemoryCard(stats)

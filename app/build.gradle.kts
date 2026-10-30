@@ -12,8 +12,8 @@ android {
         applicationId = "dev.hearth.casaos"
         minSdk = 29
         targetSdk = 36
-        versionCode = 10
-        versionName = "0.6.0"
+        versionCode = 11
+        versionName = "0.6.1"
     }
 
     buildTypes {
@@ -61,6 +61,7 @@ dependencies {
     implementation(libs.snakeyaml.engine) // reads and writes the compose YAML behind an app's settings
     implementation(libs.glance.appwidget) // home screen widgets
     implementation(libs.glance.material3)
+    implementation(libs.work.runtime) // newer than the one Glance brings, see libs.versions.toml
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation(libs.junit)

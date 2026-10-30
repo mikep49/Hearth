@@ -15,6 +15,7 @@ termux = "0.118.3"
 sshd = "2.19.0"
 snakeyamlEngine = "2.9"
 glance = "1.2.0"
+work = "2.11.2"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
@@ -37,6 +38,8 @@ snakeyaml-engine = { module = "org.snakeyaml:snakeyaml-engine", version.ref = "s
 termux-terminal-emulator = { module = "com.github.termux.termux-app:terminal-emulator", version.ref = "termux" }
 glance-appwidget = { module = "androidx.glance:glance-appwidget", version.ref = "glance" }
 glance-material3 = { module = "androidx.glance:glance-material3", version.ref = "glance" }
+# Glance pulls in WorkManager 2.7.1, whose old Room crashes at launch once R8 shrinks the release build.
+work-runtime = { module = "androidx.work:work-runtime", version.ref = "work" }
 sshd-core = { module = "org.apache.sshd:sshd-core", version.ref = "sshd" }
 junit = { module = "junit:junit", version.ref = "junit" }
 okhttp-mockwebserver = { module = "com.squareup.okhttp3:mockwebserver", version.ref = "okhttp" }

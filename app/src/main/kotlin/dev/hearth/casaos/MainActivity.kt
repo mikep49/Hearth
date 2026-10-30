@@ -2,7 +2,6 @@ package dev.hearth.casaos
 
 import android.graphics.Color
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -40,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -63,6 +63,7 @@ import dev.hearth.casaos.ui.dashboard.DashboardScreen
 import dev.hearth.casaos.ui.dashboard.DashboardViewModel
 import dev.hearth.casaos.ui.files.FilesScreen
 import dev.hearth.casaos.ui.files.FilesViewModel
+import dev.hearth.casaos.ui.lock.LockGate
 import dev.hearth.casaos.ui.servers.ServerSheet
 import dev.hearth.casaos.ui.settings.SettingsScreen
 import dev.hearth.casaos.ui.settings.SettingsViewModel
@@ -73,7 +74,8 @@ import dev.hearth.casaos.ui.theme.isDark
 import dev.hearth.casaos.ui.web.WebAppScreen
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
-class MainActivity : ComponentActivity() {
+// A FragmentActivity because the system unlock prompt needs one.
+class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -86,34 +88,38 @@ class MainActivity : ComponentActivity() {
                 val style = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT) { dark }
                 enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
             }
-            HearthTheme(theme) {
-                val session by container.session.session.collectAsStateWithLifecycle()
-                val profiles by container.session.profiles.collectAsStateWithLifecycle()
-                // Kept out here so switching servers stays on the same tab; a fresh sign-in starts at Home.
-                var tab by rememberSaveable { mutableIntStateOf(0) }
-                LaunchedEffect(session == null) { if (session == null) tab = 0 }
-                Crossfade(session, label = "root") { s ->
-                    if (s == null) {
-                        // Offers to sign in again to the server that was open, if it's still saved.
-                        val last = remember { container.session.lastProfile }
-                        ConnectScreen(
-                            viewModel(key = "connect|${last?.id}", factory = viewModelFactory {
-                                initializer { ConnectViewModel(container.client, last) }
-                            }),
-                            saved = profiles,
-                            onSwitch = { container.session.switchTo(it.id) },
-                        )
-                    } else {
-                        MainShell(container, s, profiles, tab) { tab = it }
-                    }
-                }
-            }
+            HearthTheme(theme) { LockGate(container.lock) { Root(container) } }
         }
     }
 
     override fun onStop() {
         super.onStop()
         if (!isChangingConfigurations) (application as HearthApp).container.refreshWidgets()
+    }
+}
+
+/** The sign-in page, or the app once signed in. */
+@Composable
+private fun Root(container: AppContainer) {
+    val session by container.session.session.collectAsStateWithLifecycle()
+    val profiles by container.session.profiles.collectAsStateWithLifecycle()
+    // Kept out here so switching servers stays on the same tab; a fresh sign-in starts at Home.
+    var tab by rememberSaveable { mutableIntStateOf(0) }
+    LaunchedEffect(session == null) { if (session == null) tab = 0 }
+    Crossfade(session, label = "root") { s ->
+        if (s == null) {
+            // Offers to sign in again to the server that was open, if it's still saved.
+            val last = remember { container.session.lastProfile }
+            ConnectScreen(
+                viewModel(key = "connect|${last?.id}", factory = viewModelFactory {
+                    initializer { ConnectViewModel(container.client, last) }
+                }),
+                saved = profiles,
+                onSwitch = { container.session.switchTo(it.id) },
+            )
+        } else {
+            MainShell(container, s, profiles, tab) { tab = it }
+        }
     }
 }
 
@@ -228,7 +234,7 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
                     }
                     Tab.Settings -> {
                         val vm: SettingsViewModel = viewModel(key = "settings$key", factory = viewModelFactory {
-                            initializer { SettingsViewModel(client, container.session, container.theme, container.prefs) }
+                            initializer { SettingsViewModel(client, container.session, container.theme, container.prefs, container.lock) }
                         })
                         SettingsScreen(vm, session.username, label, profiles.size, snackbar, onOpenServers = { serversOpen = true })
                     }

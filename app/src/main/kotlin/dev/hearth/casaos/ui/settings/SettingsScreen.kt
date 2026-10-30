@@ -39,7 +39,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import dev.hearth.casaos.BuildConfig
+import dev.hearth.casaos.data.AppLock
 import dev.hearth.casaos.data.CasaClient
+import dev.hearth.casaos.data.LockAfter
 import dev.hearth.casaos.data.CasaException
 import dev.hearth.casaos.data.OpenAppsIn
 import dev.hearth.casaos.data.PowerAction
@@ -62,6 +64,7 @@ class SettingsViewModel(
     private val session: SessionStore,
     private val themeStore: ThemeStore,
     private val prefs: PrefsStore,
+    private val lock: AppLock,
 ) : ViewModel() {
     private val _version = MutableStateFlow<String?>(null)
     val version: StateFlow<String?> = _version.asStateFlow()
@@ -73,6 +76,19 @@ class SettingsViewModel(
     val openAppsIn: StateFlow<OpenAppsIn> = prefs.openAppsIn
 
     fun setOpenAppsIn(value: OpenAppsIn) = prefs.setOpenAppsIn(value)
+
+    val lockEnabled: StateFlow<Boolean> = lock.enabled
+    val lockAfter: StateFlow<LockAfter> = lock.lockAfter
+
+    fun lockAvailable(): Boolean = lock.available()
+
+    fun setLockEnabled(value: Boolean) = lock.setEnabled(value)
+
+    fun setLockAfter(value: LockAfter) = lock.setLockAfter(value)
+
+    fun showError(message: String) {
+        _messages.tryEmit(message)
+    }
 
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val messages: SharedFlow<String> = _messages.asSharedFlow()
@@ -107,6 +123,8 @@ fun SettingsScreen(
     val version by viewModel.version.collectAsStateWithLifecycle()
     val theme by viewModel.theme.collectAsStateWithLifecycle()
     val openAppsIn by viewModel.openAppsIn.collectAsStateWithLifecycle()
+    val lockEnabled by viewModel.lockEnabled.collectAsStateWithLifecycle()
+    val lockAfter by viewModel.lockAfter.collectAsStateWithLifecycle()
     var confirm by remember { mutableStateOf<PowerAction?>(null) }
     LaunchedEffect(viewModel) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
 
@@ -141,6 +159,16 @@ fun SettingsScreen(
 
         SectionLabel("Apps")
         OpenAppsInSection(openAppsIn, viewModel::setOpenAppsIn)
+
+        SectionLabel("Security")
+        SecuritySection(
+            lockEnabled,
+            lockAfter,
+            available = viewModel::lockAvailable,
+            onEnabledChange = viewModel::setLockEnabled,
+            onLockAfterChange = viewModel::setLockAfter,
+            onError = viewModel::showError,
+        )
 
         SectionLabel("Server")
         HearthCard(Modifier.fillMaxWidth()) {

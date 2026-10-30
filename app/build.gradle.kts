@@ -58,6 +58,7 @@ dependencies {
     implementation(libs.coil.network.okhttp)
     implementation(libs.jsch)
     implementation(libs.termux.terminal.emulator)
+    implementation(libs.snakeyaml.engine) // reads and writes the compose YAML behind an app's settings
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation(libs.junit)

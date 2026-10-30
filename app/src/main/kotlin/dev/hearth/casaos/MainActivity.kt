@@ -48,6 +48,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import dev.hearth.casaos.data.Session
+import dev.hearth.casaos.ui.apps.AppSettingsScreen
+import dev.hearth.casaos.ui.apps.AppSettingsViewModel
 import dev.hearth.casaos.ui.apps.AppsScreen
 import dev.hearth.casaos.ui.apps.AppsViewModel
 import dev.hearth.casaos.ui.connect.ConnectScreen
@@ -63,6 +65,7 @@ import dev.hearth.casaos.ui.terminal.TerminalViewModel
 import dev.hearth.casaos.ui.theme.HearthTheme
 import dev.hearth.casaos.ui.theme.isDark
 import dev.hearth.casaos.ui.web.WebAppScreen
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -117,6 +120,9 @@ private fun MainShell(container: AppContainer, session: Session) {
     var webApp by rememberSaveable { mutableStateOf<String?>(null) }
     var webUrl by rememberSaveable { mutableStateOf<String?>(null) }
     var webIcon by rememberSaveable { mutableStateOf<String?>(null) }
+    // An app's settings page, also drawn over everything (the bottom bar too, so the form gets the room).
+    var settingsAppId by rememberSaveable { mutableStateOf<String?>(null) }
+    var settingsAppName by rememberSaveable { mutableStateOf<String?>(null) }
 
     Box(Modifier.fillMaxSize()) {
         Scaffold(
@@ -155,7 +161,11 @@ private fun MainShell(container: AppContainer, session: Session) {
                             initializer { AppsViewModel(container.client) }
                         })
                         WhileVisible { vm.poll() }
-                        AppsScreen(vm, session.baseUrl, snackbar, openAppsIn) { app, url ->
+                        AppsScreen(
+                            vm, session.baseUrl, snackbar, openAppsIn,
+                            settingsOpen = settingsAppId != null,
+                            onOpenSettings = { app -> settingsAppId = app.id; settingsAppName = app.name },
+                        ) { app, url ->
                             webApp = app.name
                             webIcon = app.iconUrl
                             webUrl = url
@@ -191,6 +201,20 @@ private fun MainShell(container: AppContainer, session: Session) {
                 onClose = { webUrl = null; webApp = null; webIcon = null },
                 Modifier.fillMaxSize(),
                 iconUrl = webIcon,
+            )
+        }
+
+        val settingsId = settingsAppId
+        if (settingsId != null) {
+            val vm: AppSettingsViewModel = viewModel(key = "appsettings$key|$settingsId", factory = viewModelFactory {
+                initializer { AppSettingsViewModel(container.client, settingsId) }
+            })
+            AppSettingsScreen(
+                vm,
+                settingsAppName.orEmpty(),
+                serverHost = session.baseUrl.toHttpUrlOrNull()?.host.orEmpty(),
+                onClose = { settingsAppId = null; settingsAppName = null },
+                Modifier.fillMaxSize(),
             )
         }
     }

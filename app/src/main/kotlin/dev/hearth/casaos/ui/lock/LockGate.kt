@@ -135,12 +135,6 @@ private fun LockScreen(lock: AppLock) {
                 Icon(Icons.Rounded.Lock, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
             }
             Text("Hearth is locked", style = MaterialTheme.typography.headlineSmall)
-            Text(
-                "Unlock with your fingerprint, face or phone PIN.",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
             error?.let {
                 Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
             }

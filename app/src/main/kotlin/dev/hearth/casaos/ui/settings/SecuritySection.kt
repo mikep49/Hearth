@@ -74,12 +74,13 @@ fun SecuritySection(
             Icon(Icons.Rounded.Fingerprint, null)
             Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
                 Text("Lock Hearth", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    if (canLock) "Ask for your fingerprint, face or phone PIN to open Hearth"
-                    else "Set up a screen lock on your phone first, in Android's Settings › Security",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                if (!canLock) {
+                    Text(
+                        "Set up a screen lock on your phone first, in Android's Settings › Security",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             Switch(checked = enabled, onCheckedChange = null, enabled = canLock || enabled)
         }

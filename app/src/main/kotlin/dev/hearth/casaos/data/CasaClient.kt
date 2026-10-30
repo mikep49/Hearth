@@ -18,7 +18,9 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import kotlinx.serialization.json.JsonArray
 import java.io.IOException
+import java.io.InputStream
 import java.io.OutputStream
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
@@ -191,6 +193,115 @@ class CasaClient(private val session: Credentials, baseClient: OkHttpClient = Ok
         return parsing { parseFolder(path, data) }
     }
 
+    /** Creates a folder (and any missing parents), like the dashboard's "New folder". */
+    suspend fun createFolder(path: String) {
+        val body = buildJsonObject { put("path", path) }.toString().toRequestBody(jsonType)
+        execute(http, request("v1", "folder").post(body).build())
+    }
+
+    /** Renames or moves one file or folder within the same disk. */
+    suspend fun rename(oldPath: String, newPath: String) {
+        val body = buildJsonObject { put("old_path", oldPath); put("new_path", newPath) }.toString().toRequestBody(jsonType)
+        execute(http, request("v1", "file", "name").put(body).build())
+    }
+
+    /** Deletes files and folders (folders with everything in them). */
+    suspend fun delete(paths: List<String>) {
+        val body = JsonArray(paths.map(::JsonPrimitive)).toString().toRequestBody(jsonType)
+        execute(http, request("v1", "file").delete(body).build())
+    }
+
+    /**
+     * Copies or moves [paths] into the folder [to]. CasaOS replies at once and does the work in the background;
+     * an item that already exists at the destination is skipped unless [overwrite].
+     */
+    suspend fun transfer(paths: List<String>, to: String, move: Boolean, overwrite: Boolean = false) {
+        val body = buildJsonObject {
+            put("type", if (move) "move" else "copy")
+            put("to", to)
+            put("style", if (overwrite) "overwrite" else "skip")
+            put("item", JsonArray(paths.map { p -> buildJsonObject { put("from", p) } }))
+        }
+        execute(http, request("v1", "batch", "task").post(body.toString().toRequestBody(jsonType)).build())
+    }
+
+    /**
+     * Uploads a file into the folder [dir], the way the dashboard's uploader does: in chunks, so a large video
+     * doesn't need one huge request, and the server joins them once the last one arrives. An existing file with
+     * the same name is replaced. [size] must be the exact length of [input].
+     */
+    suspend fun upload(
+        dir: String,
+        name: String,
+        size: Long,
+        input: InputStream,
+        onProgress: (Long, Long) -> Unit = { _, _ -> },
+    ) {
+        val totalChunks = if (size <= 0) 1 else ((size + UPLOAD_CHUNK - 1) / UPLOAD_CHUNK).toInt()
+        val identifier = "$size-" + name.replace(Regex("[^0-9A-Za-z_-]"), "")
+        val buf = ByteArray(UPLOAD_CHUNK)
+        var sent = 0L
+        for (chunk in 1..totalChunks) {
+            // Fill the chunk fully: a stream may return fewer bytes than asked.
+            var len = 0
+            withContext(Dispatchers.IO) {
+                while (len < buf.size) {
+                    val n = input.read(buf, len, buf.size - len)
+                    if (n < 0) break
+                    len += n
+                }
+            }
+            val part = buf.copyOf(len).toRequestBody("application/octet-stream".toMediaType())
+            val form = okhttp3.MultipartBody.Builder().setType(okhttp3.MultipartBody.FORM)
+                .addFormDataPart("chunkNumber", chunk.toString())
+                .addFormDataPart("chunkSize", UPLOAD_CHUNK.toString())
+                .addFormDataPart("currentChunkSize", len.toString())
+                .addFormDataPart("totalSize", size.toString())
+                .addFormDataPart("identifier", identifier)
+                .addFormDataPart("filename", name)
+                .addFormDataPart("relativePath", name)
+                .addFormDataPart("totalChunks", totalChunks.toString())
+                .addFormDataPart("path", dir)
+                .addFormDataPart("file", name, part)
+                .build()
+            execute(uploads, request("v1", "file", "upload").post(form).build())
+            sent += len
+            onProgress(sent, size)
+        }
+    }
+
+    /** Uploads wait for the server to write each chunk to disk, which can be slow on a busy USB drive. */
+    private val uploads: OkHttpClient by lazy { http.newBuilder().writeTimeout(2, TimeUnit.MINUTES).readTimeout(2, TimeUnit.MINUTES).build() }
+
+    /** Every app in the CasaOS App Store (and any third-party stores added on the server). */
+    suspend fun storeApps(): List<StoreApp> {
+        val data = get("v2", "app_management", "apps")
+        return parsing { parseStoreApps(data) }
+    }
+
+    /**
+     * Installs a store app, like its "Install" button in the dashboard: fetches the app's compose file from the
+     * store and hands it back to CasaOS, which checks the ports and then downloads and starts it in the background.
+     */
+    suspend fun installStoreApp(storeAppId: String) {
+        val get = request("v2", "app_management", "apps", storeAppId, "compose").header("Accept", "application/yaml").build()
+        val yaml = withContext(Dispatchers.IO) {
+            http.newCall(get).await().use { r ->
+                val text = r.body.string()
+                checkStatus(r.code, text)
+                text
+            }
+        }
+        val url = urlOf("v2", "app_management", "compose") { addQueryParameter("check_port_conflict", "true") }
+        execute(http, Request.Builder().url(url).post(yaml.toRequestBody(yamlType)).build())
+    }
+
+    /** Removes an app and its containers. With [deleteData], its config folder under /DATA/AppData goes too. */
+    suspend fun uninstallApp(id: String, deleteData: Boolean) {
+        val url = urlOf("v2", "app_management", "compose", id) { addQueryParameter("delete_config_folder", deleteData.toString()) }
+        execute(http, Request.Builder().url(url).delete().build())
+    }
+
     suspend fun version(): String? =
         (get("v1", "sys", "version", "current") as? JsonPrimitive)?.content?.trim()?.takeIf { it.isNotEmpty() }
 
@@ -218,6 +329,38 @@ class CasaClient(private val session: Credentials, baseClient: OkHttpClient = Ok
                     }
                 }
                 written
+            }
+        }
+    }
+
+    /** Address of a file's contents, for image loaders and players. Fetch through [http] so it's signed in. */
+    fun fileUrl(path: String): String = urlOf("v1", "file") { addQueryParameter("path", path) }.toString()
+
+    /**
+     * Headers a player that can't use [http] needs to stream [fileUrl]. Makes a cheap signed-in call first, so
+     * an expired token is refreshed before it's handed over.
+     */
+    suspend fun authHeadersForStreaming(): Map<String, String> {
+        version()
+        return session.accessToken?.let { mapOf("Authorization" to it) }.orEmpty()
+    }
+
+    /** Up to [maxBytes] from the start of a file, for previews. */
+    suspend fun readStart(path: String, maxBytes: Int): ByteArray {
+        val call = http.newCall(Request.Builder().url(fileUrl(path)).build())
+        return withContext(Dispatchers.IO) {
+            call.await().use { r ->
+                checkStatus(r.code, null)
+                val out = java.io.ByteArrayOutputStream()
+                val buf = ByteArray(64 * 1024)
+                r.body.byteStream().use { input ->
+                    while (out.size() < maxBytes) {
+                        val n = input.read(buf, 0, minOf(buf.size, maxBytes - out.size()))
+                        if (n < 0) break
+                        out.write(buf, 0, n)
+                    }
+                }
+                out.toByteArray()
             }
         }
     }
@@ -314,3 +457,6 @@ class CasaClient(private val session: Credentials, baseClient: OkHttpClient = Ok
 
     // endregion
 }
+
+/** Matches the dashboard uploader's chunk size. */
+private const val UPLOAD_CHUNK = 1024 * 1024

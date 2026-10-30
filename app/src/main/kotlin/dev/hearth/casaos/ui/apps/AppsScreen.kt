@@ -3,6 +3,7 @@ package dev.hearth.casaos.ui.apps
 import android.content.Intent
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,7 +24,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Article
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.InstallMobile
+import androidx.compose.material.icons.rounded.Storefront
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Refresh
@@ -32,7 +35,11 @@ import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.SystemUpdateAlt
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -139,6 +146,25 @@ class AppsViewModel(private val client: CasaClient) : ViewModel() {
         }
     }
 
+    /** Removes the app; [deleteData] also deletes its folder under /DATA/AppData. Calls [onDone] once it's gone. */
+    fun uninstall(app: InstalledApp, deleteData: Boolean, onDone: () -> Unit) {
+        if (app.id in _state.value.busy) return
+        _state.update { it.copy(busy = it.busy + app.id) }
+        viewModelScope.launch {
+            try {
+                client.uninstallApp(app.id, deleteData)
+                // Drop it at once: the next refresh may still list it while CasaOS finishes removing the containers.
+                _state.update { s -> s.copy(apps = s.apps?.filterNot { it.id == app.id }) }
+                onDone()
+                _messages.emit("Uninstalled ${app.name}")
+            } catch (e: CasaException) {
+                _messages.emit("Couldn't uninstall ${app.name}: ${e.message}")
+            } finally {
+                _state.update { it.copy(busy = it.busy - app.id) }
+            }
+        }
+    }
+
     suspend fun logs(id: String): Result<String> =
         try { Result.success(client.appLogs(id)) } catch (e: CasaException) { Result.failure(e) }
 }
@@ -156,11 +182,13 @@ fun AppsScreen(
     pageOpen: Boolean,
     onOpenSettings: (InstalledApp) -> Unit,
     onOpenVersion: (InstalledApp) -> Unit,
+    onOpenStore: () -> Unit,
     onOpenInHearth: (app: InstalledApp, url: String) -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var filter by rememberSaveable { mutableStateOf(Filter.All) }
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
+    var uninstallId by rememberSaveable { mutableStateOf<String?>(null) }
     val haptic = LocalHapticFeedback.current
     val createApp = rememberCreateApp()
 
@@ -170,7 +198,12 @@ fun AppsScreen(
     when {
         apps == null && state.error == null -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
         apps == null -> EmptyState("Couldn't load apps", state.error.orEmpty())
-        apps.isEmpty() -> EmptyState("No apps installed", "Install apps from the CasaOS App Store and they'll show up here.")
+        apps.isEmpty() -> EmptyState("No apps installed", "Install apps from the App Store and they'll show up here.") {
+            Button(onClick = onOpenStore) {
+                Icon(Icons.Rounded.Storefront, null, Modifier.size(18.dp))
+                Text("Browse the App Store", Modifier.padding(start = 8.dp))
+            }
+        }
         else -> {
             val shown = remember(apps, filter) {
                 apps.filter {
@@ -187,13 +220,19 @@ fun AppsScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 item(key = "header", contentType = "header") {
-                    Column(Modifier.padding(top = 8.dp, bottom = 4.dp)) {
-                        Text("Apps", style = MaterialTheme.typography.headlineMedium)
-                        Text(
-                            "$running of ${apps.size} running",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                    Row(Modifier.padding(top = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Apps", style = MaterialTheme.typography.headlineMedium)
+                            Text(
+                                "$running of ${apps.size} running",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        FilledTonalButton(onClick = onOpenStore) {
+                            Icon(Icons.Rounded.Storefront, null, Modifier.size(18.dp))
+                            Text("App Store", Modifier.padding(start = 8.dp))
+                        }
                     }
                 }
                 item(key = "filters", contentType = "filters") {
@@ -215,6 +254,7 @@ fun AppsScreen(
                         },
                         // Only apps with a web UI can become a home screen app.
                         onCreateApp = if (webUrl != null) { { createApp(app.name, webUrl, app.iconUrl) } } else null,
+                        onUninstall = { uninstallId = app.id },
                     )
                 }
                 if (shown.isEmpty()) {
@@ -241,24 +281,95 @@ fun AppsScreen(
             onAction = { viewModel.perform(selected, it) },
             onOpenSettings = { onOpenSettings(selected) },
             onOpenVersion = { onOpenVersion(selected) },
+            onUninstall = { uninstallId = selected.id },
             loadLogs = { viewModel.logs(selected.id) },
+        )
+    }
+
+    val toUninstall = apps?.firstOrNull { it.id == uninstallId }
+    if (toUninstall != null) {
+        UninstallDialog(
+            app = toUninstall,
+            busy = toUninstall.id in state.busy,
+            onDismiss = { uninstallId = null },
+            onConfirm = { deleteData ->
+                viewModel.uninstall(toUninstall, deleteData) {
+                    uninstallId = null
+                    if (selectedId == toUninstall.id) selectedId = null
+                }
+            },
         )
     }
 }
 
-/** Tapping opens the app's details; long-pressing an app with a web UI offers "Create app". */
 @Composable
-private fun AppRow(app: InstalledApp, busy: Boolean, onOpen: () -> Unit, onToggle: () -> Unit, onCreateApp: (() -> Unit)?) {
+private fun UninstallDialog(app: InstalledApp, busy: Boolean, onDismiss: () -> Unit, onConfirm: (deleteData: Boolean) -> Unit) {
+    var deleteData by rememberSaveable { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        icon = { AppIcon(app.iconUrl, app.name, size = 48.dp) },
+        title = { Text("Uninstall ${app.name}?") },
+        text = {
+            Column {
+                Text("The app and its containers are removed from the server.")
+                Row(
+                    Modifier.padding(top = 12.dp).clickable(enabled = !busy) { deleteData = !deleteData },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(checked = deleteData, onCheckedChange = { deleteData = it }, enabled = !busy)
+                    Column {
+                        Text("Also delete its data", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "Settings and files it keeps in /DATA/AppData/${app.id}. Leave unticked to keep them for a reinstall.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (busy) {
+                CircularProgressIndicator(Modifier.padding(horizontal = 16.dp).size(22.dp), strokeWidth = 2.5.dp)
+            } else {
+                TextButton(onClick = { onConfirm(deleteData) }) { Text("Uninstall", color = MaterialTheme.colorScheme.error) }
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("Cancel") } },
+    )
+}
+
+/** Tapping opens the app's details; long-pressing offers "Create app" (apps with a web UI) and "Uninstall". */
+@Composable
+private fun AppRow(
+    app: InstalledApp,
+    busy: Boolean,
+    onOpen: () -> Unit,
+    onToggle: () -> Unit,
+    onCreateApp: (() -> Unit)?,
+    onUninstall: () -> Unit,
+) {
     var menu by remember { mutableStateOf(false) }
     Box {
-        AppCard(app, busy, onOpen, onToggle, onLongClick = if (onCreateApp != null) { { menu = true } } else null)
+        AppCard(app, busy, onOpen, onToggle, onLongClick = { menu = true })
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, offset = DpOffset(14.dp, 0.dp)) {
+            if (onCreateApp != null) {
+                DropdownMenuItem(
+                    text = { Text("Create app") },
+                    leadingIcon = { Icon(Icons.Rounded.InstallMobile, null) },
+                    onClick = {
+                        menu = false
+                        onCreateApp()
+                    },
+                )
+            }
             DropdownMenuItem(
-                text = { Text("Create app") },
-                leadingIcon = { Icon(Icons.Rounded.InstallMobile, null) },
+                text = { Text("Uninstall", color = MaterialTheme.colorScheme.error) },
+                leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) },
+                enabled = !busy,
                 onClick = {
                     menu = false
-                    onCreateApp?.invoke()
+                    onUninstall()
                 },
             )
         }
@@ -323,6 +434,7 @@ private fun AppSheet(
     onAction: (AppAction) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenVersion: () -> Unit,
+    onUninstall: () -> Unit,
     loadLogs: suspend () -> Result<String>,
 ) {
     val context = LocalContext.current
@@ -420,6 +532,15 @@ private fun AppSheet(
                 }
             }
             if (showLogs) LogView(logs, loadingLogs)
+
+            TextButton(
+                onClick = onUninstall,
+                enabled = !busy,
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+            ) {
+                Icon(Icons.Rounded.Delete, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
+                Text("Uninstall", Modifier.padding(start = 8.dp), color = MaterialTheme.colorScheme.error)
+            }
         }
     }
 }

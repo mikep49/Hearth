@@ -10,6 +10,7 @@ import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import dev.hearth.casaos.data.CasaClient
 import dev.hearth.casaos.data.FileDownloader
 import dev.hearth.casaos.data.ImageRegistry
+import dev.hearth.casaos.data.PhoneFiles
 import dev.hearth.casaos.data.PrefsStore
 import dev.hearth.casaos.data.SessionStore
 import dev.hearth.casaos.data.SshProfileStore
@@ -29,6 +30,7 @@ class AppContainer(private val app: Application) {
     /** Lists image versions for the version picker. Separate from [client], so the CasaOS token never goes to a registry. */
     val registry = ImageRegistry()
     val downloader = FileDownloader(app, client)
+    val phoneFiles = PhoneFiles(app, client)
     val theme = ThemeStore(app)
     val ssh = SshProfileStore(app)
     val prefs = PrefsStore(app)
@@ -43,6 +45,7 @@ class AppContainer(private val app: Application) {
             session.session.collect {
                 if (it == null) {
                     ssh.forgetPasswords()
+                    phoneFiles.clear()
                     // Logins made inside the in-app browser go too. Skipped at a signed-out launch to avoid starting a WebView.
                     if (signedIn == true) {
                         CookieManager.getInstance().removeAllCookies(null)

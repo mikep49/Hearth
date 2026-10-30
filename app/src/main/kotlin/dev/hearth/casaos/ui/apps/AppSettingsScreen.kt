@@ -656,7 +656,7 @@ private fun None(text: String = "None") {
 }
 
 @Composable
-private fun Hint(text: String) {
+internal fun Hint(text: String) {
     Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
@@ -807,7 +807,7 @@ private fun <T> Picker(label: String, value: T, options: List<Pair<T, String>>, 
 }
 
 @Composable
-private fun Banner(text: String, isError: Boolean) {
+internal fun Banner(text: String, isError: Boolean) {
     val bg = if (isError) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer
     val fg = if (isError) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer
     Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), color = bg) {

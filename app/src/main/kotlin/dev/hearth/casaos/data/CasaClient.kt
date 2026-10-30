@@ -160,6 +160,27 @@ class CasaClient(private val session: Credentials, baseClient: OkHttpClient = Ok
         execute(http, Request.Builder().url(url).put(composeYaml.toRequestBody(yamlType)).build())
     }
 
+    /**
+     * The version the CasaOS App Store currently ships for a store app's main container, or null for apps
+     * that didn't come from the store.
+     */
+    suspend fun storeStableTag(storeAppId: String): String? = try {
+        ((get("v2", "app_management", "apps", storeAppId, "stable") as? JsonObject)?.get("tag") as? JsonPrimitive)
+            ?.content?.trim()?.takeIf { it.isNotEmpty() }
+    } catch (e: CasaException.Server) {
+        null
+    } catch (e: CasaException.Parse) {
+        null
+    }
+
+    /**
+     * Updates the app to the version the App Store now ships, like the dashboard's "Update". CasaOS downloads
+     * the new image and recreates the containers in the background after replying.
+     */
+    suspend fun updateApp(id: String) {
+        execute(http, request("v2", "app_management", "compose", id).patch(ByteArray(0).toRequestBody(null)).build())
+    }
+
     suspend fun folder(path: String): FolderListing {
         val url = urlOf("v1", "folder") {
             addQueryParameter("path", path)

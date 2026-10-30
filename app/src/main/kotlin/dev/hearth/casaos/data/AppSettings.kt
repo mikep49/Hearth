@@ -116,11 +116,11 @@ fun AppSettings.normalized(): AppSettings = copy(
 
 /**
  * The settings with container [serviceIndex] switched to image tag [tag]. An image pinned by digest
- * (`name@sha256:…`) drops the digest, or the tag would be ignored.
+ * (`name@sha256:…` or `name:1.0@sha256:…`) drops the digest, or the tag would be ignored, and its old tag.
  */
 fun AppSettings.withImageTag(serviceIndex: Int, tag: String): AppSettings = copy(
     services = services.mapIndexed { i, s ->
-        if (i == serviceIndex) s.copy(image = s.image.substringBefore('@'), tag = tag) else s
+        if (i == serviceIndex) s.copy(image = splitImage(s.image.substringBefore('@')).first, tag = tag) else s
     },
 )
 

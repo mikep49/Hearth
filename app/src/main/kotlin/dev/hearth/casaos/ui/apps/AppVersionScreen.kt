@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -230,7 +231,8 @@ class AppVersionViewModel(
         val settings = state.settings ?: return
         if (state.applying) return
         val newSettings = settings.withImageTag(state.serviceIndex, tag.trim())
-        val problems = newSettings.validate()
+        // Only what the new tag breaks: anything else was already accepted by CasaOS and isn't changing.
+        val problems = newSettings.validate() - settings.validate().toSet()
         if (problems.isNotEmpty()) {
             ui = state.copy(error = problems.first())
             return
@@ -448,9 +450,12 @@ private fun VersionList(
         tags?.current?.digest?.let { d -> all.filter { it.digest == d && it.name != current && isVersionTag(it.name) }.map { it.name } }
     }
     val gap = Modifier.padding(bottom = 12.dp)
+    val listState = rememberLazyListState()
+    // The list keeps its place by item, so an error added above the tag that was tapped would stay off screen.
+    LaunchedEffect(ui.error) { if (ui.error != null) listState.animateScrollToItem(0) }
 
     // No spacing between items: the tag rows join into one card. Other items add their own gap below.
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)) {
         if (ui.error != null) item(key = "error") { Box(gap) { Banner(ui.error, isError = true) } }
 
         if (settings.services.size > 1) {

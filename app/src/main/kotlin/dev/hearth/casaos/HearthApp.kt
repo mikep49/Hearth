@@ -14,12 +14,16 @@ import dev.hearth.casaos.data.PrefsStore
 import dev.hearth.casaos.data.SessionStore
 import dev.hearth.casaos.data.SshProfileStore
 import dev.hearth.casaos.ui.theme.ThemeStore
+import dev.hearth.casaos.widget.PrefsWidgetStorage
+import dev.hearth.casaos.widget.ServerStatsWidgets
+import dev.hearth.casaos.widget.WidgetStatsStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.collectIndexed
 import kotlinx.coroutines.launch
 
-class AppContainer(app: Application) {
+class AppContainer(private val app: Application) {
     val session = SessionStore(app)
     val client = CasaClient(session)
     /** Lists image versions for the version picker. Separate from [client], so the CasaOS token never goes to a registry. */
@@ -28,23 +32,43 @@ class AppContainer(app: Application) {
     val theme = ThemeStore(app)
     val ssh = SshProfileStore(app)
     val prefs = PrefsStore(app)
+    val widgetStats = WidgetStatsStore(PrefsWidgetStorage(app), client, session)
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     init {
         // Signing out removes the server's logins from the phone, SSH included (whatever triggered it).
-        CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate).launch {
-            var signedIn = false
+        scope.launch {
+            var signedIn: Boolean? = null // unknown until the first value
             session.session.collect {
                 if (it == null) {
                     ssh.forgetPasswords()
                     // Logins made inside the in-app browser go too. Skipped at a signed-out launch to avoid starting a WebView.
-                    if (signedIn) {
+                    if (signedIn == true) {
                         CookieManager.getInstance().removeAllCookies(null)
                         WebStorage.getInstance().deleteAllData()
+                        // Home screen widgets stop showing the server.
+                        widgetStats.clear()
+                        launch(Dispatchers.Default) { ServerStatsWidgets.redraw(app) }
                     }
+                } else if (signedIn == false) {
+                    launch(Dispatchers.Default) { ServerStatsWidgets.refresh(app) }
                 }
                 signedIn = it != null
             }
         }
+        // Widgets follow the app's theme, and so does their preview in the widget picker.
+        scope.launch(Dispatchers.Default) {
+            theme.settings.collectIndexed { i, settings ->
+                if (i > 0) ServerStatsWidgets.redraw(app)
+                runCatching { ServerStatsWidgets.publishPreview(app, settings) }
+            }
+        }
+    }
+
+    /** Called when Hearth goes to the background, so the widgets you're about to see are current. */
+    fun refreshWidgets() {
+        scope.launch(Dispatchers.Default) { ServerStatsWidgets.refresh(app) }
     }
 }
 

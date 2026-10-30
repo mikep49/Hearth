@@ -12,8 +12,10 @@ import dev.hearth.casaos.data.loadComposeYaml
 import dev.hearth.casaos.data.looksSecret
 import dev.hearth.casaos.data.normalized
 import dev.hearth.casaos.data.parseAppSettings
+import dev.hearth.casaos.data.parseStoreAppId
 import dev.hearth.casaos.data.splitImage
 import dev.hearth.casaos.data.validate
+import dev.hearth.casaos.data.withImageTag
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -125,6 +127,28 @@ class AppSettingsTest {
         assertFalse(j.privileged)
         assertEquals("Web UI", j.hints.ports["8096"])
         assertEquals("Time zone", j.hints.environment["TZ"])
+    }
+
+    @Test fun `switching the version changes only the image line`() {
+        val before = parseAppSettings(casaYaml)
+        val out = applyAppSettings(casaYaml, before, before.withImageTag(0, "10.9.1"))
+        val service = (loadComposeYaml(out)["services"] as Map<*, *>)["jellyfin"] as Map<*, *>
+        assertEquals("linuxserver/jellyfin:10.9.1", service["image"])
+        // Everything else reads back the same.
+        assertEquals(before.copy(services = before.services.map { it.copy(tag = "10.9.1") }), parseAppSettings(out))
+    }
+
+    @Test fun `switching the version of an image pinned by digest drops the digest`() {
+        val yaml = "services:\n  web:\n    image: nginx@sha256:abc123\n"
+        val before = parseAppSettings(yaml)
+        val out = applyAppSettings(yaml, before, before.withImageTag(0, "1.27"))
+        val service = (loadComposeYaml(out)["services"] as Map<*, *>)["web"] as Map<*, *>
+        assertEquals("nginx:1.27", service["image"])
+    }
+
+    @Test fun `the store app id comes from x-casaos`() {
+        assertEquals("jellyfin", parseStoreAppId("x-casaos:\n  store_app_id: jellyfin\nservices: {}\n"))
+        assertNull(parseStoreAppId(casaYaml))
     }
 
     @Test fun `CasaOS's doubled dollar signs show as one`() {

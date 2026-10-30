@@ -9,6 +9,7 @@ import coil3.SingletonImageLoader
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import dev.hearth.casaos.data.CasaClient
 import dev.hearth.casaos.data.FileDownloader
+import dev.hearth.casaos.data.ImageRegistry
 import dev.hearth.casaos.data.PrefsStore
 import dev.hearth.casaos.data.SessionStore
 import dev.hearth.casaos.data.SshProfileStore
@@ -21,6 +22,8 @@ import kotlinx.coroutines.launch
 class AppContainer(app: Application) {
     val session = SessionStore(app)
     val client = CasaClient(session)
+    /** Lists image versions for the version picker. Separate from [client], so the CasaOS token never goes to a registry. */
+    val registry = ImageRegistry()
     val downloader = FileDownloader(app, client)
     val theme = ThemeStore(app)
     val ssh = SshProfileStore(app)

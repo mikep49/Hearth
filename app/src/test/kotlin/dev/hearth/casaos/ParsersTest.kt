@@ -100,6 +100,24 @@ class ParsersTest {
         assertNull(custom.iconUrl)
     }
 
+    @Test fun `apps carry their main container's image`() {
+        val apps = parseApps(
+            json(
+                """{
+                  "a": {"status": "running", "store_info": {"main": "app"},
+                        "compose": {"services": {"db": {"image": "postgres:16"}, "app": {"image": "linuxserver/jellyfin:10.9.1"}}}},
+                  "b": {"status": "running", "compose": {"x-casaos": {"main": "web"}, "services": {"db": {"image": "redis"}, "web": {"image": "nginx:1.27"}}}},
+                  "c": {"status": "running", "compose": {"services": {"only": {"image": "ghcr.io/o/x:2"}}}},
+                  "d": {"status": "running"}
+                }""",
+            ),
+        ).associateBy { it.id }
+        assertEquals("linuxserver/jellyfin:10.9.1", apps.getValue("a").image)
+        assertEquals("nginx:1.27", apps.getValue("b").image)
+        assertEquals("ghcr.io/o/x:2", apps.getValue("c").image)
+        assertNull(apps.getValue("d").image)
+    }
+
     @Test fun `an app renamed in its settings shows the new name`() {
         val apps = parseApps(json("""{"jf": {"status": "running", "store_info": {"title": {"en_us": "Jellyfin", "custom": "Movies"}}}}"""))
         assertEquals("Movies", apps.single().name)

@@ -50,6 +50,8 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import dev.hearth.casaos.data.Session
 import dev.hearth.casaos.ui.apps.AppSettingsScreen
 import dev.hearth.casaos.ui.apps.AppSettingsViewModel
+import dev.hearth.casaos.ui.apps.AppVersionScreen
+import dev.hearth.casaos.ui.apps.AppVersionViewModel
 import dev.hearth.casaos.ui.apps.AppsScreen
 import dev.hearth.casaos.ui.apps.AppsViewModel
 import dev.hearth.casaos.ui.connect.ConnectScreen
@@ -123,6 +125,10 @@ private fun MainShell(container: AppContainer, session: Session) {
     // An app's settings page, also drawn over everything (the bottom bar too, so the form gets the room).
     var settingsAppId by rememberSaveable { mutableStateOf<String?>(null) }
     var settingsAppName by rememberSaveable { mutableStateOf<String?>(null) }
+    // An app's version page, drawn over everything the same way.
+    var versionAppId by rememberSaveable { mutableStateOf<String?>(null) }
+    var versionAppName by rememberSaveable { mutableStateOf<String?>(null) }
+    var versionUpdateAvailable by rememberSaveable { mutableStateOf(false) }
 
     Box(Modifier.fillMaxSize()) {
         Scaffold(
@@ -163,8 +169,13 @@ private fun MainShell(container: AppContainer, session: Session) {
                         WhileVisible { vm.poll() }
                         AppsScreen(
                             vm, session.baseUrl, snackbar, openAppsIn,
-                            settingsOpen = settingsAppId != null,
+                            pageOpen = settingsAppId != null || versionAppId != null,
                             onOpenSettings = { app -> settingsAppId = app.id; settingsAppName = app.name },
+                            onOpenVersion = { app ->
+                                versionAppId = app.id
+                                versionAppName = app.name
+                                versionUpdateAvailable = app.updateAvailable
+                            },
                         ) { app, url ->
                             webApp = app.name
                             webIcon = app.iconUrl
@@ -214,6 +225,20 @@ private fun MainShell(container: AppContainer, session: Session) {
                 settingsAppName.orEmpty(),
                 serverHost = session.baseUrl.toHttpUrlOrNull()?.host.orEmpty(),
                 onClose = { settingsAppId = null; settingsAppName = null },
+                Modifier.fillMaxSize(),
+            )
+        }
+
+        val versionId = versionAppId
+        if (versionId != null) {
+            val vm: AppVersionViewModel = viewModel(key = "appversion$key|$versionId", factory = viewModelFactory {
+                initializer { AppVersionViewModel(container.client, container.registry, versionId) }
+            })
+            AppVersionScreen(
+                vm,
+                versionAppName.orEmpty(),
+                updateAvailable = versionUpdateAvailable,
+                onClose = { versionAppId = null; versionAppName = null },
                 Modifier.fillMaxSize(),
             )
         }

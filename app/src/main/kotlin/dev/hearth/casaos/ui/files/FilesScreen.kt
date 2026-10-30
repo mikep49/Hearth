@@ -1,7 +1,15 @@
 package dev.hearth.casaos.ui.files
 
+import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,39 +22,72 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.DriveFileMove
+import androidx.compose.material.icons.automirrored.rounded.InsertDriveFile
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Android
 import androidx.compose.material.icons.rounded.Audiotrack
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.CreateNewFolder
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.DriveFileRenameOutline
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.FolderZip
 import androidx.compose.material.icons.rounded.Image
-import androidx.compose.material.icons.automirrored.rounded.InsertDriveFile
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Movie
+import androidx.compose.material.icons.rounded.PhotoLibrary
+import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.UploadFile
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -56,11 +97,17 @@ import dev.hearth.casaos.data.CasaException
 import dev.hearth.casaos.data.FileDownloader
 import dev.hearth.casaos.data.FileEntry
 import dev.hearth.casaos.data.FolderListing
+import dev.hearth.casaos.data.PhoneFiles
+import dev.hearth.casaos.data.PickedFile
+import dev.hearth.casaos.data.mimeTypeOf
+import dev.hearth.casaos.data.previewKind
+import dev.hearth.casaos.data.uniqueName
 import dev.hearth.casaos.ui.components.EmptyState
 import dev.hearth.casaos.ui.components.HearthCard
 import dev.hearth.casaos.ui.components.formatBytes
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -76,24 +123,57 @@ import java.time.format.FormatStyle
 
 private const val ROOT = "/DATA"
 
+/** A download, upload or "open with" in progress. Only one runs at a time. */
+data class Transfer(val label: String, /** 0..1, or null when the total size is unknown. */ val progress: Float? = null)
+
+/** Items cut or copied, waiting for the user to pick where they go. */
+data class Clipboard(val entries: List<FileEntry>, val move: Boolean)
+
+/** Files picked for upload, some of which already exist in the target folder. */
+data class PendingUpload(val dir: String, val files: List<PickedFile>, val existing: Set<String>)
+
+enum class UploadConflict { Replace, KeepBoth, Skip }
+
+/** A file to hand to another app. */
+data class Launch(val uri: Uri, val mime: String, val name: String, val share: Boolean)
+
 data class FilesState(
     val path: String = ROOT,
     val listing: FolderListing? = null,
     val loading: Boolean = true,
     val error: String? = null,
-    val downloading: String? = null,
-    /** 0..1, or null when the total size is unknown. */
-    val progress: Float? = null,
+    val transfer: Transfer? = null,
+    val clipboard: Clipboard? = null,
+    val pendingUpload: PendingUpload? = null,
 ) {
     val canGoUp get() = path != ROOT && path != "/"
 }
 
-class FilesViewModel(private val client: CasaClient, private val downloader: FileDownloader) : ViewModel() {
+private fun join(dir: String, name: String) = dir.trimEnd('/') + "/" + name
+private fun parentOf(path: String) = path.trimEnd('/').substringBeforeLast('/').ifEmpty { "/" }
+private fun plural(n: Int, one: String, many: String = one + "s") = if (n == 1) "1 $one" else "$n $many"
+
+/** Null when [name] can be used for a file or folder, else why not. */
+private fun nameProblem(name: String): String? = when {
+    name.isBlank() -> "Enter a name"
+    '/' in name -> "A name can't contain /"
+    name == "." || name == ".." -> "Pick another name"
+    else -> null
+}
+
+class FilesViewModel(
+    private val client: CasaClient,
+    private val downloader: FileDownloader,
+    private val phoneFiles: PhoneFiles,
+) : ViewModel() {
     private val _state = MutableStateFlow(FilesState())
     val state: StateFlow<FilesState> = _state.asStateFlow()
 
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val messages: SharedFlow<String> = _messages.asSharedFlow()
+
+    private val _launches = MutableSharedFlow<Launch>(extraBufferCapacity = 1)
+    val launches: SharedFlow<Launch> = _launches.asSharedFlow()
 
     private var loadJob: Job? = null
 
@@ -112,32 +192,228 @@ class FilesViewModel(private val client: CasaClient, private val downloader: Fil
         }
     }
 
-    fun up() { if (_state.value.canGoUp) open(_state.value.path.trimEnd('/').substringBeforeLast('/').ifEmpty { "/" }) }
+    fun up() { if (_state.value.canGoUp) open(parentOf(_state.value.path)) }
 
     fun reload() = open(_state.value.path)
 
-    fun download(entry: FileEntry) {
-        if (_state.value.downloading != null) return
-        _state.update { it.copy(downloading = entry.name, progress = null) }
+    /** Reloads only if the user is still looking at [dir]. */
+    private fun reloadIfShowing(dir: String) { if (_state.value.path == dir) reload() }
+
+    // region transfers
+
+    /** Runs one transfer, reporting progress and turning failures into a message. */
+    private fun transfer(label: String, failure: String, block: suspend (onProgress: (Long, Long) -> Unit) -> Unit) {
+        if (_state.value.transfer != null) {
+            _messages.tryEmit("Wait for the current transfer to finish")
+            return
+        }
+        _state.update { it.copy(transfer = Transfer(label)) }
         viewModelScope.launch {
             try {
-                downloader.save(entry) { done, total ->
-                    _state.update { it.copy(progress = if (total > 0) done.toFloat() / total else null) }
+                block { done, total ->
+                    _state.update { s -> s.copy(transfer = s.transfer?.copy(progress = if (total > 0) done.toFloat() / total else null)) }
                 }
-                _messages.emit("Saved ${entry.name} to Downloads/Hearth")
-            } catch (e: CasaException) {
-                _messages.emit("Download failed: ${e.message}")
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 // Storage can fail in several ways (disk full, MediaStore refusing the write, file removed
                 // mid-transfer): show a message instead of crashing the app.
-                _messages.emit("Download failed: ${e.message ?: "storage error"}")
+                _messages.emit("$failure: ${e.message ?: "storage error"}")
             } finally {
-                _state.update { it.copy(downloading = null, progress = null) }
+                _state.update { it.copy(transfer = null) }
             }
         }
     }
+
+    fun download(entry: FileEntry) = transfer("Downloading ${entry.name}", "Download failed") { progress ->
+        downloader.save(entry, progress)
+        _messages.emit("Saved ${entry.name} to Downloads/Hearth")
+    }
+
+    /** Fetches the file and hands it to another app to open ([share] false) or to share. */
+    fun openWith(entry: FileEntry, share: Boolean) =
+        transfer("Getting ${entry.name}", if (share) "Couldn't share" else "Couldn't open") { progress ->
+            val uri = phoneFiles.fetchForSharing(entry, progress)
+            _launches.emit(Launch(uri, mimeTypeOf(entry.name), entry.name, share))
+        }
+
+    /** Starts uploading [uris] into the open folder, first asking what to do if some names are taken. */
+    fun upload(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        if (_state.value.transfer != null) {
+            _messages.tryEmit("Wait for the current transfer to finish")
+            return
+        }
+        val dir = _state.value.path
+        viewModelScope.launch {
+            val files = uris.mapNotNull { phoneFiles.describe(it) }
+            if (files.size < uris.size) _messages.emit("Couldn't read ${plural(uris.size - files.size, "file")}")
+            if (files.isEmpty()) return@launch
+            // The listing may be out of date, but it's what the user sees; the server would replace silently.
+            val taken = _state.value.listing?.takeIf { it.path == dir }?.entries?.map { it.name }?.toSet().orEmpty()
+            val existing = files.map { it.name }.filter { it in taken }.toSet()
+            if (existing.isEmpty()) startUpload(dir, files, UploadConflict.Replace, taken)
+            else _state.update { it.copy(pendingUpload = PendingUpload(dir, files, existing)) }
+        }
+    }
+
+    fun resolveUpload(choice: UploadConflict?) {
+        val pending = _state.value.pendingUpload ?: return
+        _state.update { it.copy(pendingUpload = null) }
+        if (choice == null) return
+        val taken = _state.value.listing?.takeIf { it.path == pending.dir }?.entries?.map { it.name }?.toSet().orEmpty()
+        startUpload(pending.dir, pending.files, choice, taken)
+    }
+
+    private fun startUpload(dir: String, picked: List<PickedFile>, conflict: UploadConflict, taken: Set<String>) {
+        val used = taken.toMutableSet()
+        // Decide every target name up front, so two picked files with the same name don't overwrite each other.
+        val plan = picked.mapNotNull { f ->
+            when {
+                f.name !in used -> f to f.name
+                conflict == UploadConflict.Skip -> null
+                conflict == UploadConflict.Replace -> f to f.name
+                else -> f to uniqueName(f.name, used)
+            }?.also { used += it.second }
+        }
+        if (plan.isEmpty()) {
+            _messages.tryEmit("Nothing to upload: those files are already there")
+            return
+        }
+        val folder = dir.substringAfterLast('/')
+        _state.update { it.copy(transfer = Transfer(uploadLabel(plan[0].second, 0, plan.size))) }
+        viewModelScope.launch {
+            val failed = mutableListOf<String>()
+            var lastError: String? = null
+            try {
+                plan.forEachIndexed { i, (file, name) ->
+                    _state.update { it.copy(transfer = Transfer(uploadLabel(name, i, plan.size))) }
+                    try {
+                        phoneFiles.upload(file, dir, name) { done, total ->
+                            _state.update { s -> s.copy(transfer = s.transfer?.copy(progress = if (total > 0) done.toFloat() / total else null)) }
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        failed += name
+                        lastError = e.message
+                    }
+                }
+                val done = plan.size - failed.size
+                _messages.emit(
+                    when {
+                        failed.isEmpty() -> "Uploaded ${plural(done, "file")} to $folder"
+                        done == 0 -> "Upload failed: ${lastError ?: "unknown error"}"
+                        else -> "Uploaded $done of ${plan.size}. ${failed.first()} failed: ${lastError ?: "unknown error"}"
+                    },
+                )
+            } finally {
+                _state.update { it.copy(transfer = null) }
+                reloadIfShowing(dir)
+            }
+        }
+    }
+
+    private fun uploadLabel(name: String, index: Int, count: Int) =
+        if (count == 1) "Uploading $name" else "Uploading $name (${index + 1} of $count)"
+
+    // endregion
+
+    // region file actions
+
+    /** Runs a quick change on the server, then reloads the folder. Returns false if it failed. */
+    private suspend fun change(failure: String, block: suspend () -> Unit): Boolean = try {
+        block()
+        true
+    } catch (e: CasaException) {
+        _messages.emit("$failure: ${e.message}")
+        false
+    }
+
+    fun createFolder(name: String) {
+        val dir = _state.value.path
+        viewModelScope.launch {
+            if (change("Couldn't create the folder") { client.createFolder(join(dir, name.trim())) }) reloadIfShowing(dir)
+        }
+    }
+
+    fun rename(entry: FileEntry, newName: String) {
+        val name = newName.trim()
+        if (name == entry.name) return
+        val dir = parentOf(entry.path)
+        viewModelScope.launch {
+            if (change("Couldn't rename ${entry.name}") { client.rename(entry.path, join(dir, name)) }) reloadIfShowing(dir)
+        }
+    }
+
+    fun delete(entries: List<FileEntry>) {
+        if (entries.isEmpty()) return
+        val dir = parentOf(entries[0].path)
+        viewModelScope.launch {
+            if (change("Couldn't delete") { client.delete(entries.map { it.path }) }) {
+                _messages.emit(if (entries.size == 1) "Deleted ${entries[0].name}" else "Deleted ${plural(entries.size, "item")}")
+                reloadIfShowing(dir)
+            }
+        }
+    }
+
+    fun cut(entries: List<FileEntry>, move: Boolean) = _state.update { it.copy(clipboard = Clipboard(entries, move)) }
+
+    fun clearClipboard() = _state.update { it.copy(clipboard = null) }
+
+    /** Copies or moves the clipboard into the open folder. */
+    fun paste() {
+        val clip = _state.value.clipboard ?: return
+        val dest = _state.value.path
+        val problem = when {
+            clip.entries.any { parentOf(it.path) == dest } -> if (clip.move) "That's already in this folder" else "Open a different folder to copy into"
+            clip.entries.any { it.isDir && (dest == it.path || dest.startsWith(it.path.trimEnd('/') + "/")) } -> "A folder can't go inside itself"
+            else -> null
+        }
+        if (problem != null) {
+            _messages.tryEmit(problem)
+            return
+        }
+        _state.update { it.copy(clipboard = null) }
+        viewModelScope.launch {
+            val what = if (clip.entries.size == 1) clip.entries[0].name else plural(clip.entries.size, "item")
+            val ok = change(if (clip.move) "Couldn't move" else "Couldn't copy") {
+                client.transfer(clip.entries.map { it.path }, dest, move = clip.move)
+            }
+            if (!ok) return@launch
+            // The server does the work in the background: give small items a moment to land before reloading.
+            _messages.emit(if (clip.move) "Moving $what here" else "Copying $what here. Big folders take a while; pull down to refresh.")
+            delay(800)
+            reloadIfShowing(dest)
+        }
+    }
+
+    // endregion
+
+    // region previews
+
+    fun fileUrl(entry: FileEntry): String = client.fileUrl(entry.path)
+
+    suspend fun streamHeaders(): Result<Map<String, String>> =
+        try { Result.success(client.authHeadersForStreaming()) } catch (e: CasaException) { Result.failure(e) }
+
+    suspend fun readText(entry: FileEntry): Result<String> = try {
+        val bytes = client.readStart(entry.path, TEXT_PREVIEW_BYTES)
+        Result.success(bytes.toString(Charsets.UTF_8))
+    } catch (e: CasaException) {
+        Result.failure(e)
+    }
+
+    // endregion
+}
+
+const val TEXT_PREVIEW_BYTES = 256 * 1024
+
+/** What a file's menu or a dialog is acting on. */
+private sealed interface FileDialog {
+    data object NewFolder : FileDialog
+    data class Rename(val entry: FileEntry) : FileDialog
+    data class Delete(val entry: FileEntry) : FileDialog
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -145,47 +421,191 @@ class FilesViewModel(private val client: CasaClient, private val downloader: Fil
 fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val haptic = LocalHapticFeedback.current
+    val context = LocalContext.current
+    var dialog by remember { mutableStateOf<FileDialog?>(null) }
+    var previewPath by rememberSaveable { mutableStateOf<String?>(null) }
+    var addMenu by remember { mutableStateOf(false) }
+
+    val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { viewModel.upload(it) }
+    val pickFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { viewModel.upload(it) }
 
     BackHandler(enabled = state.canGoUp) { viewModel.up() }
     LaunchedEffect(viewModel) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
-
-    Column(Modifier.fillMaxSize()) {
-        Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 8.dp)) {
-            Text("Files", style = MaterialTheme.typography.headlineMedium)
-            Breadcrumbs(state.path, onNavigate = viewModel::open)
-        }
-        if (state.downloading != null) {
-            Column(Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
-                Text("Downloading ${state.downloading}", style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                val p = state.progress
-                if (p != null) LinearProgressIndicator(progress = { p }, Modifier.fillMaxWidth().padding(top = 6.dp))
-                else LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 6.dp))
+    LaunchedEffect(viewModel) {
+        viewModel.launches.collect { l ->
+            val target = if (l.share) {
+                Intent(Intent.ACTION_SEND).setType(l.mime).putExtra(Intent.EXTRA_STREAM, l.uri)
+            } else {
+                Intent(Intent.ACTION_VIEW).setDataAndType(l.uri, l.mime)
+            }
+            // Through the chooser, the grant only reaches the picked app if the link is in the intent's clip data.
+            target.clipData = ClipData.newRawUri(l.name, l.uri)
+            target.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            val chooser = Intent.createChooser(target, if (l.share) "Share ${l.name}" else "Open ${l.name} with")
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            try {
+                context.startActivity(chooser)
+            } catch (_: ActivityNotFoundException) {
+                snackbar.showSnackbar("No app on this phone can open ${l.name}")
             }
         }
+    }
 
-        PullToRefreshBox(isRefreshing = state.loading && state.listing != null, onRefresh = viewModel::reload, modifier = Modifier.weight(1f)) {
-            val listing = state.listing
-            when {
-                listing == null && state.loading -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
-                listing == null -> EmptyState("Couldn't open this folder", state.error.orEmpty()) {
-                    TextButton(onClick = viewModel::reload) { Text("Try again") }
-                }
-                listing.entries.isEmpty() -> EmptyState("Empty folder", "There's nothing in ${state.path}.")
-                else -> LazyColumn(
-                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(listing.entries, key = { it.path }) { entry ->
-                        FileRow(
-                            entry,
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
-                                if (entry.isDir) viewModel.open(entry.path) else viewModel.download(entry)
-                            },
-                        )
+    fun openEntry(entry: FileEntry) {
+        haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+        when {
+            entry.isDir -> viewModel.open(entry.path)
+            previewKind(entry.name) != null -> previewPath = entry.path
+            else -> viewModel.openWith(entry, share = false)
+        }
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
+            Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 8.dp)) {
+                Text("Files", style = MaterialTheme.typography.headlineMedium)
+                Breadcrumbs(state.path, onNavigate = viewModel::open)
+            }
+            state.transfer?.let { TransferBar(it) }
+            state.clipboard?.let { clip ->
+                ClipboardBar(clip, onCancel = viewModel::clearClipboard, onPaste = viewModel::paste)
+            }
+
+            PullToRefreshBox(isRefreshing = state.loading && state.listing != null, onRefresh = viewModel::reload, modifier = Modifier.weight(1f)) {
+                val listing = state.listing
+                when {
+                    listing == null && state.loading -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
+                    listing == null -> EmptyState("Couldn't open this folder", state.error.orEmpty()) {
+                        TextButton(onClick = viewModel::reload) { Text("Try again") }
+                    }
+                    listing.entries.isEmpty() -> EmptyState("Empty folder", "There's nothing in ${state.path}. Tap + to upload files or make a folder.")
+                    else -> LazyColumn(
+                        // Room at the bottom so the last row isn't under the + button.
+                        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 96.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(listing.entries, key = { it.path }) { entry ->
+                            FileRow(
+                                entry,
+                                onClick = { openEntry(entry) },
+                                onAction = { action ->
+                                    when (action) {
+                                        FileAction.OpenWith -> viewModel.openWith(entry, share = false)
+                                        FileAction.Share -> viewModel.openWith(entry, share = true)
+                                        FileAction.Download -> viewModel.download(entry)
+                                        FileAction.Rename -> dialog = FileDialog.Rename(entry)
+                                        FileAction.Copy -> viewModel.cut(listOf(entry), move = false)
+                                        FileAction.Move -> viewModel.cut(listOf(entry), move = true)
+                                        FileAction.Delete -> dialog = FileDialog.Delete(entry)
+                                    }
+                                },
+                            )
+                        }
                     }
                 }
             }
+        }
+
+        Box(Modifier.align(Alignment.BottomEnd).padding(20.dp)) {
+            FloatingActionButton(onClick = { addMenu = true }) { Icon(Icons.Rounded.Add, "Upload or create a folder") }
+            DropdownMenu(expanded = addMenu, onDismissRequest = { addMenu = false }) {
+                DropdownMenuItem(
+                    text = { Text("Upload photos & videos") },
+                    leadingIcon = { Icon(Icons.Rounded.PhotoLibrary, null) },
+                    onClick = {
+                        addMenu = false
+                        pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("Upload files") },
+                    leadingIcon = { Icon(Icons.Rounded.UploadFile, null) },
+                    onClick = { addMenu = false; pickFiles.launch(arrayOf("*/*")) },
+                )
+                DropdownMenuItem(
+                    text = { Text("New folder") },
+                    leadingIcon = { Icon(Icons.Rounded.CreateNewFolder, null) },
+                    onClick = { addMenu = false; dialog = FileDialog.NewFolder },
+                )
+            }
+        }
+    }
+
+    when (val d = dialog) {
+        FileDialog.NewFolder -> NameDialog(
+            title = "New folder",
+            initial = "",
+            confirm = "Create",
+            taken = state.listing?.entries?.map { it.name }?.toSet().orEmpty(),
+            onDismiss = { dialog = null },
+            onConfirm = { viewModel.createFolder(it); dialog = null },
+        )
+        is FileDialog.Rename -> NameDialog(
+            title = "Rename",
+            initial = d.entry.name,
+            confirm = "Rename",
+            taken = state.listing?.entries?.map { it.name }?.toSet().orEmpty() - d.entry.name,
+            onDismiss = { dialog = null },
+            onConfirm = { viewModel.rename(d.entry, it); dialog = null },
+        )
+        is FileDialog.Delete -> AlertDialog(
+            onDismissRequest = { dialog = null },
+            title = { Text("Delete ${d.entry.name}?") },
+            text = {
+                Text(
+                    if (d.entry.isDir) "The folder and everything in it are deleted from the server. This can't be undone."
+                    else "The file is deleted from the server. This can't be undone.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.delete(listOf(d.entry)); dialog = null }) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { dialog = null }) { Text("Cancel") } },
+        )
+        null -> Unit
+    }
+
+    state.pendingUpload?.let { UploadConflictDialog(it, onChoice = viewModel::resolveUpload) }
+
+    val previewEntry = previewPath?.let { p -> state.listing?.entries?.firstOrNull { it.path == p } }
+    if (previewEntry != null) {
+        FilePreview(
+            entry = previewEntry,
+            viewModel = viewModel,
+            transfer = state.transfer,
+            onClose = { previewPath = null },
+        )
+    }
+}
+
+@Composable
+private fun TransferBar(t: Transfer) {
+    Column(Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
+        Text(t.label, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        val p = t.progress
+        if (p != null) LinearProgressIndicator(progress = { p }, Modifier.fillMaxWidth().padding(top = 6.dp))
+        else LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 6.dp))
+    }
+}
+
+/** Shown while items are cut or copied: browse to the destination, then paste. */
+@Composable
+private fun ClipboardBar(clip: Clipboard, onCancel: () -> Unit, onPaste: () -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp).fillMaxWidth(),
+    ) {
+        Row(Modifier.padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            val what = if (clip.entries.size == 1) clip.entries[0].name else plural(clip.entries.size, "item")
+            Column(Modifier.weight(1f)) {
+                Text(if (clip.move) "Moving" else "Copying", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                Text(what, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSecondaryContainer)
+            }
+            TextButton(onClick = onCancel) { Text("Cancel") }
+            Button(onClick = onPaste) { Text(if (clip.move) "Move here" else "Paste here") }
         }
     }
 }
@@ -208,32 +628,127 @@ private fun Breadcrumbs(path: String, onNavigate: (String) -> Unit) {
     }
 }
 
+private enum class FileAction(val label: String, val icon: ImageVector, val filesOnly: Boolean = false) {
+    OpenWith("Open with…", Icons.AutoMirrored.Rounded.OpenInNew, filesOnly = true),
+    Share("Share", Icons.Rounded.Share, filesOnly = true),
+    Download("Download", Icons.Rounded.Download, filesOnly = true),
+    Rename("Rename", Icons.Rounded.DriveFileRenameOutline),
+    Copy("Copy to…", Icons.Rounded.ContentCopy),
+    Move("Move to…", Icons.AutoMirrored.Rounded.DriveFileMove),
+    Delete("Delete", Icons.Rounded.Delete),
+}
+
+/** Tap opens; long-press or the ⋮ button shows the item's actions. */
 @Composable
-private fun FileRow(entry: FileEntry, onClick: () -> Unit) {
-    HearthCard(Modifier.fillMaxWidth(), onClick = onClick) {
-        Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                iconFor(entry),
-                null,
-                Modifier.size(28.dp),
-                tint = if (entry.isDir) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
-                Text(entry.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                val meta = remember(entry) {
-                    listOfNotNull(if (entry.isDir) null else formatBytes(entry.size), formatModified(entry.modified)).joinToString(" · ")
+private fun FileRow(entry: FileEntry, onClick: () -> Unit, onAction: (FileAction) -> Unit) {
+    var menu by remember { mutableStateOf(false) }
+    val haptic = LocalHapticFeedback.current
+    Box {
+        HearthCard(Modifier.fillMaxWidth(), onClick = onClick, onLongClick = {
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            menu = true
+        }) {
+            Row(Modifier.padding(start = 14.dp, end = 4.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    iconFor(entry),
+                    null,
+                    Modifier.size(28.dp),
+                    tint = if (entry.isDir) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Column(Modifier.weight(1f).padding(horizontal = 14.dp, vertical = 6.dp)) {
+                    Text(entry.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    val meta = remember(entry) {
+                        listOfNotNull(if (entry.isDir) null else formatBytes(entry.size), formatModified(entry.modified)).joinToString(" · ")
+                    }
+                    if (meta.isNotEmpty()) {
+                        Text(meta, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
-                if (meta.isNotEmpty()) {
-                    Text(meta, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+                IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "Actions for ${entry.name}") }
             }
-            if (entry.isDir) {
-                Icon(Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.outline)
-            } else {
-                IconButton(onClick = onClick) { Icon(Icons.Rounded.Download, "Download ${entry.name}") }
+        }
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, offset = DpOffset(14.dp, 0.dp)) {
+            FileAction.entries.filter { !it.filesOnly || !entry.isDir }.forEach { action ->
+                if (action == FileAction.Rename && !entry.isDir) HorizontalDivider()
+                if (action == FileAction.Delete) HorizontalDivider()
+                val danger = action == FileAction.Delete
+                DropdownMenuItem(
+                    text = { Text(action.label, color = if (danger) MaterialTheme.colorScheme.error else Color.Unspecified) },
+                    leadingIcon = { Icon(action.icon, null, tint = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) },
+                    onClick = { menu = false; onAction(action) },
+                )
             }
         }
     }
+}
+
+/** Asks for a file or folder name, refusing ones that can't be used or are already taken. */
+@Composable
+private fun NameDialog(
+    title: String,
+    initial: String,
+    confirm: String,
+    taken: Set<String>,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    // Select the name without its extension, so typing replaces just that, as file managers do.
+    val stem = initial.lastIndexOf('.').takeIf { it > 0 } ?: initial.length
+    var value by remember { mutableStateOf(TextFieldValue(initial, TextRange(0, stem))) }
+    val focus = remember { FocusRequester() }
+    val name = value.text.trim()
+    val problem = nameProblem(name) ?: if (name in taken) "Something with that name is already here" else null
+    val changed = name != initial
+    LaunchedEffect(Unit) { focus.requestFocus() }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            OutlinedTextField(
+                value = value,
+                onValueChange = { value = it },
+                singleLine = true,
+                isError = problem != null && value.text.isNotEmpty() && changed,
+                supportingText = { if (problem != null && value.text.isNotEmpty() && changed) Text(problem) },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { if (problem == null && changed) onConfirm(name) }),
+                modifier = Modifier.fillMaxWidth().focusRequester(focus),
+            )
+        },
+        confirmButton = { TextButton(onClick = { onConfirm(name) }, enabled = problem == null && changed) { Text(confirm) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun UploadConflictDialog(pending: PendingUpload, onChoice: (UploadConflict?) -> Unit) {
+    val n = pending.existing.size
+    val folder = pending.dir.substringAfterLast('/')
+    AlertDialog(
+        onDismissRequest = { onChoice(null) },
+        title = { Text(if (n == 1) "${pending.existing.first()} is already in $folder" else "$n files are already in $folder") },
+        text = {
+            Column {
+                Text("What should happen to ${if (n == 1) "it" else "them"}?", Modifier.padding(bottom = 8.dp))
+                ConflictOption("Skip", "Upload only the new files", onClick = { onChoice(UploadConflict.Skip) })
+                ConflictOption("Keep both", "Upload with a new name, like photo (1).jpg", onClick = { onChoice(UploadConflict.KeepBoth) })
+                ConflictOption("Replace", "Overwrite the files on the server", onClick = { onChoice(UploadConflict.Replace) })
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = { onChoice(null) }) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun ConflictOption(title: String, detail: String, onClick: () -> Unit) {
+    ListItem(
+        headlineContent = { Text(title) },
+        supportingContent = { Text(detail) },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        modifier = Modifier.clickable(onClick = onClick),
+    )
 }
 
 private fun iconFor(e: FileEntry): ImageVector {

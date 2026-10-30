@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.RestartAlt
+import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -95,7 +96,14 @@ class SettingsViewModel(
 }
 
 @Composable
-fun SettingsScreen(viewModel: SettingsViewModel, username: String, serverLabel: String, snackbar: SnackbarHostState) {
+fun SettingsScreen(
+    viewModel: SettingsViewModel,
+    username: String,
+    serverLabel: String,
+    serverCount: Int,
+    snackbar: SnackbarHostState,
+    onOpenServers: () -> Unit,
+) {
     val version by viewModel.version.collectAsStateWithLifecycle()
     val theme by viewModel.theme.collectAsStateWithLifecycle()
     val openAppsIn by viewModel.openAppsIn.collectAsStateWithLifecycle()
@@ -108,7 +116,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, username: String, serverLabel: 
     ) {
         Text("Settings", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.headlineMedium)
 
-        HearthCard(Modifier.fillMaxWidth()) {
+        HearthCard(Modifier.fillMaxWidth(), onClick = onOpenServers) {
             Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     Modifier.size(52.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer),
@@ -147,7 +155,21 @@ fun SettingsScreen(viewModel: SettingsViewModel, username: String, serverLabel: 
 
         SectionLabel("Account")
         HearthCard(Modifier.fillMaxWidth()) {
-            ActionRow(Icons.AutoMirrored.Rounded.Logout, "Sign out", "Removes this server's login from the phone", MaterialTheme.colorScheme.onSurface, onClick = viewModel::signOut)
+            ActionRow(
+                Icons.Rounded.SwapHoriz,
+                "Switch server",
+                if (serverCount > 1) "$serverCount servers saved. Add or remove servers" else "Add another CasaOS server",
+                MaterialTheme.colorScheme.onSurface,
+                onClick = onOpenServers,
+            )
+            HorizontalDivider(Modifier.padding(horizontal = 18.dp), color = MaterialTheme.colorScheme.outlineVariant)
+            ActionRow(
+                Icons.AutoMirrored.Rounded.Logout,
+                "Sign out",
+                "Removes this server's login from the phone. It stays in your list of servers",
+                MaterialTheme.colorScheme.onSurface,
+                onClick = viewModel::signOut,
+            )
         }
 
         Text(

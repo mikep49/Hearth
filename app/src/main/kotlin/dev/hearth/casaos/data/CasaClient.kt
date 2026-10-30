@@ -32,6 +32,14 @@ import kotlin.coroutines.resumeWithException
  */
 class CasaClient(private val session: Credentials, baseClient: OkHttpClient = OkHttpClient()) {
 
+    private companion object {
+        /**
+         * Shared by every client: the app and a widget can hold clients for the same server, and two refreshes
+         * of one login at once could leave each with a token the other just replaced.
+         */
+        val REFRESH_LOCK = Any()
+    }
+
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
     private val jsonType = "application/json".toMediaType()
     private val yamlType = "application/yaml".toMediaType()
@@ -42,7 +50,6 @@ class CasaClient(private val session: Credentials, baseClient: OkHttpClient = Ok
         .readTimeout(20, TimeUnit.SECONDS)
         .build()
 
-    private val refreshLock = Any()
 
     /** Shared with Coil so app icons and thumbnails go through the same auth handling. */
     val http: OkHttpClient = plain.newBuilder()
@@ -78,7 +85,7 @@ class CasaClient(private val session: Credentials, baseClient: OkHttpClient = Ok
         val path = response.request.url.encodedPath
         if (path.endsWith("/users/login") || path.endsWith("/users/refresh")) return null
         if (response.priorResponse != null) return null // already retried once
-        synchronized(refreshLock) {
+        synchronized(REFRESH_LOCK) {
             val sent = response.request.header("Authorization")
             val current = session.accessToken
             // Another request already refreshed while we waited on the lock: just retry with the new token.

@@ -1,6 +1,7 @@
 package dev.hearth.casaos.ui.dashboard
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,11 +11,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.CloudOff
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -24,6 +27,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -41,12 +45,12 @@ import dev.hearth.casaos.ui.components.Sparkline
 import dev.hearth.casaos.ui.components.formatBytes
 import dev.hearth.casaos.ui.components.formatRate
 import dev.hearth.casaos.ui.theme.hearth
+import java.util.Calendar
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import java.util.Calendar
 
 private const val HISTORY = 40
 private const val POLL_MS = 2_500L
@@ -105,7 +109,7 @@ class DashboardViewModel(private val client: CasaClient) : ViewModel() {
 }
 
 @Composable
-fun DashboardScreen(viewModel: DashboardViewModel, username: String, serverLabel: String) {
+fun DashboardScreen(viewModel: DashboardViewModel, username: String, serverLabel: String, onOpenServers: () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val stats = state.stats
 
@@ -113,7 +117,7 @@ fun DashboardScreen(viewModel: DashboardViewModel, username: String, serverLabel
         Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Header(username, serverLabel)
+        Header(username, serverLabel, onOpenServers)
 
         AnimatedVisibility(state.error != null) {
             HearthCard(Modifier.fillMaxWidth()) {
@@ -151,7 +155,7 @@ fun DashboardScreen(viewModel: DashboardViewModel, username: String, serverLabel
 }
 
 @Composable
-private fun Header(username: String, serverLabel: String) {
+private fun Header(username: String, serverLabel: String, onOpenServers: () -> Unit) {
     val hour = remember { Calendar.getInstance().get(Calendar.HOUR_OF_DAY) }
     val greeting = when (hour) { in 5..11 -> "Good morning"; in 12..17 -> "Good afternoon"; else -> "Good evening" }
     Column(Modifier.padding(top = 8.dp)) {
@@ -159,7 +163,14 @@ private fun Header(username: String, serverLabel: String) {
             if (username.isBlank()) greeting else "$greeting, $username",
             style = MaterialTheme.typography.headlineMedium,
         )
-        Text(serverLabel, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        // Tapping the server's name switches to another one.
+        Row(
+            Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClickLabel = "Switch server", onClick = onOpenServers).padding(vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(serverLabel, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(Icons.Rounded.ExpandMore, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 

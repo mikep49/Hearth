@@ -98,6 +98,11 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onStop() {
+        super.onStop()
+        if (!isChangingConfigurations) (application as HearthApp).container.refreshWidgets()
+    }
 }
 
 private enum class Tab(val label: String, val icon: ImageVector) {

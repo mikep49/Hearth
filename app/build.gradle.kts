@@ -59,6 +59,8 @@ dependencies {
     implementation(libs.jsch)
     implementation(libs.termux.terminal.emulator)
     implementation(libs.snakeyaml.engine) // reads and writes the compose YAML behind an app's settings
+    implementation(libs.glance.appwidget) // home screen widgets
+    implementation(libs.glance.material3)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation(libs.junit)

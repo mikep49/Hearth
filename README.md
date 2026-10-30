@@ -12,6 +12,7 @@ A native Android client for [CasaOS](https://casaos.io): live system stats, app 
 - **Files**: browse `/DATA`, download to `Downloads/Hearth` (no storage permission needed).
 - **Terminal**: a shell on the server over SSH, with color, scrollback (drag), pinch-to-zoom text, an extra-keys row (Ctrl, Alt, Esc, Tab, arrows…), paste, and a one-tap **Update server** that runs `sudo apt update && sudo apt upgrade -y`. The session keeps running while you switch tabs.
 - **Settings**: server version, where apps open (Hearth or browser), restart / shut down (with confirmation), sign out. Signing out also clears logins made inside Hearth's in-app browser.
+- **Widget**: a home screen widget with your server's CPU, memory and storage use. Resize it: 2×1 shows three numbers, larger sizes add bars, and 3×2 and up add CPU cores and temperature and how much memory and storage is used. It refreshes every 30 minutes, when you leave Hearth, and when you tap its refresh button. When the server can't be reached it keeps the last reading and marks it offline. It follows Hearth's theme, and signing out clears it.
 - **Themes**: System / Light / Dark, six accents (Ember, Ocean, Forest, Violet, Rose, and Dynamic, which uses your wallpaper colors on Android 12+), and a pure-black mode for OLED screens. The choice is remembered and survives sign-out.
 
 ![Themes](docs/screenshots/themes.png)

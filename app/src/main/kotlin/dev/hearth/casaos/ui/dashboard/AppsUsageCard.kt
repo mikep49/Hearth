@@ -180,7 +180,7 @@ private fun AppRow(app: AppUsage, stats: SystemStats, sort: SortBy) {
 }
 
 @Composable
-private fun UsageBar(fraction: Float, color: Color) {
+internal fun UsageBar(fraction: Float, color: Color) {
     Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(MaterialTheme.colorScheme.surfaceContainerHighest)) {
         Box(Modifier.fillMaxHeight().fillMaxWidth(fraction.coerceIn(0f, 1f)).background(color))
     }

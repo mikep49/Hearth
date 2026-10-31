@@ -2,9 +2,12 @@ package dev.hearth.casaos
 
 import dev.hearth.casaos.data.AppState
 import dev.hearth.casaos.data.CasaException
+import dev.hearth.casaos.data.DriveHealth
+import dev.hearth.casaos.data.DriveKind
 import dev.hearth.casaos.data.appState
 import dev.hearth.casaos.data.normalizeBaseUrl
 import dev.hearth.casaos.data.parseApps
+import dev.hearth.casaos.data.parseDrives
 import dev.hearth.casaos.data.parseFolder
 import dev.hearth.casaos.data.parseUtilization
 import dev.hearth.casaos.data.webUrl
@@ -52,6 +55,53 @@ class ParsersTest {
         assertEquals(320L, s.netRxBytes)
         assertEquals(110L, s.netTxBytes)
         assertEquals(60.0, s.disk!!.percent, 0.0)
+    }
+
+    @Test fun `drives join volumes to their drive, system first and usb last`() {
+        val drives = parseDrives(
+            json(
+                """{"disks":[
+                     {"name":"sdb","size":4000000000000,"model":"WDC WD40EFRX ","health":"true","temperature":38,"disk_type":"HDD","path":"/dev/sdb"},
+                     {"name":"nvme0n1","size":1000000000000,"model":"","health":"false","temperature":0,"disk_type":"SSD","path":"/dev/nvme0n1"}],
+                   "storage":[
+                     {"mount_point":"/","size":"64000000000","avail":"40000000000","type":"ext4","path":"/dev/sda2","drive_name":"System"},
+                     {"mount_point":"/media/sdb1","size":4000000000000,"avail":1000000000000,"type":"ext4","path":"/dev/sdb1","drive_name":"sdb"}],
+                   "avail":[]}""",
+            ),
+            json(
+                """[{"name":"sdc","size":128000000000,"model":"SanDisk","avail":100,
+                     "children":[{"name":"sdc1","size":128000000000,"avail":28000000000,"mount_point":"/media/sdc1"}]},
+                    {"name":"sda","size":64000000000,"model":"Boot stick","children":[]}]""",
+            ),
+        )
+        assertEquals(listOf("System", "sdb", "nvme0n1", "sdc"), drives.map { it.name }) // sda is the system drive
+        val system = drives[0]
+        assertEquals(DriveKind.System, system.kind)
+        assertEquals(24_000_000_000L, system.volumes.single().usedBytes) // sizes sent as strings
+        val hdd = drives[1]
+        assertEquals("WDC WD40EFRX", hdd.model)
+        assertEquals(DriveKind.Hdd, hdd.kind)
+        assertEquals(DriveHealth.Healthy, hdd.health)
+        assertEquals(38, hdd.temperatureC)
+        assertEquals(75.0, hdd.volumes.single().percent, 0.0)
+        val ssd = drives[2]
+        assertNull(ssd.model)
+        assertEquals(DriveKind.Ssd, ssd.kind)
+        assertEquals(DriveHealth.Failing, ssd.health)
+        assertNull(ssd.temperatureC)
+        assertTrue(ssd.volumes.isEmpty())
+        val usb = drives[3]
+        assertEquals(DriveKind.Usb, usb.kind)
+        assertEquals(DriveHealth.Unknown, usb.health)
+        assertEquals("/media/sdc1", usb.volumes.single().mountPoint)
+    }
+
+    @Test fun `drives tolerate missing sections`() {
+        assertTrue(parseDrives(null, null).isEmpty())
+        assertTrue(parseDrives(json("""{"disks":null}"""), json("""{"oops":1}""")).isEmpty())
+        val d = parseDrives(json("""{"disks":[{"name":"sda"}]}"""), null).single()
+        assertEquals(DriveHealth.Unknown, d.health)
+        assertEquals(0L, d.sizeBytes)
     }
 
     @Test fun `utilization tolerates missing sections and zero temperature`() {

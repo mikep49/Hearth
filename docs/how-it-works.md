@@ -20,6 +20,7 @@ The details behind each feature, how Hearth talks to CasaOS, and what it does to
 ### Home
 
 - Live CPU, memory and storage gauges, CPU history and network throughput. They update every 2.5 s, and only while the screen is visible.
+- The **Storage** card lists each drive: its model, type (HDD, SSD or USB), size and temperature, whether its SMART self-check passes, and how full each of its volumes is. It refreshes every minute, since CasaOS checks every drive to answer. CasaOS reports a drive it can't check (for example when `smartctl` isn't installed) as passing, so "Healthy" means no failure was reported. USB drives and the system drive have no health badge. On servers without this information, Home shows the storage total instead.
 - The **Apps** card shows CPU and memory per app, busiest first, sorted by CPU or memory. CasaOS only reports whole-server totals, so this card reads `docker stats` over the SSH login saved on the Terminal tab. While the card is collapsed, Hearth doesn't poll it and closes its SSH connection.
 
 ### Apps

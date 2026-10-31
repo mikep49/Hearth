@@ -1,0 +1,3 @@
+• Tablets and landscape: a side rail and wider layouts
+• Home shows every drive with its health and free space
+• Optional alerts when a server goes offline, storage is nearly full, an app stops or an update is out

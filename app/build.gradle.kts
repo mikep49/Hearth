@@ -43,9 +43,20 @@ android {
         }
     }
 
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
+    }
+
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    // Leave out the Google-signed dependency list AGP adds to APKs; F-Droid doesn't allow it.
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
     }
 
     packaging {
@@ -54,8 +65,9 @@ android {
     }
 }
 
+// Compile for Java 21 with whatever JDK runs Gradle (21 or newer), so the build never downloads one.
 kotlin {
-    jvmToolchain(21)
+    compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21) }
 }
 
 dependencies {

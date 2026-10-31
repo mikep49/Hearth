@@ -1,0 +1,25 @@
+Hearth is a native app for CasaOS home servers. Check your server, manage your apps, browse your files and open a terminal, all from your phone.
+
+<b>Features</b>
+<ul>
+<li><b>Home:</b> live CPU, memory, network and storage, how much each app uses, and every drive with its health and free space</li>
+<li><b>Apps:</b> start, stop, restart and update apps, change their settings or version, and read their logs live</li>
+<li><b>App Store:</b> browse and install apps from your server's stores</li>
+<li><b>Files:</b> browse, preview, upload, download, share and search everything on the server</li>
+<li><b>Terminal:</b> an SSH shell with extra keys and a one-tap server update</li>
+<li><b>Alerts:</b> optional notifications when a server goes offline, storage is nearly full, an app stops or an update is out</li>
+<li><b>Servers:</b> save several servers and switch between them, or let Hearth find them on your Wi-Fi</li>
+<li><b>Lock:</b> optional fingerprint, face or PIN lock</li>
+<li><b>Widget:</b> your server's stats on the home screen</li>
+<li><b>Themes:</b> system, light or dark, pure black, and six accent colors</li>
+<li><b>Tablets:</b> a side rail and wider layouts on big screens and in landscape</li>
+</ul>
+
+Sign in with your server's address (for example 192.168.1.20 or casaos.local) and the same login you use for the CasaOS dashboard.
+
+<b>Privacy and security</b>
+Hearth has no ads, analytics or tracking. It talks to your own server. The only exception is picking an app's version: then it reads the list of versions from the app's image registry, such as Docker Hub, and sends nothing about you or your server.
+
+CasaOS uses plain HTTP by default, so your password isn't encrypted on the network. Use Hearth on your home network, or connect through a VPN such as Tailscale or WireGuard when you're away. Your logins are stored encrypted on the phone, and the terminal uses SSH, which is always encrypted.
+
+Hearth is an unofficial app and isn't affiliated with CasaOS or IceWhale.

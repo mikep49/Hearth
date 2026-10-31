@@ -122,7 +122,7 @@ CasaOS expects the raw JWT in the `Authorization` header (no `Bearer`). Endpoint
 
 ## Building
 
-You need the Android SDK and any Java to start Gradle. Gradle then downloads the JDK 21 the build uses. Opening the project in Android Studio sets both up for you.
+You need the Android SDK and a JDK, version 21 or newer. Android Studio comes with both.
 
 From the command line, create `local.properties` pointing at your SDK. The file is per-machine and isn't committed.
 

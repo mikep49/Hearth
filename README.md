@@ -51,3 +51,7 @@ Open the project in Android Studio and press **Run**, or from the command line:
 [How Hearth works](docs/how-it-works.md) explains each feature in detail, the CasaOS API calls Hearth makes, its security measures, and how to build and test it.
 
 Hearth is an unofficial app and isn't affiliated with CasaOS or IceWhale.
+
+## License
+
+Hearth is released under the [MIT License](LICENSE).

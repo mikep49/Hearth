@@ -50,6 +50,8 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import dev.hearth.casaos.data.AppUsageSource
 import dev.hearth.casaos.data.ServerProfile
 import dev.hearth.casaos.data.Session
+import dev.hearth.casaos.ui.apps.AppLogsScreen
+import dev.hearth.casaos.ui.apps.AppLogsViewModel
 import dev.hearth.casaos.ui.apps.AppSettingsScreen
 import dev.hearth.casaos.ui.apps.AppSettingsViewModel
 import dev.hearth.casaos.ui.apps.AppVersionScreen
@@ -166,6 +168,9 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
     var versionAppId by rememberSaveable { mutableStateOf<String?>(null) }
     var versionAppName by rememberSaveable { mutableStateOf<String?>(null) }
     var versionUpdateAvailable by rememberSaveable { mutableStateOf(false) }
+    // An app's logs, drawn over everything the same way.
+    var logsAppId by rememberSaveable { mutableStateOf<String?>(null) }
+    var logsAppName by rememberSaveable { mutableStateOf<String?>(null) }
     // The App Store, drawn over everything the same way.
     var storeOpen by rememberSaveable { mutableStateOf(false) }
 
@@ -222,7 +227,7 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
                         WhileVisible { vm.poll() }
                         AppsScreen(
                             vm, session.baseUrl, snackbar, openAppsIn,
-                            pageOpen = settingsAppId != null || versionAppId != null || storeOpen,
+                            pageOpen = settingsAppId != null || versionAppId != null || logsAppId != null || storeOpen,
                             onOpenStore = { storeOpen = true },
                             onOpenSettings = { app -> settingsAppId = app.id; settingsAppName = app.name },
                             onOpenVersion = { app ->
@@ -230,6 +235,7 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
                                 versionAppName = app.name
                                 versionUpdateAvailable = app.updateAvailable
                             },
+                            onOpenLogs = { app -> logsAppId = app.id; logsAppName = app.name },
                         ) { app, url ->
                             webApp = app.name
                             webIcon = app.iconUrl
@@ -300,6 +306,20 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
                 versionAppName.orEmpty(),
                 updateAvailable = versionUpdateAvailable,
                 onClose = { versionAppId = null; versionAppName = null },
+                Modifier.fillMaxSize(),
+            )
+        }
+
+        val logsId = logsAppId
+        if (logsId != null) {
+            val vm: AppLogsViewModel = viewModel(key = "applogs$key|$logsId", factory = viewModelFactory {
+                initializer { AppLogsViewModel(client, logsId) }
+            })
+            AppLogsScreen(
+                vm,
+                logsId,
+                logsAppName.orEmpty(),
+                onClose = { logsAppId = null; logsAppName = null },
                 Modifier.fillMaxSize(),
             )
         }

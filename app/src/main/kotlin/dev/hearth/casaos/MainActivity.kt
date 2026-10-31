@@ -1,5 +1,6 @@
 package dev.hearth.casaos
 
+import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.SystemBarStyle
@@ -55,6 +56,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import dev.hearth.casaos.alerts.AlertNotifications
 import dev.hearth.casaos.data.AppUsageSource
 import dev.hearth.casaos.data.ServerProfile
 import dev.hearth.casaos.data.Session
@@ -93,6 +95,8 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val container = (application as HearthApp).container
+        // Not again after rotating: the intent is the same, but it was already shown.
+        if (savedInstanceState == null) openFrom(intent)
         setContent {
             val theme by container.theme.settings.collectAsStateWithLifecycle()
             val dark = theme.isDark()
@@ -103,6 +107,18 @@ class MainActivity : FragmentActivity() {
             }
             HearthTheme(theme) { ClearOfCutout { LockGate(container.lock) { Root(container) } } }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        openFrom(intent)
+    }
+
+    /** A tapped alert opens its server, on Home or Apps. */
+    private fun openFrom(intent: Intent?) {
+        val server = intent?.getStringExtra(AlertNotifications.EXTRA_SERVER) ?: return
+        val apps = intent.getStringExtra(AlertNotifications.EXTRA_TAB) == AlertNotifications.TAB_APPS
+        (application as HearthApp).container.openRequest.value = OpenRequest(server, apps)
     }
 
     override fun onStop() {
@@ -119,6 +135,15 @@ private fun Root(container: AppContainer) {
     // Kept out here so switching servers stays on the same tab; a fresh sign-in starts at Home.
     var tab by rememberSaveable { mutableIntStateOf(0) }
     LaunchedEffect(session == null) { if (session == null) tab = 0 }
+    val open by container.openRequest.collectAsStateWithLifecycle()
+    LaunchedEffect(open) {
+        val request = open ?: return@LaunchedEffect
+        container.openRequest.value = null
+        // A server that was signed out since stays on whatever is showing.
+        if (container.session.profile(request.server)?.signedIn != true) return@LaunchedEffect
+        container.session.switchTo(request.server)
+        tab = if (request.apps) Tab.Apps.ordinal else Tab.Dashboard.ordinal
+    }
     Crossfade(session, label = "root") { s ->
         if (s == null) {
             // Offers to sign in again to the server that was open, if it's still saved.

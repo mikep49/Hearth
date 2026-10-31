@@ -13,6 +13,7 @@ The details behind each feature, how Hearth talks to CasaOS, and what it does to
 ### Servers and sign-in
 
 - Sign in with the server address and your CasaOS login. Tokens are encrypted with an Android Keystore key and refreshed automatically.
+- The sign-in page looks for CasaOS servers on your Wi-Fi when it opens, or when you tap **Find servers on this network**. It tries `casaos.local` and every address on the phone's subnet (at most 254) on port 80. Tap a result to fill in the address. If it finds exactly one and you haven't typed anything, it fills it in for you.
 - You can save more than one server. Each one keeps its own encrypted login. Switch servers from the server name on Home or from Settings, where you can also add and remove servers. A signed-out server opens the sign-in form already filled in.
 - **Sign out** ends the current login but keeps the server in your list. It also forgets that server's SSH password, its widget reading and the in-app browser's logins.
 
@@ -72,6 +73,7 @@ The details behind each feature, how Hearth talks to CasaOS, and what it does to
 | Feature | Endpoint |
 | --- | --- |
 | Login / refresh | `POST /v1/users/login`, `POST /v1/users/refresh` |
+| Finding servers | `GET /v1/users/status` (needs no login), falling back to a `<title>CasaOS` check on `GET /` |
 | Stats | `GET /v1/sys/utilization` |
 | Apps | `GET /v2/app_management/compose`, `PUT .../compose/{id}/status`, `GET .../compose/{id}/logs` |
 | App settings | `GET /v2/app_management/compose/{id}` with `Accept: application/yaml`, `PUT .../compose/{id}?check_port_conflict=true` with the YAML |

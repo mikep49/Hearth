@@ -14,6 +14,7 @@ import dev.hearth.casaos.data.AppLock
 import dev.hearth.casaos.data.CasaClient
 import dev.hearth.casaos.data.FileDownloader
 import dev.hearth.casaos.data.ImageRegistry
+import dev.hearth.casaos.data.LanServerFinder
 import dev.hearth.casaos.data.PhoneFiles
 import dev.hearth.casaos.data.PrefsStore
 import dev.hearth.casaos.data.ServerProfile
@@ -44,6 +45,9 @@ class AppContainer(private val app: Application) {
 
     /** Follows whichever server is being shown. Used to sign in, and for images. */
     val client = CasaClient(session, http)
+
+    /** Finds CasaOS servers on the local network for the sign-in page. */
+    val finder = LanServerFinder(app, http)
 
     private val clients = ConcurrentHashMap<String, CasaClient>()
 

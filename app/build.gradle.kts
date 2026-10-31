@@ -14,8 +14,8 @@ android {
         applicationId = "dev.hearth.casaos"
         minSdk = 29
         targetSdk = 36
-        versionCode = 13
-        versionName = "0.8.0"
+        versionCode = 14
+        versionName = "0.9.0"
     }
 
     // The release key lives outside the repo. Point the "hearth.signing" Gradle property

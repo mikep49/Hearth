@@ -66,6 +66,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.termux.terminal.KeyHandler
 import dev.hearth.casaos.ui.components.HearthCard
+import dev.hearth.casaos.ui.components.readableWidth
 
 @Composable
 fun TerminalScreen(viewModel: TerminalViewModel) {
@@ -291,7 +292,7 @@ private fun SignInForm(viewModel: TerminalViewModel, state: TerminalUiState) {
     var showPassword by rememberSaveable { mutableStateOf(false) }
 
     Column(
-        Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
+        Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).readableWidth().padding(horizontal = 20.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text("Terminal", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.headlineMedium)

@@ -89,6 +89,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import dev.hearth.casaos.ui.components.readableWidth
 
 data class ConnectState(
     val server: String = "",
@@ -223,6 +224,7 @@ fun ConnectScreen(
                 .navigationBarsPadding()
                 .imePadding()
                 .verticalScroll(rememberScrollState())
+                .readableWidth(480.dp)
                 .padding(horizontal = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {

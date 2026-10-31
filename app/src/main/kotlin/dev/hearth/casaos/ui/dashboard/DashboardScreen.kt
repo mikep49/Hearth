@@ -3,6 +3,7 @@ package dev.hearth.casaos.ui.dashboard
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -45,11 +46,13 @@ import dev.hearth.casaos.data.groupUsage
 import dev.hearth.casaos.data.SystemStats
 import dev.hearth.casaos.ui.components.EmptyState
 import dev.hearth.casaos.ui.components.HearthCard
+import dev.hearth.casaos.ui.components.ReadableWidth
 import dev.hearth.casaos.ui.components.RingGauge
 import dev.hearth.casaos.ui.components.SectionLabel
 import dev.hearth.casaos.ui.components.Sparkline
 import dev.hearth.casaos.ui.components.formatBytes
 import dev.hearth.casaos.ui.components.formatRate
+import dev.hearth.casaos.ui.components.readableWidth
 import dev.hearth.casaos.ui.theme.hearth
 import java.util.Calendar
 import kotlinx.coroutines.coroutineScope
@@ -193,47 +196,71 @@ fun DashboardScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val stats = state.stats
 
-    Column(
-        Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Header(username, serverLabel, onOpenServers)
+    // Wide screens put the per-app list beside the server's own stats rather than below them.
+    BoxWithConstraints {
+        val twoColumns = maxWidth >= TwoColumnWidth
+        Column(
+            Modifier.verticalScroll(rememberScrollState())
+                .readableWidth(if (twoColumns) TwoColumnMaxWidth else ReadableWidth)
+                .padding(horizontal = 20.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Header(username, serverLabel, onOpenServers)
 
-        AnimatedVisibility(state.error != null) {
-            HearthCard(Modifier.fillMaxWidth()) {
-                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.CloudOff, null, tint = MaterialTheme.colorScheme.error)
-                    Column(Modifier.padding(start = 12.dp)) {
-                        Text("Can't reach your server", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            state.error.orEmpty() + (if (stats != null) " · showing last reading" else ""),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+            AnimatedVisibility(state.error != null) {
+                HearthCard(Modifier.fillMaxWidth()) {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.CloudOff, null, tint = MaterialTheme.colorScheme.error)
+                        Column(Modifier.padding(start = 12.dp)) {
+                            Text("Can't reach your server", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                state.error.orEmpty() + (if (stats != null) " · showing last reading" else ""),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }
-        }
 
-        if (stats == null) {
-            if (state.error == null) {
-                Column(Modifier.fillMaxWidth().padding(top = 80.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator()
+            if (stats == null) {
+                if (state.error == null) {
+                    Column(Modifier.fillMaxWidth().padding(top = 80.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator()
+                    }
+                } else {
+                    EmptyState("No data yet", "We'll keep trying while this screen is open.")
+                }
+                return@Column
+            }
+
+            if (twoColumns) {
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Overview(stats)
+                        CpuCard(stats, state.cpuHistory)
+                        NetworkCard(state)
+                        MemoryCard(stats)
+                    }
+                    Column(Modifier.weight(1f)) {
+                        AppsCard(state.apps, stats, appsCollapsed, onAppsCollapsedChange, onOpenTerminal)
+                    }
                 }
             } else {
-                EmptyState("No data yet", "We'll keep trying while this screen is open.")
+                Overview(stats)
+                AppsCard(state.apps, stats, appsCollapsed, onAppsCollapsedChange, onOpenTerminal)
+                CpuCard(stats, state.cpuHistory)
+                NetworkCard(state)
+                MemoryCard(stats)
             }
-            return@Column
+            Spacer(Modifier.height(8.dp))
         }
-
-        Overview(stats)
-        AppsCard(state.apps, stats, appsCollapsed, onAppsCollapsedChange, onOpenTerminal)
-        CpuCard(stats, state.cpuHistory)
-        NetworkCard(state)
-        MemoryCard(stats)
-        Spacer(Modifier.height(8.dp))
     }
 }
+
+/** From this width Home shows two columns of cards, up to [TwoColumnMaxWidth] across. */
+private val TwoColumnWidth = 840.dp
+private val TwoColumnMaxWidth = 1200.dp
 
 @Composable
 private fun Header(username: String, serverLabel: String, onOpenServers: () -> Unit) {

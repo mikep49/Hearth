@@ -92,6 +92,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpOffset
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -119,6 +120,7 @@ import dev.hearth.casaos.data.searchFiles
 import dev.hearth.casaos.data.uniqueName
 import dev.hearth.casaos.data.walkFolders
 import dev.hearth.casaos.data.without
+import dev.hearth.casaos.ui.components.ReadableGutter
 import dev.hearth.casaos.ui.components.EmptyState
 import dev.hearth.casaos.ui.components.HearthCard
 import dev.hearth.casaos.ui.components.SearchField
@@ -562,78 +564,80 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState) {
     }
 
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize()) {
-            Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 8.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Files", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
-                    SortButton(sort, onSortBy = viewModel::sortBy, onShowHidden = viewModel::setShowHidden)
-                }
-                Breadcrumbs(state.path, onNavigate = viewModel::open)
-                if (state.listing != null || query.isNotEmpty()) {
-                    SearchField(query, { query = it }, "Search all files on the server", Modifier.padding(top = 4.dp))
-                }
-            }
-            state.transfer?.let { TransferBar(it) }
-            state.clipboard?.let { clip ->
-                ClipboardBar(clip, onCancel = viewModel::clearClipboard, onPaste = viewModel::paste)
-            }
-
-            PullToRefreshBox(
-                isRefreshing = state.loading && state.listing != null,
-                onRefresh = { viewModel.reload(); if (searching) viewModel.ensureIndex() },
-                modifier = Modifier.weight(1f),
-            ) {
-                val listing = state.listing
-                when {
-                    listing == null && state.loading -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
-                    listing == null -> EmptyState("Couldn't open this folder", state.error.orEmpty()) {
-                        TextButton(onClick = viewModel::reload) { Text("Try again") }
+        ReadableGutter(min = 20.dp) { side ->
+            Column(Modifier.fillMaxSize()) {
+                Column(Modifier.padding(start = side, end = side, top = 20.dp, bottom = 8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Files", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+                        SortButton(sort, onSortBy = viewModel::sortBy, onShowHidden = viewModel::setShowHidden)
                     }
-                    listing.entries.isEmpty() && !searching ->
-                        EmptyState("Empty folder", "There's nothing in ${state.path}. Tap + to upload files or make a folder.")
-                    !sort.showHidden && !searching && listing.entries.all { isHidden(it.name) } ->
-                        EmptyState("Only hidden files", "Everything in ${state.path} is hidden.") {
-                            TextButton(onClick = { viewModel.setShowHidden(true) }) { Text("Show hidden files") }
+                    Breadcrumbs(state.path, onNavigate = viewModel::open)
+                    if (state.listing != null || query.isNotEmpty()) {
+                        SearchField(query, { query = it }, "Search all files on the server", Modifier.padding(top = 4.dp))
+                    }
+                }
+                state.transfer?.let { TransferBar(it, side) }
+                state.clipboard?.let { clip ->
+                    ClipboardBar(clip, side, onCancel = viewModel::clearClipboard, onPaste = viewModel::paste)
+                }
+
+                PullToRefreshBox(
+                    isRefreshing = state.loading && state.listing != null,
+                    onRefresh = { viewModel.reload(); if (searching) viewModel.ensureIndex() },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    val listing = state.listing
+                    when {
+                        listing == null && state.loading -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
+                        listing == null -> EmptyState("Couldn't open this folder", state.error.orEmpty()) {
+                            TextButton(onClick = viewModel::reload) { Text("Try again") }
                         }
-                    else -> {
-                        val shown = remember(listing, q, sort) {
-                            val arranged = listing.entries.arranged(sort)
-                            if (q.isEmpty()) arranged else arranged.filter { it.name.contains(q, true) }
-                        }
-                        val onAction: (FileEntry, FileAction) -> Unit = { entry, action ->
-                            when (action) {
-                                FileAction.OpenWith -> viewModel.openWith(entry, share = false)
-                                FileAction.Share -> viewModel.openWith(entry, share = true)
-                                FileAction.Download -> viewModel.download(entry)
-                                FileAction.Rename -> dialog = FileDialog.Rename(entry)
-                                FileAction.Copy -> viewModel.cut(listOf(entry), move = false)
-                                FileAction.Move -> viewModel.cut(listOf(entry), move = true)
-                                FileAction.Delete -> dialog = FileDialog.Delete(entry)
+                        listing.entries.isEmpty() && !searching ->
+                            EmptyState("Empty folder", "There's nothing in ${state.path}. Tap + to upload files or make a folder.")
+                        !sort.showHidden && !searching && listing.entries.all { isHidden(it.name) } ->
+                            EmptyState("Only hidden files", "Everything in ${state.path} is hidden.") {
+                                TextButton(onClick = { viewModel.setShowHidden(true) }) { Text("Show hidden files") }
                             }
-                        }
-                        LazyColumn(
-                            // Room at the bottom so the last row isn't under the + button.
-                            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 96.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            if (searching && shown.isNotEmpty()) {
-                                item(key = "here-header") { SectionLabel("In ${folderName(state.path)}") }
+                        else -> {
+                            val shown = remember(listing, q, sort) {
+                                val arranged = listing.entries.arranged(sort)
+                                if (q.isEmpty()) arranged else arranged.filter { it.name.contains(q, true) }
                             }
-                            items(shown, key = { it.path }) { entry ->
-                                FileRow(entry, onClick = { openEntry(entry) }, onAction = { onAction(entry, it) })
-                            }
-                            if (searching) {
-                                item(key = "elsewhere-header") { SectionLabel("Everywhere else") }
-                                item(key = "elsewhere-status") {
-                                    SearchStatus(index, elsewhere, nothingHere = shown.isEmpty(), query = q)
+                            val onAction: (FileEntry, FileAction) -> Unit = { entry, action ->
+                                when (action) {
+                                    FileAction.OpenWith -> viewModel.openWith(entry, share = false)
+                                    FileAction.Share -> viewModel.openWith(entry, share = true)
+                                    FileAction.Download -> viewModel.download(entry)
+                                    FileAction.Rename -> dialog = FileDialog.Rename(entry)
+                                    FileAction.Copy -> viewModel.cut(listOf(entry), move = false)
+                                    FileAction.Move -> viewModel.cut(listOf(entry), move = true)
+                                    FileAction.Delete -> dialog = FileDialog.Delete(entry)
                                 }
-                                items(elsewhere.entries, key = { "elsewhere:" + it.path }) { entry ->
-                                    FileRow(
-                                        entry,
-                                        location = locationOf(entry),
-                                        onClick = { openEntry(entry) },
-                                        onAction = { onAction(entry, it) },
-                                    )
+                            }
+                            LazyColumn(
+                                // Room at the bottom so the last row isn't under the + button.
+                                contentPadding = PaddingValues(start = side, end = side, top = 8.dp, bottom = 96.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                if (searching && shown.isNotEmpty()) {
+                                    item(key = "here-header") { SectionLabel("In ${folderName(state.path)}") }
+                                }
+                                items(shown, key = { it.path }) { entry ->
+                                    FileRow(entry, onClick = { openEntry(entry) }, onAction = { onAction(entry, it) })
+                                }
+                                if (searching) {
+                                    item(key = "elsewhere-header") { SectionLabel("Everywhere else") }
+                                    item(key = "elsewhere-status") {
+                                        SearchStatus(index, elsewhere, nothingHere = shown.isEmpty(), query = q)
+                                    }
+                                    items(elsewhere.entries, key = { "elsewhere:" + it.path }) { entry ->
+                                        FileRow(
+                                            entry,
+                                            location = locationOf(entry),
+                                            onClick = { openEntry(entry) },
+                                            onAction = { onAction(entry, it) },
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -808,8 +812,8 @@ private fun locationOf(entry: FileEntry): String =
     parentOf(entry.path).removePrefix(ROOT).trim('/').ifEmpty { folderName(ROOT) }
 
 @Composable
-private fun TransferBar(t: Transfer) {
-    Column(Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
+private fun TransferBar(t: Transfer, side: Dp) {
+    Column(Modifier.padding(horizontal = side, vertical = 6.dp)) {
         Text(t.label, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         val p = t.progress
         if (p != null) LinearProgressIndicator(progress = { p }, Modifier.fillMaxWidth().padding(top = 6.dp))
@@ -819,11 +823,11 @@ private fun TransferBar(t: Transfer) {
 
 /** Shown while items are cut or copied: browse to the destination, then paste. */
 @Composable
-private fun ClipboardBar(clip: Clipboard, onCancel: () -> Unit, onPaste: () -> Unit) {
+private fun ClipboardBar(clip: Clipboard, side: Dp, onCancel: () -> Unit, onPaste: () -> Unit) {
     Surface(
         color = MaterialTheme.colorScheme.secondaryContainer,
         shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp).fillMaxWidth(),
+        modifier = Modifier.padding(horizontal = side, vertical = 6.dp).fillMaxWidth(),
     ) {
         Row(Modifier.padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             val what = if (clip.entries.size == 1) clip.entries[0].name else plural(clip.entries.size, "item")

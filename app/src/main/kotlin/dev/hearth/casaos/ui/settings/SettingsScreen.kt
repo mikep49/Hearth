@@ -58,6 +58,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import dev.hearth.casaos.ui.components.readableWidth
 
 class SettingsViewModel(
     private val client: CasaClient,
@@ -128,7 +129,7 @@ fun SettingsScreen(
     LaunchedEffect(viewModel) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
 
     Column(
-        Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
+        Modifier.verticalScroll(rememberScrollState()).readableWidth().padding(horizontal = 20.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text("Settings", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.headlineMedium)

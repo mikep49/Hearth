@@ -54,6 +54,82 @@ fun parseUtilization(data: JsonElement?, nowMs: Long): SystemStats {
 }
 
 /**
+ * Each drive with its mounted volumes, system drive first and USB drives last.
+ *
+ * [disks] is `/v1/disks`: `{disks: [...], storage: [...]}`. `disks` holds the internal data drives with their
+ * SMART health (`"true"`/`"false"`) and temperature; it leaves out the drive CasaOS runs from, whose root
+ * volume appears in `storage` under the drive name `System`. `storage` lists mounted volumes, with sizes that
+ * some builds send as strings. [usb] is `/v1/disks/usb`, a list of drives with their mounted `children`.
+ */
+fun parseDrives(disks: JsonElement?, usb: JsonElement?): List<Drive> {
+    val root = disks.obj()
+    val volumesByDrive = root?.get("storage").arr().orEmpty().mapNotNull { el ->
+        val o = el.obj() ?: return@mapNotNull null
+        val mount = o["mount_point"].str()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+        val drive = o["drive_name"].str().orEmpty()
+        val volume = Volume(
+            mountPoint = mount,
+            totalBytes = o["size"].lng() ?: 0L,
+            availBytes = o["avail"].lng() ?: 0L,
+            fsType = o["type"].str()?.takeIf { it.isNotBlank() },
+        )
+        Triple(drive, o["path"].str().orEmpty(), volume)
+    }.groupBy { it.first }
+
+    val drives = mutableListOf<Drive>()
+    volumesByDrive["System"]?.let { system ->
+        drives += Drive(
+            name = "System",
+            model = null,
+            sizeBytes = system.sumOf { it.third.totalBytes },
+            kind = DriveKind.System,
+            health = DriveHealth.Unknown,
+            temperatureC = null,
+            volumes = system.map { it.third },
+        )
+    }
+    root?.get("disks").arr().orEmpty().mapNotNullTo(drives) { el ->
+        val o = el.obj() ?: return@mapNotNullTo null
+        val name = o["name"].str()?.takeIf { it.isNotBlank() } ?: return@mapNotNullTo null
+        Drive(
+            name = name,
+            model = o["model"].str()?.trim()?.takeIf { it.isNotBlank() },
+            sizeBytes = o["size"].lng() ?: 0L,
+            kind = if (o["disk_type"].str().equals("HDD", ignoreCase = true)) DriveKind.Hdd else DriveKind.Ssd,
+            health = when (o["health"].str()?.lowercase()) {
+                "true" -> DriveHealth.Healthy
+                "false" -> DriveHealth.Failing
+                else -> DriveHealth.Unknown
+            },
+            temperatureC = o["temperature"].lng()?.toInt()?.takeIf { it > 0 },
+            volumes = volumesByDrive[name].orEmpty().map { it.third }.sortedBy { it.mountPoint },
+        )
+    }
+
+    // A server that boots from a USB drive lists it here too; it's already shown as the system drive.
+    val systemDevices = volumesByDrive["System"].orEmpty().map { it.second }
+    usb.arr().orEmpty().mapNotNullTo(drives) { el ->
+        val o = el.obj() ?: return@mapNotNullTo null
+        val name = o["name"].str()?.takeIf { it.isNotBlank() } ?: return@mapNotNullTo null
+        if (drives.any { it.name == name } || systemDevices.any { it.startsWith("/dev/$name") }) return@mapNotNullTo null
+        Drive(
+            name = name,
+            model = o["model"].str()?.trim()?.takeIf { it.isNotBlank() },
+            sizeBytes = o["size"].lng() ?: 0L,
+            kind = DriveKind.Usb,
+            health = DriveHealth.Unknown,
+            temperatureC = null,
+            volumes = o["children"].arr().orEmpty().mapNotNull { c ->
+                val child = c.obj() ?: return@mapNotNull null
+                val mount = child["mount_point"].str()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                Volume(mount, child["size"].lng() ?: 0L, child["avail"].lng() ?: 0L, null)
+            }.sortedBy { it.mountPoint },
+        )
+    }
+    return drives
+}
+
+/**
  * Picks the best localized string from a `{ "en_us": "…" }` map, falling back to any entry. A name the user
  * gave the app in its settings is stored as `custom` and wins.
  */

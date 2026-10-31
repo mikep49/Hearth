@@ -40,6 +40,7 @@ import dev.hearth.casaos.data.AppUsageSource
 import dev.hearth.casaos.data.CasaClient
 import dev.hearth.casaos.data.CasaException
 import dev.hearth.casaos.data.ContainerUsage
+import dev.hearth.casaos.data.Drive
 import dev.hearth.casaos.data.InstalledApp
 import dev.hearth.casaos.data.UsageUnavailable
 import dev.hearth.casaos.data.groupUsage
@@ -68,6 +69,8 @@ private const val HISTORY = 40
 private const val POLL_MS = 2_500L
 private const val APPS_POLL_MS = 3_000L
 private const val APPS_LIST_MS = 60_000L
+/** Each reading runs smartctl on every drive, and health and free space change slowly. */
+private const val DRIVES_POLL_MS = 60_000L
 
 data class DashboardState(
     val stats: SystemStats? = null,
@@ -78,6 +81,8 @@ data class DashboardState(
     val txRate: Long = 0,
     val error: String? = null,
     val apps: AppsUsageState = AppsUsageState.Loading,
+    /** Null until the first reading, and on servers without the disks API. */
+    val drives: List<Drive>? = null,
 )
 
 /** The per-app list, which comes over SSH and so can be unavailable while the server totals still work. */
@@ -136,6 +141,7 @@ class DashboardViewModel(
     /** Runs until cancelled; the screen scopes it to the STARTED lifecycle so it stops in the background. */
     suspend fun poll() = coroutineScope {
         launch { pollServer() }
+        launch { pollDrives() }
         launch { appsCollapsed.collectLatest { collapsed -> if (!collapsed) pollApps() } }
     }
 
@@ -149,6 +155,18 @@ class DashboardViewModel(
                 _state.update { it.copy(error = e.message) }
             }
             delay(POLL_MS)
+        }
+    }
+
+    private suspend fun pollDrives() {
+        while (true) {
+            try {
+                val drives = client.drives()
+                _state.update { it.copy(drives = drives) }
+            } catch (e: CasaException) {
+                // Keep the last list; the server banner already reports a connection problem.
+            }
+            delay(DRIVES_POLL_MS)
         }
     }
 
@@ -234,16 +252,18 @@ fun DashboardScreen(
                 return@Column
             }
 
+            val drives = state.drives.orEmpty()
             if (twoColumns) {
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         Overview(stats)
                         CpuCard(stats, state.cpuHistory)
                         NetworkCard(state)
-                        MemoryCard(stats)
+                        MemoryCard(stats, showStorage = drives.isEmpty())
                     }
-                    Column(Modifier.weight(1f)) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         AppsCard(state.apps, stats, appsCollapsed, onAppsCollapsedChange, onOpenTerminal)
+                        if (drives.isNotEmpty()) StorageCard(drives, stats.disk)
                     }
                 }
             } else {
@@ -251,7 +271,8 @@ fun DashboardScreen(
                 AppsCard(state.apps, stats, appsCollapsed, onAppsCollapsedChange, onOpenTerminal)
                 CpuCard(stats, state.cpuHistory)
                 NetworkCard(state)
-                MemoryCard(stats)
+                MemoryCard(stats, showStorage = drives.isEmpty())
+                if (drives.isNotEmpty()) StorageCard(drives, stats.disk)
             }
             Spacer(Modifier.height(8.dp))
         }
@@ -369,8 +390,9 @@ private fun RateColumn(
     }
 }
 
+/** [showStorage]: the storage total, for servers where the Storage card can't show each drive. */
 @Composable
-private fun MemoryCard(stats: SystemStats) {
+private fun MemoryCard(stats: SystemStats, showStorage: Boolean) {
     HearthCard(Modifier.fillMaxWidth()) {
         Row(Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -381,7 +403,7 @@ private fun MemoryCard(stats: SystemStats) {
                     style = MaterialTheme.typography.titleMedium,
                 )
             }
-            stats.disk?.let {
+            stats.disk?.takeIf { showStorage }?.let {
                 Column(horizontalAlignment = Alignment.End) {
                     SectionLabel("Storage")
                     Text(

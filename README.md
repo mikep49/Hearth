@@ -6,7 +6,7 @@ A native Android app for [CasaOS](https://casaos.io). Check your server's stats,
 
 ## Features
 
-- **Home**: live CPU, memory, storage and network stats, plus CPU and memory for each app
+- **Home**: live CPU, memory, storage and network stats, CPU and memory for each app, and each drive with its health and free space
 - **Apps**: start, stop and update apps, edit their settings, switch versions and view logs
 - **App Store**: browse and install apps from your server's stores
 - **Files**: browse, preview, upload, download and search everything on the server, sorted by name, size or date

@@ -3,9 +3,7 @@ package dev.hearth.casaos.ui.apps
 import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateContentSize
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,7 +11,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -30,7 +27,6 @@ import androidx.compose.material.icons.rounded.InstallMobile
 import androidx.compose.material.icons.rounded.Storefront
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Public
-import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Sell
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Stop
@@ -48,7 +44,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -61,12 +56,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -74,7 +67,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -166,9 +158,6 @@ class AppsViewModel(private val client: CasaClient) : ViewModel() {
             }
         }
     }
-
-    suspend fun logs(id: String): Result<String> =
-        try { Result.success(client.appLogs(id)) } catch (e: CasaException) { Result.failure(e) }
 }
 
 private enum class Filter(val label: String) { All("All"), Running("Running"), Stopped("Stopped") }
@@ -188,6 +177,7 @@ fun AppsScreen(
     pageOpen: Boolean,
     onOpenSettings: (InstalledApp) -> Unit,
     onOpenVersion: (InstalledApp) -> Unit,
+    onOpenLogs: (InstalledApp) -> Unit,
     onOpenStore: () -> Unit,
     onOpenInHearth: (app: InstalledApp, url: String) -> Unit,
 ) {
@@ -306,7 +296,7 @@ fun AppsScreen(
             onOpenSettings = { onOpenSettings(selected) },
             onOpenVersion = { onOpenVersion(selected) },
             onUninstall = { uninstallId = selected.id },
-            loadLogs = { viewModel.logs(selected.id) },
+            onOpenLogs = { onOpenLogs(selected) },
         )
     }
 
@@ -459,20 +449,11 @@ private fun AppSheet(
     onOpenSettings: () -> Unit,
     onOpenVersion: () -> Unit,
     onUninstall: () -> Unit,
-    loadLogs: suspend () -> Result<String>,
+    onOpenLogs: () -> Unit,
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
-    var logs by remember { mutableStateOf<Result<String>?>(null) }
-    var showLogs by rememberSaveable { mutableStateOf(false) }
-    var loadingLogs by remember { mutableStateOf(false) }
     val webUrl = app.webUrl(serverBaseUrl)
-
-    fun fetch() {
-        loadingLogs = true
-        scope.launch { logs = loadLogs(); loadingLogs = false }
-    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -543,19 +524,15 @@ private fun AppSheet(
             VersionRow(app, onOpenVersion)
 
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedButton(onClick = { showLogs = !showLogs; if (showLogs && logs == null) fetch() }, Modifier.weight(1f)) {
+                OutlinedButton(onClick = onOpenLogs, Modifier.weight(1f)) {
                     Icon(Icons.AutoMirrored.Rounded.Article, null, Modifier.size(18.dp))
-                    Text(if (showLogs) "Hide logs" else "View logs", Modifier.padding(start = 8.dp), maxLines = 1)
+                    Text("Logs", Modifier.padding(start = 8.dp), maxLines = 1)
                 }
                 OutlinedButton(onClick = onOpenSettings, Modifier.weight(1f)) {
                     Icon(Icons.Rounded.Tune, null, Modifier.size(18.dp))
                     Text("Settings", Modifier.padding(start = 8.dp), maxLines = 1)
                 }
-                if (showLogs) {
-                    IconButton(onClick = ::fetch, enabled = !loadingLogs) { Icon(Icons.Rounded.Refresh, "Refresh logs") }
-                }
             }
-            if (showLogs) LogView(logs, loadingLogs)
 
             TextButton(
                 onClick = onUninstall,
@@ -599,36 +576,6 @@ private fun VersionRow(app: InstalledApp, onClick: () -> Unit) {
             }
             Text(if (update) "Update" else "Change", style = MaterialTheme.typography.labelLarge, color = if (update) fg else MaterialTheme.colorScheme.primary)
             Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, Modifier.size(20.dp), tint = if (update) fg else MaterialTheme.colorScheme.primary)
-        }
-    }
-}
-
-@Composable
-private fun LogView(result: Result<String>?, loading: Boolean) {
-    val scroll = rememberScrollState()
-    val text = result?.getOrNull()
-    // Newest lines are at the bottom: start there.
-    LaunchedEffect(text) { scroll.scrollTo(scroll.maxValue) }
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .heightIn(min = 120.dp, max = 320.dp)
-            .background(Color(0xFF07080B), RoundedCornerShape(16.dp))
-            .padding(14.dp),
-    ) {
-        when {
-            loading && text == null -> CircularProgressIndicator(Modifier.size(20.dp).align(Alignment.Center), strokeWidth = 2.dp)
-            result?.isFailure == true -> Text(result.exceptionOrNull()?.message.orEmpty(), color = MaterialTheme.colorScheme.error)
-            text.isNullOrBlank() -> Text("No log output.", color = Color(0xFF8A90A0))
-            else -> Text(
-                text,
-                modifier = Modifier.verticalScroll(scroll).horizontalScroll(rememberScrollState()),
-                softWrap = false,
-                fontFamily = FontFamily.Monospace,
-                fontSize = 11.sp,
-                lineHeight = 16.sp,
-                color = Color(0xFFC9D1D9),
-            )
         }
     }
 }

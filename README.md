@@ -12,6 +12,7 @@ A native Android app for [CasaOS](https://casaos.io). Check your server's stats,
 - **Files**: browse, preview, upload, download and search everything on the server, sorted by name, size or date
 - **Terminal**: an SSH shell with a one-tap server update
 - **Multiple servers**: save several servers and switch between them
+- **Alerts**: optional notifications when a server goes offline, storage passes 90%, an app stops unexpectedly or app updates are available, even when Hearth is closed
 - **Lock**: optional fingerprint, face or PIN lock
 - **Widget**: your server's stats on the home screen
 - **Themes**: light, dark, pure black and six accent colors

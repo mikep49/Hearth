@@ -52,7 +52,36 @@ class PrefsStore(context: Context) {
         _fileSort.value = value
     }
 
+    private val _alerts = MutableStateFlow(
+        AlertSettings(
+            enabled = prefs.getBoolean(KEY_ALERTS, false),
+            offline = prefs.getBoolean(KEY_ALERT_OFFLINE, true),
+            storage = prefs.getBoolean(KEY_ALERT_STORAGE, true),
+            appStopped = prefs.getBoolean(KEY_ALERT_APP_STOPPED, true),
+            updates = prefs.getBoolean(KEY_ALERT_UPDATES, true),
+        ),
+    )
+
+    /** Which notifications the background check sends. One choice for every server. */
+    val alerts: StateFlow<AlertSettings> = _alerts.asStateFlow()
+
+    fun setAlerts(value: AlertSettings) {
+        prefs.edit()
+            .putBoolean(KEY_ALERTS, value.enabled)
+            .putBoolean(KEY_ALERT_OFFLINE, value.offline)
+            .putBoolean(KEY_ALERT_STORAGE, value.storage)
+            .putBoolean(KEY_ALERT_APP_STOPPED, value.appStopped)
+            .putBoolean(KEY_ALERT_UPDATES, value.updates)
+            .apply()
+        _alerts.value = value
+    }
+
     private companion object {
+        const val KEY_ALERTS = "alerts"
+        const val KEY_ALERT_OFFLINE = "alert_offline"
+        const val KEY_ALERT_STORAGE = "alert_storage"
+        const val KEY_ALERT_APP_STOPPED = "alert_app_stopped"
+        const val KEY_ALERT_UPDATES = "alert_updates"
         const val KEY_OPEN_IN = "open_apps_in"
         const val KEY_APPS_COLLAPSED = "apps_card_collapsed"
         const val KEY_SORT_BY = "file_sort_by"

@@ -10,6 +10,10 @@ import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import dev.hearth.casaos.alerts.AlertNotifications
+import dev.hearth.casaos.alerts.AlertSchedule
+import dev.hearth.casaos.alerts.PrefsAlertStorage
+import dev.hearth.casaos.data.AlertStore
 import dev.hearth.casaos.data.AppLock
 import dev.hearth.casaos.data.CasaClient
 import dev.hearth.casaos.data.FileDownloader
@@ -29,6 +33,7 @@ import dev.hearth.casaos.widget.WidgetTarget
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectIndexed
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
@@ -55,7 +60,9 @@ class AppContainer(private val app: Application) {
      * The client for one saved server. Screens use this rather than [client], so work still under way
      * after switching servers keeps talking to the server it started on.
      */
-    fun clientFor(id: String): CasaClient = clients.getOrPut(id) { CasaClient(session.credentialsFor(id), http) }
+    fun clientFor(id: String): CasaClient = clients.getOrPut(id) {
+        CasaClient(session.credentialsFor(id), http, onAppStopping = { app -> alerts.expectStop(id, app) })
+    }
 
     fun downloader(client: CasaClient) = FileDownloader(app, client)
     fun phoneFiles(client: CasaClient) = PhoneFiles(app, client)
@@ -68,6 +75,10 @@ class AppContainer(private val app: Application) {
     val lock = AppLock.create(app)
     val widgetStats = WidgetStatsStore(PrefsWidgetStorage(app), session::credentialsFor, ::clientFor)
     val widgetChoices = WidgetServerChoices(PrefsWidgetStorage(app, key = "server_choices"))
+    val alerts = AlertStore(PrefsAlertStorage(app))
+
+    /** A server and tab to show, from a tapped alert. The app clears it once it's shown. */
+    val openRequest = MutableStateFlow<OpenRequest?>(null)
 
     /** The saved server a placed widget shows, if it shows one. */
     fun widgetServer(widgetId: Int): String? =
@@ -98,6 +109,11 @@ class AppContainer(private val app: Application) {
         scope.launch {
             session.session.drop(1).distinctUntilChanged().collect { if (it != null) refreshWidgets() }
         }
+        // The background check runs only while alerts are on.
+        AlertNotifications.createChannels(app)
+        scope.launch(Dispatchers.Default) {
+            prefs.alerts.collect { AlertSchedule.sync(app, it) }
+        }
         // Widgets follow the app's theme, and so does their preview in the widget picker.
         scope.launch(Dispatchers.Default) {
             theme.settings.collectIndexed { i, settings ->
@@ -113,6 +129,8 @@ class AppContainer(private val app: Application) {
             // Two accounts on one server share its SSH details; keep the password while the other is signed in.
             if (host != null && now.none { it.signedIn && it.baseUrl.toHttpUrlOrNull()?.host == host }) ssh.forgetPassword(host)
             widgetStats.clear(profile.id)
+            alerts.clear(profile.id)
+            AlertNotifications.cancelAll(app, profile.id)
             if (now.none { it.id == profile.id }) clients.remove(profile.id)
         }
         PhoneFiles.clearCache(app)
@@ -129,6 +147,9 @@ class AppContainer(private val app: Application) {
         scope.launch(Dispatchers.Default) { ServerStatsWidgets.refresh(app) }
     }
 }
+
+/** Where a tapped alert takes you: [server]'s Home or Apps. */
+data class OpenRequest(val server: String, val apps: Boolean)
 
 class HearthApp : Application(), SingletonImageLoader.Factory {
     lateinit var container: AppContainer

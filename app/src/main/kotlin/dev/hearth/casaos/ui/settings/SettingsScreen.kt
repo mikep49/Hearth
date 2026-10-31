@@ -39,6 +39,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import dev.hearth.casaos.BuildConfig
+import dev.hearth.casaos.data.AlertSettings
 import dev.hearth.casaos.data.AppLock
 import dev.hearth.casaos.data.CasaClient
 import dev.hearth.casaos.data.LockAfter
@@ -77,6 +78,10 @@ class SettingsViewModel(
     val openAppsIn: StateFlow<OpenAppsIn> = prefs.openAppsIn
 
     fun setOpenAppsIn(value: OpenAppsIn) = prefs.setOpenAppsIn(value)
+
+    val alerts: StateFlow<AlertSettings> = prefs.alerts
+
+    fun setAlerts(value: AlertSettings) = prefs.setAlerts(value)
 
     val lockEnabled: StateFlow<Boolean> = lock.enabled
     val lockAfter: StateFlow<LockAfter> = lock.lockAfter
@@ -125,6 +130,7 @@ fun SettingsScreen(
     val openAppsIn by viewModel.openAppsIn.collectAsStateWithLifecycle()
     val lockEnabled by viewModel.lockEnabled.collectAsStateWithLifecycle()
     val lockAfter by viewModel.lockAfter.collectAsStateWithLifecycle()
+    val alerts by viewModel.alerts.collectAsStateWithLifecycle()
     var confirm by remember { mutableStateOf<PowerAction?>(null) }
     LaunchedEffect(viewModel) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
 
@@ -159,6 +165,9 @@ fun SettingsScreen(
 
         SectionLabel("Apps")
         OpenAppsInSection(openAppsIn, viewModel::setOpenAppsIn)
+
+        SectionLabel("Alerts")
+        AlertsSection(alerts, viewModel::setAlerts, onError = viewModel::showError)
 
         SectionLabel("Security")
         SecuritySection(

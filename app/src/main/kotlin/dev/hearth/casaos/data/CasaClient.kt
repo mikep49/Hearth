@@ -30,7 +30,12 @@ import kotlin.coroutines.resumeWithException
  * Talks to a CasaOS gateway. Auth is the raw JWT in the `Authorization` header (CasaOS does not use a
  * `Bearer` prefix). On a 401 the access token is refreshed once and the request retried.
  */
-class CasaClient(private val session: Credentials, baseClient: OkHttpClient = OkHttpClient()) {
+class CasaClient(
+    private val session: Credentials,
+    baseClient: OkHttpClient = OkHttpClient(),
+    /** Told an app's id just before Hearth stops, restarts or recreates it, so alerts don't report that stop. */
+    private val onAppStopping: (String) -> Unit = {},
+) {
 
     private companion object {
         /**
@@ -150,6 +155,7 @@ class CasaClient(private val session: Credentials, baseClient: OkHttpClient = Ok
     }
 
     suspend fun setAppStatus(id: String, action: AppAction) {
+        if (action != AppAction.Start) appStopping(id)
         val req = request("v2", "app_management", "compose", id, "status")
             .put(JsonPrimitive(action.wire).toString().toRequestBody(jsonType))
             .build()
@@ -182,6 +188,7 @@ class CasaClient(private val session: Credentials, baseClient: OkHttpClient = Ok
      */
     suspend fun applyAppSettings(id: String, composeYaml: String) {
         val url = urlOf("v2", "app_management", "compose", id) { addQueryParameter("check_port_conflict", "true") }
+        appStopping(id)
         execute(http, Request.Builder().url(url).put(composeYaml.toRequestBody(yamlType)).build())
     }
 
@@ -203,6 +210,7 @@ class CasaClient(private val session: Credentials, baseClient: OkHttpClient = Ok
      * the new image and recreates the containers in the background after replying.
      */
     suspend fun updateApp(id: String) {
+        appStopping(id)
         execute(http, request("v2", "app_management", "compose", id).patch(ByteArray(0).toRequestBody(null)).build())
     }
 
@@ -391,6 +399,9 @@ class CasaClient(private val session: Credentials, baseClient: OkHttpClient = Ok
     // endregion
 
     // region plumbing
+
+    /** Off the main thread: the listener saves to disk. */
+    private suspend fun appStopping(id: String) = withContext(Dispatchers.IO) { onAppStopping(id) }
 
     private fun baseUrl(): HttpUrl = session.baseUrl?.toHttpUrl() ?: throw CasaException.Unauthorized()
 

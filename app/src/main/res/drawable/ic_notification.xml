@@ -1,0 +1,15 @@
+<!-- The launcher's flame in one color, for the status bar, cropped to fill the icon. The inner glow is cut out. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="60"
+    android:viewportHeight="60">
+    <group
+        android:translateX="-24"
+        android:translateY="-20">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:fillType="evenOdd"
+            android:pathData="M54,22 C60,32 72,40 72,57 C72,69 64,78 54,78 C44,78 36,69 36,57 C36,49 40,44 44,40 C44,46 47,49 50,50 C48,42 50,30 54,22 Z M54,50 C58,56 63,59 63,66 C63,72 59,76 54,76 C49,76 45,72 45,66 C45,61 48,58 50,56 C51,59 52,60 53,61 C52,57 52,53 54,50 Z" />
+    </group>
+</vector>

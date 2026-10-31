@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -16,12 +18,27 @@ android {
         versionName = "0.8.0"
     }
 
+    // The release key lives outside the repo. Point the "hearth.signing" Gradle property
+    // (e.g. in ~/.gradle/gradle.properties) or the HEARTH_SIGNING env var at its keystore.properties.
+    // Without it, release builds fall back to the debug key.
+    val signingFile = (findProperty("hearth.signing") as String? ?: System.getenv("HEARTH_SIGNING"))
+        ?.let { file(it) }
+        ?.takeIf { it.isFile }
+    val releaseSigning = signingFile?.let { f ->
+        val props = Properties().apply { f.inputStream().use { load(it) } }
+        signingConfigs.create("release") {
+            storeFile = file(props.getProperty("storeFile"))
+            storePassword = props.getProperty("storePassword")
+            keyAlias = props.getProperty("keyAlias")
+            keyPassword = props.getProperty("keyPassword")
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            // Signed with the debug key so it installs over the earlier debug-signed releases.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = releaseSigning ?: signingConfigs.getByName("debug")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }

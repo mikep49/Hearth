@@ -42,7 +42,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.hearth.casaos.HearthApp
 import dev.hearth.casaos.data.ServerProfile
+import dev.hearth.casaos.ui.components.ClearOfCutout
 import dev.hearth.casaos.ui.components.HearthCard
+import dev.hearth.casaos.ui.components.readableWidth
 import dev.hearth.casaos.ui.servers.ServerRow
 import dev.hearth.casaos.ui.theme.HearthTheme
 import dev.hearth.casaos.ui.theme.isDark
@@ -78,7 +80,7 @@ class WidgetConfigActivity : ComponentActivity() {
                 val style = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT) { dark }
                 enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
             }
-            HearthTheme(theme) {
+            HearthTheme(theme) { ClearOfCutout {
                 val profiles by container.session.profiles.collectAsStateWithLifecycle()
                 val choices by container.widgetChoices.choices.collectAsStateWithLifecycle()
                 WidgetServerPicker(profiles, choices[widgetId]) { server ->
@@ -86,7 +88,7 @@ class WidgetConfigActivity : ComponentActivity() {
                     container.refreshWidgets()
                     finish()
                 }
-            }
+            } }
         }
     }
 }
@@ -95,7 +97,7 @@ class WidgetConfigActivity : ComponentActivity() {
 private fun WidgetServerPicker(profiles: List<ServerProfile>, current: String?, onPick: (String?) -> Unit) {
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
-            Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(20.dp),
+            Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).readableWidth().padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text("Widget server", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.headlineMedium)

@@ -15,6 +15,7 @@ A native Android app for [CasaOS](https://casaos.io). Check your server's stats,
 - **Lock**: optional fingerprint, face or PIN lock
 - **Widget**: your server's stats on the home screen
 - **Themes**: light, dark, pure black and six accent colors
+- **Tablets and landscape**: a side rail and wider layouts on big screens
 
 ![Themes](docs/screenshots/themes.png)
 

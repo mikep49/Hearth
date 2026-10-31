@@ -112,6 +112,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import dev.hearth.casaos.ui.components.readableWidth
 
 data class AppSettingsUi(
     val loading: Boolean = false,
@@ -373,7 +374,7 @@ private fun SettingsForm(
     LaunchedEffect(error) { if (error != null) scroll.animateScrollTo(0) }
 
     Column(
-        Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = 16.dp, vertical = 12.dp),
+        Modifier.fillMaxSize().verticalScroll(scroll).readableWidth().padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (error != null) Banner(error, isError = true)

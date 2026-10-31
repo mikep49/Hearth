@@ -69,6 +69,13 @@ The details behind each feature, how Hearth talks to CasaOS, and what it does to
 - A pure black mode for OLED screens.
 - The choice is remembered and survives sign-out.
 
+### Tablets and landscape
+
+- On screens 600dp wide or more (tablets, and phones turned on their side) the tabs move from the bottom bar to a rail down the side.
+- From 840dp, Home puts the Apps card in a second column beside the server's stats.
+- Apps and the App Store show two or three cards per row when there's room. Files, Settings and the forms stay in a centred column no wider than 720dp. Logs, the terminal and web pages use the full width.
+- Content keeps clear of a camera cutout at the side of the screen.
+
 ## How it talks to CasaOS
 
 | Feature | Endpoint |

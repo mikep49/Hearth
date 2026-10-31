@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.core.net.toUri
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.hearth.casaos.ui.components.ClearOfCutout
 import dev.hearth.casaos.ui.lock.LockGate
 import dev.hearth.casaos.ui.theme.HearthTheme
 import dev.hearth.casaos.ui.theme.isDark
@@ -48,8 +49,10 @@ class WebAppActivity : FragmentActivity() {
                 enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
             }
             HearthTheme(theme) {
-                LockGate(container.lock) {
-                    WebAppScreen(name, url, onClose = ::finishAndRemoveTask, Modifier.fillMaxSize(), standalone = true)
+                ClearOfCutout {
+                    LockGate(container.lock) {
+                        WebAppScreen(name, url, onClose = ::finishAndRemoveTask, Modifier.fillMaxSize(), standalone = true)
+                    }
                 }
             }
         }

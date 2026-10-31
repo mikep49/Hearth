@@ -13,8 +13,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -160,6 +162,9 @@ class AppsViewModel(private val client: CasaClient) : ViewModel() {
     }
 }
 
+/** The narrowest an app card in the Apps and App Store grids gets before the grid drops a column. */
+internal val AppCardMinWidth = 340.dp
+
 private enum class Filter(val label: String) { All("All"), Running("Running"), Stopped("Stopped") }
 
 /** True if [q] appears in the app's name, id, tagline or image, ignoring case. */
@@ -216,11 +221,14 @@ fun AppsScreen(
                 }
             }
             val running = remember(apps) { apps.count { it.state == AppState.Running } }
-            LazyColumn(
+            // One column on a phone; wider screens fit two or three app cards side by side.
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(AppCardMinWidth),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                item(key = "header", contentType = "header") {
+                item(key = "header", span = { GridItemSpan(maxLineSpan) }, contentType = "header") {
                     Row(Modifier.padding(top = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("Apps", style = MaterialTheme.typography.headlineMedium)
@@ -236,10 +244,10 @@ fun AppsScreen(
                         }
                     }
                 }
-                item(key = "search", contentType = "search") {
+                item(key = "search", span = { GridItemSpan(maxLineSpan) }, contentType = "search") {
                     SearchField(query, { query = it }, "Search ${apps.size} apps")
                 }
-                item(key = "filters", contentType = "filters") {
+                item(key = "filters", span = { GridItemSpan(maxLineSpan) }, contentType = "filters") {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Filter.entries.forEach { f ->
                             FilterChip(selected = filter == f, onClick = { filter = f }, label = { Text(f.label) })
@@ -262,7 +270,7 @@ fun AppsScreen(
                     )
                 }
                 if (shown.isEmpty()) {
-                    item {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
                         Text(
                             when {
                                 q.isEmpty() -> "Nothing here."

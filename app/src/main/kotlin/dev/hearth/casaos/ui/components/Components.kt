@@ -12,9 +12,15 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -52,6 +58,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -62,9 +69,49 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+
+/** How wide a column of cards, rows or form fields gets before it looks stretched. Wider screens centre it. */
+val ReadableWidth = 720.dp
+
+/**
+ * Centres the content in a column no wider than [max]. Put it after `verticalScroll` so the margins
+ * either side still scroll, and before the side padding so that comes out of [max].
+ */
+fun Modifier.readableWidth(max: Dp = ReadableWidth): Modifier = layout { measurable, constraints ->
+    val cap = max.roundToPx()
+    val placeable = measurable.measure(
+        constraints.copy(minWidth = minOf(constraints.minWidth, cap), maxWidth = minOf(constraints.maxWidth, cap)),
+    )
+    val width = if (constraints.hasBoundedWidth) constraints.maxWidth else placeable.width
+    layout(width, placeable.height) { placeable.placeRelative((width - placeable.width) / 2, 0) }
+}
+
+/**
+ * The same for lazy lists, which take their side padding as content padding: [content] gets the padding
+ * that keeps rows within [max], and at least [min] from the edges.
+ */
+@Composable
+fun ReadableGutter(min: Dp, max: Dp = ReadableWidth, content: @Composable (side: Dp) -> Unit) {
+    BoxWithConstraints { content(((maxWidth - max) / 2).coerceAtLeast(0.dp) + min) }
+}
+
+/**
+ * Keeps [content] out from under a camera cutout at the side of the screen, as on a phone turned on its
+ * side. The strip beside the cutout is filled with the background colour.
+ */
+@Composable
+fun ClearOfCutout(content: @Composable () -> Unit) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal)),
+    ) { content() }
+}
 
 /** The app's base container: tonal fill with a hairline border so cards read as glass-like on dark. */
 @Composable

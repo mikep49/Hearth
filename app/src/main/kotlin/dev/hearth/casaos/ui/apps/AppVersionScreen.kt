@@ -86,6 +86,7 @@ import dev.hearth.casaos.data.parseStoreAppId
 import dev.hearth.casaos.data.validate
 import dev.hearth.casaos.data.versionLabel
 import dev.hearth.casaos.data.withImageTag
+import dev.hearth.casaos.ui.components.ReadableGutter
 import dev.hearth.casaos.ui.components.EmptyState
 import dev.hearth.casaos.ui.components.HearthCard
 import dev.hearth.casaos.ui.components.formatBytes
@@ -455,150 +456,152 @@ private fun VersionList(
     LaunchedEffect(ui.error) { if (ui.error != null) listState.animateScrollToItem(0) }
 
     // No spacing between items: the tag rows join into one card. Other items add their own gap below.
-    LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)) {
-        if (ui.error != null) item(key = "error") { Box(gap) { Banner(ui.error, isError = true) } }
+    ReadableGutter(min = 16.dp) { side ->
+        LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(horizontal = side, vertical = 12.dp)) {
+            if (ui.error != null) item(key = "error") { Box(gap) { Banner(ui.error, isError = true) } }
 
-        if (settings.services.size > 1) {
-            item(key = "containers") {
-                Row(gap.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    settings.services.forEachIndexed { i, s ->
-                        FilterChip(selected = i == ui.serviceIndex, onClick = { onSelectService(i) }, label = { Text(s.name) }, enabled = !ui.applying)
-                    }
-                }
-            }
-        }
-
-        item(key = "current") {
-            HearthCard(gap.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Running version", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(versionLabel(fullImage), style = MaterialTheme.typography.headlineSmall, fontFamily = FontFamily.Monospace)
-                    Text(
-                        image?.let { if (it.isDockerHub) "${it.display} on Docker Hub" else it.display } ?: service.image,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (!sameAs.isNullOrEmpty() && current != null) {
-                        Hint("On Docker Hub, $current is now the same image as ${sameAs.take(3).joinToString(", ")}.")
-                    }
-                    if (storeTag != null) {
-                        Hint(if (storeTag == current) "This is the version the CasaOS App Store ships." else "The CasaOS App Store ships $storeTag.")
-                    }
-                    if (showUpdate) {
-                        Button(onClick = onUpdate, enabled = !ui.applying, modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
-                            Icon(Icons.Rounded.SystemUpdateAlt, null, Modifier.size(18.dp))
-                            Text(if (storeTag != null && storeTag != current) "Update to $storeTag" else "Update", Modifier.padding(start = 8.dp))
+            if (settings.services.size > 1) {
+                item(key = "containers") {
+                    Row(gap.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        settings.services.forEachIndexed { i, s ->
+                            FilterChip(selected = i == ui.serviceIndex, onClick = { onSelectService(i) }, label = { Text(s.name) }, enabled = !ui.applying)
                         }
                     }
-                    if (ui.updateStarted && ui.serviceIndex == 0) {
-                        Hint("Update started. Reload in a minute to see the new version.")
+                }
+            }
+
+            item(key = "current") {
+                HearthCard(gap.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Running version", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(versionLabel(fullImage), style = MaterialTheme.typography.headlineSmall, fontFamily = FontFamily.Monospace)
+                        Text(
+                            image?.let { if (it.isDockerHub) "${it.display} on Docker Hub" else it.display } ?: service.image,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (!sameAs.isNullOrEmpty() && current != null) {
+                            Hint("On Docker Hub, $current is now the same image as ${sameAs.take(3).joinToString(", ")}.")
+                        }
+                        if (storeTag != null) {
+                            Hint(if (storeTag == current) "This is the version the CasaOS App Store ships." else "The CasaOS App Store ships $storeTag.")
+                        }
+                        if (showUpdate) {
+                            Button(onClick = onUpdate, enabled = !ui.applying, modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                                Icon(Icons.Rounded.SystemUpdateAlt, null, Modifier.size(18.dp))
+                                Text(if (storeTag != null && storeTag != current) "Update to $storeTag" else "Update", Modifier.padding(start = 8.dp))
+                            }
+                        }
+                        if (ui.updateStarted && ui.serviceIndex == 0) {
+                            Hint("Update started. Reload in a minute to see the new version.")
+                        }
                     }
                 }
             }
-        }
 
-        item(key = "header") {
-            Column(gap.padding(top = 8.dp, start = 4.dp)) {
-                Text("Available versions", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    when {
-                        tags == null -> "This image's versions can't be looked up. You can still type a tag below."
-                        tags.image.isDockerHub -> "From Docker Hub, newest first. Tap one to switch to it."
-                        else -> "From ${tags.image.registry}, highest version first. Tap one to switch to it."
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+            item(key = "header") {
+                Column(gap.padding(top = 8.dp, start = 4.dp)) {
+                    Text("Available versions", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        when {
+                            tags == null -> "This image's versions can't be looked up. You can still type a tag below."
+                            tags.image.isDockerHub -> "From Docker Hub, newest first. Tap one to switch to it."
+                            else -> "From ${tags.image.registry}, highest version first. Tap one to switch to it."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            item(key = "search") {
+                OutlinedTextField(
+                    value = ui.query,
+                    onValueChange = onSearch,
+                    modifier = gap.fillMaxWidth(),
+                    singleLine = true,
+                    enabled = !ui.applying,
+                    leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                    trailingIcon = if (ui.query.isNotEmpty()) { { IconButton(onClick = { onSearch("") }) { Icon(Icons.Rounded.Close, "Clear search") } } } else null,
+                    placeholder = { Text("Search, or type a tag") },
+                    textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace),
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.None,
+                        autoCorrectEnabled = false,
+                        keyboardType = KeyboardType.Ascii,
+                        imeAction = ImeAction.Search,
+                    ),
+                    keyboardActions = KeyboardActions(onSearch = { custom?.let(onPick) }),
                 )
             }
-        }
 
-        item(key = "search") {
-            OutlinedTextField(
-                value = ui.query,
-                onValueChange = onSearch,
-                modifier = gap.fillMaxWidth(),
-                singleLine = true,
-                enabled = !ui.applying,
-                leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                trailingIcon = if (ui.query.isNotEmpty()) { { IconButton(onClick = { onSearch("") }) { Icon(Icons.Rounded.Close, "Clear search") } } } else null,
-                placeholder = { Text("Search, or type a tag") },
-                textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace),
-                keyboardOptions = KeyboardOptions(
-                    capitalization = KeyboardCapitalization.None,
-                    autoCorrectEnabled = false,
-                    keyboardType = KeyboardType.Ascii,
-                    imeAction = ImeAction.Search,
-                ),
-                keyboardActions = KeyboardActions(onSearch = { custom?.let(onPick) }),
-            )
-        }
-
-        if (custom != null) {
-            item(key = "custom") {
-                Surface(
-                    onClick = { onPick(custom) },
-                    enabled = !ui.applying,
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    modifier = gap.fillMaxWidth(),
-                ) {
-                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Sell, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
-                        Column(Modifier.padding(start = 12.dp)) {
-                            Text("Use tag \"$custom\"", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSecondaryContainer)
-                            Text(
-                                if (tags?.loading == true) "Checking the registry…" else "Not in the list. CasaOS says so if the tag doesn't exist.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                            )
+            if (custom != null) {
+                item(key = "custom") {
+                    Surface(
+                        onClick = { onPick(custom) },
+                        enabled = !ui.applying,
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        modifier = gap.fillMaxWidth(),
+                    ) {
+                        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Rounded.Sell, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                            Column(Modifier.padding(start = 12.dp)) {
+                                Text("Use tag \"$custom\"", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                Text(
+                                    if (tags?.loading == true) "Checking the registry…" else "Not in the list. CasaOS says so if the tag doesn't exist.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                )
+                            }
                         }
                     }
                 }
             }
-        }
 
-        when {
-            tags == null -> Unit
-            tags.error != null && tags.page == null -> item(key = "tags-error") {
-                Column(gap.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Banner(tags.error, isError = true)
-                    TextButton(onClick = onRetry) { Text("Try again") }
-                }
-            }
-            tags.loading && tags.page == null -> item(key = "tags-loading") {
-                Box(gap.fillMaxWidth().padding(24.dp), Alignment.Center) { CircularProgressIndicator() }
-            }
-            else -> {
-                if (tags.loading) item(key = "tags-refreshing") {
-                    Row(gap.padding(start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                        Text("Searching…", Modifier.padding(start = 10.dp), style = MaterialTheme.typography.bodyMedium)
+            when {
+                tags == null -> Unit
+                tags.error != null && tags.page == null -> item(key = "tags-error") {
+                    Column(gap.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Banner(tags.error, isError = true)
+                        TextButton(onClick = onRetry) { Text("Try again") }
                     }
                 }
-                if (tags.error != null) item(key = "tags-error-inline") { Box(gap) { Banner(tags.error, isError = true) } }
-                if (rows.isEmpty() && !tags.loading) item(key = "tags-empty") {
-                    Text(
-                        if (query.isEmpty()) "No versions found." else "No versions match \"$query\".",
-                        gap.padding(start = 4.dp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                tags.loading && tags.page == null -> item(key = "tags-loading") {
+                    Box(gap.fillMaxWidth().padding(24.dp), Alignment.Center) { CircularProgressIndicator() }
                 }
-                itemsIndexed(rows, key = { _, row -> "tag:" + row.tag.name }, contentType = { _, _ -> "tag" }) { i, row ->
-                    TagItem(row, first = i == 0, last = i == rows.lastIndex, enabled = !ui.applying && !row.current) { onPick(row.tag.name) }
-                }
-                item(key = "tags-footer") {
-                    Column(Modifier.padding(top = 12.dp, start = 4.dp, end = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        val page = tags.page
-                        if (page?.truncated == true && query.isEmpty()) {
-                            Hint(
-                                if (page.total != null) "These are the newest ${all.size} of ${"%,d".format(page.total)} tags. Search to find older ones."
-                                else "This image has more tags than could be loaded. Search to find older ones.",
-                            )
+                else -> {
+                    if (tags.loading) item(key = "tags-refreshing") {
+                        Row(gap.padding(start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Text("Searching…", Modifier.padding(start = 10.dp), style = MaterialTheme.typography.bodyMedium)
                         }
-                        if (hidden > 0 || (ui.showAll && anyNoise)) {
-                            TextButton(onClick = onToggleShowAll, contentPadding = PaddingValues(0.dp)) {
-                                Text(if (ui.showAll) "Hide platform-specific and signature tags" else "Show $hidden platform-specific and signature tags")
+                    }
+                    if (tags.error != null) item(key = "tags-error-inline") { Box(gap) { Banner(tags.error, isError = true) } }
+                    if (rows.isEmpty() && !tags.loading) item(key = "tags-empty") {
+                        Text(
+                            if (query.isEmpty()) "No versions found." else "No versions match \"$query\".",
+                            gap.padding(start = 4.dp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    itemsIndexed(rows, key = { _, row -> "tag:" + row.tag.name }, contentType = { _, _ -> "tag" }) { i, row ->
+                        TagItem(row, first = i == 0, last = i == rows.lastIndex, enabled = !ui.applying && !row.current) { onPick(row.tag.name) }
+                    }
+                    item(key = "tags-footer") {
+                        Column(Modifier.padding(top = 12.dp, start = 4.dp, end = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            val page = tags.page
+                            if (page?.truncated == true && query.isEmpty()) {
+                                Hint(
+                                    if (page.total != null) "These are the newest ${all.size} of ${"%,d".format(page.total)} tags. Search to find older ones."
+                                    else "This image has more tags than could be loaded. Search to find older ones.",
+                                )
+                            }
+                            if (hidden > 0 || (ui.showAll && anyNoise)) {
+                                TextButton(onClick = onToggleShowAll, contentPadding = PaddingValues(0.dp)) {
+                                    Text(if (ui.showAll) "Hide platform-specific and signature tags" else "Show $hidden platform-specific and signature tags")
+                                }
                             }
                         }
                     }

@@ -15,7 +15,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -169,15 +172,17 @@ fun StoreScreen(viewModel: StoreViewModel, onClose: () -> Unit, modifier: Modifi
                                 (q.isEmpty() || a.title.contains(q, true) || a.tagline?.contains(q, true) == true || a.developer?.contains(q, true) == true)
                         }
                     }
-                    LazyColumn(
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(AppCardMinWidth),
                         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        item(key = "search", contentType = "search") {
+                        item(key = "search", span = { GridItemSpan(maxLineSpan) }, contentType = "search") {
                             SearchField(query, { query = it }, "Search ${apps.size} apps")
                         }
                         if (categories.size > 1) {
-                            item(key = "categories", contentType = "categories") {
+                            item(key = "categories", span = { GridItemSpan(maxLineSpan) }, contentType = "categories") {
                                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     FilterChip(selected = category == null, onClick = { category = null }, label = { Text("All") })
                                     categories.forEach { c ->
@@ -196,7 +201,7 @@ fun StoreScreen(viewModel: StoreViewModel, onClose: () -> Unit, modifier: Modifi
                             )
                         }
                         if (shown.isEmpty()) {
-                            item { Text("No apps match.", Modifier.padding(top = 24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                            item(span = { GridItemSpan(maxLineSpan) }) { Text("No apps match.", Modifier.padding(top = 24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         }
                     }
                 }

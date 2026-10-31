@@ -9,7 +9,7 @@ A native Android app for [CasaOS](https://casaos.io). Check your server's stats,
 - **Home**: live CPU, memory, storage and network stats, plus CPU and memory for each app
 - **Apps**: start, stop and update apps, edit their settings, switch versions and view logs
 - **App Store**: browse and install apps from your server's stores
-- **Files**: browse, preview, upload, download and search everything on the server
+- **Files**: browse, preview, upload, download and search everything on the server, sorted by name, size or date
 - **Terminal**: an SSH shell with a one-tap server update
 - **Multiple servers**: save several servers and switch between them
 - **Lock**: optional fingerprint, face or PIN lock

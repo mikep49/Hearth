@@ -29,6 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.DriveFileMove
 import androidx.compose.material.icons.automirrored.rounded.InsertDriveFile
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
+import androidx.compose.material.icons.automirrored.rounded.Sort
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Android
 import androidx.compose.material.icons.rounded.Audiotrack
@@ -49,6 +50,7 @@ import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -62,6 +64,7 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -98,10 +101,16 @@ import dev.hearth.casaos.data.CasaException
 import dev.hearth.casaos.data.FileDownloader
 import dev.hearth.casaos.data.FileEntry
 import dev.hearth.casaos.data.FileIndex
+import dev.hearth.casaos.data.FileSort
 import dev.hearth.casaos.data.FolderListing
 import dev.hearth.casaos.data.PhoneFiles
 import dev.hearth.casaos.data.PickedFile
+import dev.hearth.casaos.data.PrefsStore
 import dev.hearth.casaos.data.SearchHits
+import dev.hearth.casaos.data.SortBy
+import dev.hearth.casaos.data.arranged
+import dev.hearth.casaos.data.isHidden
+import dev.hearth.casaos.data.isHiddenPath
 import dev.hearth.casaos.data.INDEX_MAX_ENTRIES
 import dev.hearth.casaos.data.mimeTypeOf
 import dev.hearth.casaos.data.previewKind
@@ -177,6 +186,7 @@ class FilesViewModel(
     private val client: CasaClient,
     private val downloader: FileDownloader,
     private val phoneFiles: PhoneFiles,
+    private val prefs: PrefsStore,
 ) : ViewModel() {
     private val _state = MutableStateFlow(FilesState())
     val state: StateFlow<FilesState> = _state.asStateFlow()
@@ -196,7 +206,13 @@ class FilesViewModel(
     /** Set when files may have changed since the index was built; the next search rebuilds it. */
     private var indexStale = false
 
+    val sort: StateFlow<FileSort> = prefs.fileSort
+
     init { open(ROOT) }
+
+    fun sortBy(by: SortBy) = prefs.setFileSort(sort.value.pick(by))
+
+    fun setShowHidden(show: Boolean) = prefs.setFileSort(sort.value.copy(showHidden = show))
 
     fun open(path: String) {
         loadJob?.cancel()
@@ -489,6 +505,7 @@ private sealed interface FileDialog {
 fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val index by viewModel.index.collectAsStateWithLifecycle()
+    val sort by viewModel.sort.collectAsStateWithLifecycle()
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
     var dialog by remember { mutableStateOf<FileDialog?>(null) }
@@ -500,9 +517,12 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState) {
     val searching = q.isNotEmpty()
     LaunchedEffect(searching) { if (searching) viewModel.ensureIndex() }
     // Matches outside the open folder. Filtering a big index takes a moment, so it runs off the main thread.
-    val elsewhere by produceState(SearchHits(emptyList(), 0), index, q, state.path) {
+    val elsewhere by produceState(SearchHits(emptyList(), 0), index, q, state.path, sort.showHidden) {
         val entries = index?.entries.orEmpty()
-        value = withContext(Dispatchers.Default) { searchFiles(entries, q, skipDir = state.path) }
+        val showHidden = sort.showHidden
+        value = withContext(Dispatchers.Default) {
+            searchFiles(if (showHidden) entries else entries.filterNot { isHiddenPath(it.path, ROOT) }, q, skipDir = state.path)
+        }
     }
 
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { viewModel.upload(it) }
@@ -544,7 +564,10 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState) {
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 8.dp)) {
-                Text("Files", style = MaterialTheme.typography.headlineMedium)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Files", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+                    SortButton(sort, onSortBy = viewModel::sortBy, onShowHidden = viewModel::setShowHidden)
+                }
                 Breadcrumbs(state.path, onNavigate = viewModel::open)
                 if (state.listing != null || query.isNotEmpty()) {
                     SearchField(query, { query = it }, "Search all files on the server", Modifier.padding(top = 4.dp))
@@ -568,8 +591,15 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState) {
                     }
                     listing.entries.isEmpty() && !searching ->
                         EmptyState("Empty folder", "There's nothing in ${state.path}. Tap + to upload files or make a folder.")
+                    !sort.showHidden && !searching && listing.entries.all { isHidden(it.name) } ->
+                        EmptyState("Only hidden files", "Everything in ${state.path} is hidden.") {
+                            TextButton(onClick = { viewModel.setShowHidden(true) }) { Text("Show hidden files") }
+                        }
                     else -> {
-                        val shown = remember(listing, q) { if (q.isEmpty()) listing.entries else listing.entries.filter { it.name.contains(q, true) } }
+                        val shown = remember(listing, q, sort) {
+                            val arranged = listing.entries.arranged(sort)
+                            if (q.isEmpty()) arranged else arranged.filter { it.name.contains(q, true) }
+                        }
                         val onAction: (FileEntry, FileAction) -> Unit = { entry, action ->
                             when (action) {
                                 FileAction.OpenWith -> viewModel.openWith(entry, share = false)
@@ -687,6 +717,47 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState) {
             onClose = { previewPath = null },
         )
     }
+}
+
+/** Picks the folder order (tap the current one again to reverse it) and whether hidden files show. */
+@Composable
+private fun SortButton(sort: FileSort, onSortBy: (SortBy) -> Unit, onShowHidden: (Boolean) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { open = true }) { Icon(Icons.AutoMirrored.Rounded.Sort, "Sort and view options") }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            Text(
+                "Sort by",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+            SortBy.entries.forEach { by ->
+                val current = by == sort.by
+                DropdownMenuItem(
+                    text = { Text(by.label, color = if (current) MaterialTheme.colorScheme.primary else Color.Unspecified) },
+                    leadingIcon = { RadioButton(selected = current, onClick = null) },
+                    trailingIcon = if (current) {
+                        { Text(directionLabel(sort), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary) }
+                    } else null,
+                    onClick = { onSortBy(by) },
+                )
+            }
+            HorizontalDivider()
+            DropdownMenuItem(
+                text = { Text("Show hidden files") },
+                leadingIcon = { Checkbox(checked = sort.showHidden, onCheckedChange = null) },
+                onClick = { onShowHidden(!sort.showHidden) },
+            )
+        }
+    }
+}
+
+/** The current direction in words, e.g. "A–Z" or "Newest first". */
+private fun directionLabel(sort: FileSort): String = when (sort.by) {
+    SortBy.Name -> if (sort.descending) "Z–A" else "A–Z"
+    SortBy.Size -> if (sort.descending) "Largest" else "Smallest"
+    SortBy.Date -> if (sort.descending) "Newest" else "Oldest"
 }
 
 @Composable

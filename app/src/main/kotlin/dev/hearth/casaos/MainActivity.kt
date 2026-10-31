@@ -114,7 +114,7 @@ private fun Root(container: AppContainer) {
             val last = remember { container.session.lastProfile }
             ConnectScreen(
                 viewModel(key = "connect|${last?.id}", factory = viewModelFactory {
-                    initializer { ConnectViewModel(container.client, last) }
+                    initializer { ConnectViewModel(container.client, last, container.finder) }
                 }),
                 saved = profiles,
                 onSwitch = { container.session.switchTo(it.id) },
@@ -308,7 +308,7 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
             val prefill = addingPrefill?.let { id -> profiles.firstOrNull { it.id == id } }
             // A new key each time it opens, so it starts empty rather than where the last one left off.
             val vm: ConnectViewModel = viewModel(key = "connect-add$addCount", factory = viewModelFactory {
-                initializer { ConnectViewModel(container.client, prefill) }
+                initializer { ConnectViewModel(container.client, prefill, container.finder) }
             })
             ConnectScreen(vm, onClose = { adding = false })
         }

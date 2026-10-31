@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,9 +24,11 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Radar
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
@@ -39,6 +42,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -72,10 +76,14 @@ import androidx.lifecycle.viewModelScope
 import dev.hearth.casaos.R
 import dev.hearth.casaos.data.CasaClient
 import dev.hearth.casaos.data.CasaException
+import dev.hearth.casaos.data.FoundServer
+import dev.hearth.casaos.data.ServerFinder
 import dev.hearth.casaos.data.ServerProfile
+import dev.hearth.casaos.data.mergeFound
 import dev.hearth.casaos.ui.components.HearthCard
 import dev.hearth.casaos.ui.components.SectionLabel
 import dev.hearth.casaos.ui.servers.ServerRow
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -90,14 +98,53 @@ data class ConnectState(
     val error: String? = null,
     /** Set once a sign-in worked, so the "Add a server" page can close. */
     val signedIn: Boolean = false,
+    val finding: Boolean = false,
+    val found: List<FoundServer> = emptyList(),
+    /** Why the last search came back empty, if it did. */
+    val findResult: FindResult? = null,
 ) {
     val canSubmit get() = server.isNotBlank() && username.isNotBlank() && password.isNotEmpty() && !loading
 }
 
+enum class FindResult { NoneFound, NotOnWifi }
+
 /** [prefill] is a saved server to sign in to again; its address and username start filled in. */
-class ConnectViewModel(private val client: CasaClient, prefill: ServerProfile?) : ViewModel() {
+class ConnectViewModel(
+    private val client: CasaClient,
+    prefill: ServerProfile?,
+    private val finder: ServerFinder? = null,
+) : ViewModel() {
     private val _state = MutableStateFlow(ConnectState(server = prefill?.address.orEmpty(), username = prefill?.username.orEmpty()))
     val state: StateFlow<ConnectState> = _state.asStateFlow()
+    private var findJob: Job? = null
+
+    init {
+        // A new user has nothing typed yet, so start looking right away.
+        if (prefill == null) find()
+    }
+
+    /** Looks for CasaOS servers on the local network. With exactly one found and no address typed, fills it in. */
+    fun find() {
+        val finder = finder ?: return
+        if (findJob?.isActive == true) return
+        val flow = finder.find()
+        if (flow == null) {
+            _state.update { it.copy(finding = false, found = emptyList(), findResult = FindResult.NotOnWifi) }
+            return
+        }
+        _state.update { it.copy(finding = true, found = emptyList(), findResult = null) }
+        findJob = viewModelScope.launch {
+            flow.collect { server -> _state.update { it.copy(found = mergeFound(it.found, server)) } }
+            _state.update { s ->
+                val only = s.found.singleOrNull()
+                s.copy(
+                    finding = false,
+                    findResult = if (s.found.isEmpty()) FindResult.NoneFound else null,
+                    server = if (only != null && s.server.isBlank()) only.address else s.server,
+                )
+            }
+        }
+    }
 
     /** Fills the form in for a saved server that's signed out. */
     fun prefill(profile: ServerProfile) =
@@ -217,6 +264,7 @@ fun ConnectScreen(
                     shape = RoundedCornerShape(16.dp),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
                 )
+                FoundServers(state, onFind = viewModel::find, onPick = { viewModel.onServer(it.address) })
                 OutlinedTextField(
                     value = state.username,
                     onValueChange = viewModel::onUsername,
@@ -297,4 +345,58 @@ fun ConnectScreen(
             Spacer(Modifier.height(24.dp))
         }
     } }
+}
+
+/** The "Find servers" button, and what the last search found. */
+@Composable
+private fun FoundServers(state: ConnectState, onFind: () -> Unit, onPick: (FoundServer) -> Unit) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        TextButton(onClick = onFind, enabled = !state.finding) {
+            if (state.finding) {
+                CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+            } else {
+                Icon(Icons.Rounded.Radar, null, Modifier.size(18.dp))
+            }
+            Spacer(Modifier.size(8.dp))
+            Text(if (state.finding) "Looking for servers…" else "Find servers on this network")
+        }
+        val note = when (state.findResult) {
+            FindResult.NotOnWifi -> "Connect to your home Wi-Fi to find your server."
+            FindResult.NoneFound -> "No CasaOS server found. Type its address instead."
+            null -> null
+        }
+        if (note != null) {
+            Text(
+                note,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 12.dp),
+            )
+        }
+        if (state.found.isNotEmpty()) {
+            HearthCard(Modifier.fillMaxWidth()) {
+                state.found.forEachIndexed { i, server ->
+                    if (i > 0) HorizontalDivider(Modifier.padding(horizontal = 18.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                    val picked = server.address.equals(state.server.trim(), ignoreCase = true)
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { onPick(server) }
+                            .padding(horizontal = 18.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Rounded.Dns, null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.size(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(server.address, style = MaterialTheme.typography.bodyLarge)
+                            if (server.address != server.ip) {
+                                Text(server.ip, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        if (picked) Icon(Icons.Rounded.Check, "Selected", tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+        }
+    }
 }

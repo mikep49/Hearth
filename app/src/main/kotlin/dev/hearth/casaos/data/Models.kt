@@ -33,6 +33,34 @@ data class DiskStats(val totalBytes: Long, val usedBytes: Long) {
     val percent: Double get() = if (totalBytes > 0) usedBytes * 100.0 / totalBytes else 0.0
 }
 
+enum class DriveKind(val label: String) { System("System"), Hdd("HDD"), Ssd("SSD"), Usb("USB") }
+
+/**
+ * From the drive's SMART self-assessment. CasaOS reports a drive it couldn't check (no smartctl, or a USB
+ * enclosure that hides SMART) as passing, so [Healthy] means "no failure reported" rather than a clean bill.
+ */
+enum class DriveHealth { Healthy, Failing, Unknown }
+
+/** A mounted filesystem on a drive. */
+data class Volume(val mountPoint: String, val totalBytes: Long, val availBytes: Long, val fsType: String?) {
+    val usedBytes: Long get() = (totalBytes - availBytes).coerceAtLeast(0)
+    val percent: Double get() = if (totalBytes > 0) usedBytes * 100.0 / totalBytes else 0.0
+}
+
+/** One physical drive, from `/v1/disks` and `/v1/disks/usb`. */
+@Immutable
+data class Drive(
+    /** Kernel name, e.g. `sda`. */
+    val name: String,
+    /** The drive's model, e.g. `WDC WD40EFRX`; null when CasaOS doesn't know it. */
+    val model: String?,
+    val sizeBytes: Long,
+    val kind: DriveKind,
+    val health: DriveHealth,
+    val temperatureC: Int?,
+    val volumes: List<Volume>,
+)
+
 /** One sample of `/v1/sys/utilization`. Network counters are cumulative; rates are derived by the caller. */
 data class SystemStats(
     val cpuPercent: Double,

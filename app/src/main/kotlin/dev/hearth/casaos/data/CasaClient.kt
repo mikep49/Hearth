@@ -128,6 +128,22 @@ class CasaClient(private val session: Credentials, baseClient: OkHttpClient = Ok
         return parsing { parseUtilization(data, now) }
     }
 
+    /**
+     * Every drive with its health and volumes. Slow-ish: CasaOS runs smartctl on each drive to answer.
+     * USB drives come from a second call; if that one fails, the internal drives still show.
+     */
+    suspend fun drives(): List<Drive> {
+        val disks = get("v1", "disks")
+        val usb = try {
+            get("v1", "disks", "usb")
+        } catch (e: CasaException.Server) {
+            null
+        } catch (e: CasaException.Parse) {
+            null
+        }
+        return parsing { parseDrives(disks, usb) }
+    }
+
     suspend fun apps(): List<InstalledApp> {
         val data = get("v2", "app_management", "compose")
         return parsing { parseApps(data) }

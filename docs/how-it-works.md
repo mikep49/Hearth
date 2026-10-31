@@ -2,6 +2,8 @@
 
 The details behind each feature, how Hearth talks to CasaOS, and what it does to keep your server safe. For a quick overview, see the [README](../README.md).
 
+Hearth runs on Android 10 or later, phones and tablets.
+
 - [Features in depth](#features-in-depth)
 - [How it talks to CasaOS](#how-it-talks-to-casaos)
 - [Security](#security)
@@ -21,7 +23,7 @@ The details behind each feature, how Hearth talks to CasaOS, and what it does to
 
 - Live CPU, memory and storage gauges, CPU history and network throughput. They update every 2.5 s, and only while the screen is visible.
 - The **Storage** card lists each drive: its model, type (HDD, SSD or USB), size and temperature, whether its SMART self-check passes, and how full each of its volumes is. It refreshes every minute, since CasaOS checks every drive to answer. CasaOS reports a drive it can't check (for example when `smartctl` isn't installed) as passing, so "Healthy" means no failure was reported. USB drives and the system drive have no health badge. On servers without this information, Home shows the storage total instead.
-- The **Apps** card shows CPU and memory per app, busiest first, sorted by CPU or memory. CasaOS only reports whole-server totals, so this card reads `docker stats` over the SSH login saved on the Terminal tab. While the card is collapsed, Hearth doesn't poll it and closes its SSH connection.
+- The **Apps** card shows CPU and memory per app, busiest first, sorted by CPU or memory. CasaOS only reports whole-server totals, so this card reads `docker stats` over SSH. It needs you to sign in once on the Terminal tab with **Remember password** on. If your account isn't in the `docker` group, it runs the command with `sudo`. While the card is collapsed, Hearth doesn't poll it and closes its SSH connection.
 
 ### Apps
 
@@ -38,6 +40,7 @@ The details behind each feature, how Hearth talks to CasaOS, and what it does to
 ### Files
 
 - Browse `/DATA`. Photos, videos, songs and text files preview inside Hearth (pinch or double-tap to zoom photos). Other files open in an app you pick.
+- The sort button orders a folder by name, size or date modified. Tap the same choice again to reverse it. Hidden files (names starting with a dot) are hidden unless you turn on **Show hidden files** there.
 - Each item's menu (⋮ or long-press) has **Open with…**, **Share**, **Download**, **Rename**, **Copy to…**, **Move to…** and **Delete**. Downloads go to `Downloads/Hearth` and don't need storage permission. To copy or move, browse to the destination and tap **Paste here**.
 - **+** uploads photos, videos or any files from the phone, and makes new folders. If an uploaded file's name is already taken, you choose to skip it, keep both or replace it.
 - **Search** covers the whole server. CasaOS has no search API, so the first search walks the folders under `/DATA` in the background, and later searches filter that list as you type. Results from the open folder come first, then everywhere else. The walk stops at 100,000 items and shows the best 300 matches. Pull to refresh rescans.
@@ -94,6 +97,8 @@ The details behind each feature, how Hearth talks to CasaOS, and what it does to
 | Login / refresh | `POST /v1/users/login`, `POST /v1/users/refresh` |
 | Finding servers | `GET /v1/users/status` (needs no login), falling back to a `<title>CasaOS` check on `GET /` |
 | Stats | `GET /v1/sys/utilization` |
+| Drives | `GET /v1/disks`, `GET /v1/disks/usb` |
+| CasaOS version | `GET /v1/sys/version/current` |
 | Apps | `GET /v2/app_management/compose`, `PUT .../compose/{id}/status`, `GET .../compose/{id}/logs` |
 | App settings | `GET /v2/app_management/compose/{id}` with `Accept: application/yaml`, `PUT .../compose/{id}?check_port_conflict=true` with the YAML |
 | App version | Switching writes the new tag with the app settings call above. App Store version: `GET /v2/app_management/apps/{id}/stable`; update: `PATCH /v2/app_management/compose/{id}` |
@@ -143,11 +148,16 @@ If the headless emulator crashes with the default software renderer, start it wi
 
 ```
 app/src/main/kotlin/dev/hearth/casaos/
-  data/   CasaClient (OkHttp + token refresh), Parsers (lenient JSON),
-          AppSettings + ComposeYaml (app settings <-> compose YAML),
-          ImageRegistry (an image's versions from Docker Hub / ghcr.io / other registries),
-          SessionStore + SecretBox (saved servers, Keystore encryption), FileDownloader,
-          Alerts (what each background check should notify about)
-  alerts/ the background check (WorkManager), its schedule and notifications
-  ui/     theme, components, and one package per screen (screen + ViewModel together)
+  data/    CasaClient (OkHttp + token refresh), Parsers (lenient JSON),
+           AppSettings + ComposeYaml (app settings <-> compose YAML),
+           ImageRegistry (an image's versions from Docker Hub / ghcr.io / other registries),
+           SessionStore + SecretBox (saved servers, Keystore encryption),
+           Ssh + SshProfileStore (SSH sessions and saved SSH logins), AppUsage (docker stats over SSH),
+           ServerFinder (finding servers on the Wi-Fi), FileSearch, FileSort, FileDownloader,
+           AppLogs, AppLock, Alerts (what each background check should notify about)
+  alerts/  the background check (WorkManager), its schedule and notifications
+  widget/  the home screen widget (Glance), its settings screen and saved readings
+  ui/      theme, components, and one package per screen (screen + ViewModel together)
 ```
+
+Unit tests are in `app/src/test/kotlin/dev/hearth/casaos/`. They cover the parsers, the API client (against a mock HTTP server), the SSH shell (against an in-process SSH server), alerts, search, sorting, the app lock and more.

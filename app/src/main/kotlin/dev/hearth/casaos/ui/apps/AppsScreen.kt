@@ -62,6 +62,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -400,11 +402,16 @@ private fun AppRow(
 
 @Composable
 private fun AppCard(app: InstalledApp, busy: Boolean, onOpen: () -> Unit, onToggle: () -> Unit, onLongClick: (() -> Unit)?) {
+    // Stopped apps are greyed out so they stand apart from running ones; the Start button keeps full colour.
+    val stopped = app.state == AppState.Stopped
     HearthCard(Modifier.fillMaxWidth(), onClick = onOpen, onLongClick = onLongClick) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            AppIcon(app.iconUrl, app.name)
-            Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
-                Text(app.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            AppIcon(app.iconUrl, app.name, Modifier.alpha(if (stopped) 0.45f else 1f), grayscale = stopped)
+            Column(Modifier.weight(1f).padding(horizontal = 14.dp).alpha(if (stopped) 0.6f else 1f)) {
+                Text(
+                    app.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    color = if (stopped) MaterialTheme.colorScheme.onSurfaceVariant else Color.Unspecified,
+                )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     StateLabel(app.state, app.rawStatus)
                     if (app.updateAvailable) {

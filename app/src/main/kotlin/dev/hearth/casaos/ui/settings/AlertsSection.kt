@@ -105,7 +105,7 @@ private fun AlertOptions(settings: AlertSettings, allowed: Boolean, onChange: (A
         HorizontalDivider(Modifier.padding(horizontal = 18.dp), color = MaterialTheme.colorScheme.outlineVariant)
         AlertRow(
             "Server offline",
-            "When it can't be reached for about 15 minutes. That includes when your phone is away from the network it's on.",
+            "When it can't be reached for about 15 minutes. That includes when your phone is off the server's network.",
             settings.offline,
         ) { onChange(settings.copy(offline = it)) }
         AlertRow("Storage almost full", "When storage or a drive passes 90%", settings.storage) { onChange(settings.copy(storage = it)) }

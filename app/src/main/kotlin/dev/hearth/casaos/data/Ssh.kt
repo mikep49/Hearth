@@ -88,7 +88,7 @@ internal class TofuHostKeys(private val id: String, private val store: HostKeySt
     }
 
     override fun getHostKey(): Array<HostKey> = getHostKey(null, null)
-    override fun add(hostkey: HostKey?, ui: UserInfo?) = Unit // trusting happens only through the user's explicit choice
+    override fun add(hostkey: HostKey?, ui: UserInfo?) = Unit // keys are trusted only when the user accepts them
     override fun remove(host: String?, type: String?) = Unit
     override fun remove(host: String?, type: String?, key: ByteArray?) = Unit
     override fun getKnownHostsRepositoryID() = "hearth"

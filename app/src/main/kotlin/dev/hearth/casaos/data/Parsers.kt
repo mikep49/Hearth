@@ -228,7 +228,7 @@ fun parseFolder(path: String, data: JsonElement?): FolderListing {
             modified = (o["modified"].str() ?: o["date"].str())?.takeIf { it.isNotBlank() },
         )
     }
-    // Folders first, then case-insensitive name order: how every file manager is expected to behave.
+    // Folders first, then case-insensitive name order, like other file managers.
     return FolderListing(path, entries.sortedWith(compareByDescending<FileEntry> { it.isDir }.thenBy { it.name.lowercase() }))
 }
 

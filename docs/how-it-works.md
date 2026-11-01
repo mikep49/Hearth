@@ -27,7 +27,7 @@ Hearth runs on Android 10 or later, phones and tablets.
 
 ### Apps
 
-- Lists installed apps with their status. Each app can be started, stopped or restarted, and you can open its web UI or view its logs. Search filters the list. Apps with several containers get a chip per container.
+- Lists installed apps with their status. Stopped apps are grayed out. Each app can be started, stopped or restarted, and you can open its web UI or view its logs. Search filters the list. Apps with several containers get a chip per container.
 - **Logs** opens an app's container logs full screen. They update every 3 seconds while the page is open (pause to read), and reach back 500, 2,000 or 10,000 lines. Search shows only the lines that match. Copy puts them on the clipboard (the newest 300,000 characters if there are more), and Share sends them as a text file. Terminal color codes are removed.
 - **Open:** the app's web UI opens inside Hearth or in your browser, depending on the choice in Settings.
 - **Settings** (next to Logs) shows the same container settings as the CasaOS dashboard: image and tag, name, icon, web UI address, network, ports, volumes, environment variables, devices, command, privileged mode, memory limit, CPU shares, restart policy and capabilities. Passwords stay hidden until you tap them. The pencil edits these settings in a form, and **Edit as YAML** in the menu edits the whole compose file. CasaOS checks your changes before saving (including ports already in use), then restarts the app with them.
@@ -47,7 +47,8 @@ Hearth runs on Android 10 or later, phones and tablets.
 
 ### Terminal
 
-- A shell on the server over SSH. It has color, scrollback (drag), pinch-to-zoom text, paste and a row of extra keys (Ctrl, Alt, Esc, Tab, arrows…).
+- A shell on the server over SSH. Most CasaOS installs already run an SSH server. If connecting fails, install one on the server with `sudo apt install openssh-server`.
+- The terminal has color, scrollback (drag), pinch-to-zoom text, paste and a row of extra keys (Ctrl, Alt, Esc, Tab, arrows…).
 - **Update server** runs `sudo apt update && sudo apt upgrade -y` in one tap.
 - The session keeps running while you switch tabs.
 
@@ -55,7 +56,7 @@ Hearth runs on Android 10 or later, phones and tablets.
 
 - Off until you turn on **Alerts** in Settings. On Android 13 and later, turning them on asks for permission to show notifications. Each kind can be turned off on its own, there or in Android's notification settings.
 - Hearth checks every server you're signed in to about every 15 minutes, even when it's closed, as long as the phone has a network connection. Android may check less often to save battery.
-- **Server offline**: after two checks in a row fail, so one dropped request doesn't alert. That includes when your phone is away from the network the server is on. When the server answers again, the alert changes to "back online" and goes away after an hour.
+- **Server offline**: after two checks in a row fail, so one dropped request doesn't alert. That includes when your phone is off the server's network. When the server answers again, the alert changes to "back online" and goes away after an hour.
 - **Storage almost full**: when total storage or a drive's volume reaches 90%. It alerts again only after dropping below 85%. Each drive's volumes are read at most every 6 hours, since that makes CasaOS run `smartctl`, which can wake sleeping disks. The total is checked every time.
 - **App stopped**: when an app that was running is found stopped, or is still restarting at the next check (it keeps crashing). Stopping, restarting, updating or changing an app's settings from Hearth doesn't count for the next hour. Stopping it from the CasaOS dashboard does. Apps already stopped when alerts are turned on aren't reported.
 - **App updates**: once for each new update, grouped into one notification.
@@ -82,6 +83,7 @@ Hearth runs on Android 10 or later, phones and tablets.
 - Six accents: Ember, Ocean, Forest, Violet, Rose, and Dynamic, which uses your wallpaper colors on Android 12+.
 - A pure black mode for OLED screens.
 - The choice is remembered and survives sign-out.
+- Text uses [Google Sans Flex](https://github.com/googlefonts/googlesans-flex), shipped with the app under the SIL Open Font License 1.1 ([`fonts/GoogleSansFlex-OFL.txt`](../fonts/GoogleSansFlex-OFL.txt)). Monospace text and the widget use the phone's fonts.
 
 ### Tablets and landscape
 
@@ -143,6 +145,10 @@ If `java` isn't on your PATH, point `JAVA_HOME` at Android Studio's bundled JDK,
 On Windows cmd or PowerShell, use `gradlew.bat` instead of `./gradlew`.
 
 If the headless emulator crashes with the default software renderer, start it with `-gpu host`.
+
+`./gradlew :app:assembleRelease` makes a shrunk release build. It's signed only if the `hearth.signing` Gradle property (for example in `~/.gradle/gradle.properties`) or the `HEARTH_SIGNING` environment variable points at a `keystore.properties` file with `storeFile`, `storePassword`, `keyAlias` and `keyPassword`. Otherwise the APK is left unsigned, which is how F-Droid builds it before signing it with its own key. The key and its properties file stay outside the repo.
+
+The store listing (descriptions, changelogs, icon and screenshots) is in `fastlane/metadata/android/en-US/`. Each release adds `changelogs/<versionCode>.txt`.
 
 ## Code layout
 

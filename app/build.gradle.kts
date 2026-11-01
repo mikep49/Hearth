@@ -20,7 +20,7 @@ android {
 
     // The release key lives outside the repo. Point the "hearth.signing" Gradle property
     // (e.g. in ~/.gradle/gradle.properties) or the HEARTH_SIGNING env var at its keystore.properties.
-    // Without it, release builds fall back to the debug key.
+    // Without it, release builds are left unsigned, which is what F-Droid's build server expects.
     val signingFile = (findProperty("hearth.signing") as String? ?: System.getenv("HEARTH_SIGNING"))
         ?.let { file(it) }
         ?.takeIf { it.isFile }
@@ -38,7 +38,7 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = releaseSigning ?: signingConfigs.getByName("debug")
+            signingConfig = releaseSigning
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }

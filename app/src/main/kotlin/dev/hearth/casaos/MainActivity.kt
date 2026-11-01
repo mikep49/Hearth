@@ -198,17 +198,15 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
     var webApp by rememberSaveable { mutableStateOf<String?>(null) }
     var webUrl by rememberSaveable { mutableStateOf<String?>(null) }
     var webIcon by rememberSaveable { mutableStateOf<String?>(null) }
-    // An app's settings page, also drawn over everything (the tab bar or rail too, so the form gets the room).
+    // Pages drawn over everything, the tab bar or rail too, so they get the room: an app's settings,
+    // version and logs, and the App Store.
     var settingsAppId by rememberSaveable { mutableStateOf<String?>(null) }
     var settingsAppName by rememberSaveable { mutableStateOf<String?>(null) }
-    // An app's version page, drawn over everything the same way.
     var versionAppId by rememberSaveable { mutableStateOf<String?>(null) }
     var versionAppName by rememberSaveable { mutableStateOf<String?>(null) }
     var versionUpdateAvailable by rememberSaveable { mutableStateOf(false) }
-    // An app's logs, drawn over everything the same way.
     var logsAppId by rememberSaveable { mutableStateOf<String?>(null) }
     var logsAppName by rememberSaveable { mutableStateOf<String?>(null) }
-    // The App Store, drawn over everything the same way.
     var storeOpen by rememberSaveable { mutableStateOf(false) }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {

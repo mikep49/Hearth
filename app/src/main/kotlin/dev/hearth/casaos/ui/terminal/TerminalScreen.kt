@@ -381,7 +381,7 @@ private fun SignInForm(viewModel: TerminalViewModel, state: TerminalUiState) {
         }
 
         Text(
-            "The connection is encrypted by SSH. The server needs an SSH server running (most CasaOS installs have one). If connecting fails, install it on the server with: sudo apt install openssh-server",
+            "SSH encrypts the connection. Most CasaOS installs already run an SSH server. If connecting fails, install one on the server with: sudo apt install openssh-server",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

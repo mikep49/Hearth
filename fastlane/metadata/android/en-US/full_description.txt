@@ -18,7 +18,7 @@ Hearth is a native app for CasaOS home servers. Check your server, manage your a
 Sign in with your server's address (for example 192.168.1.20 or casaos.local) and the same login you use for the CasaOS dashboard.
 
 <b>Privacy and security</b>
-Hearth has no ads, analytics or tracking. It talks to your own server. The only exception is picking an app's version: then it reads the list of versions from the app's image registry, such as Docker Hub, and sends nothing about you or your server.
+Hearth has no ads, analytics or tracking. It only talks to your own server, except when you pick an app's version: then it reads the list of versions from the app's image registry, such as Docker Hub, and sends nothing about you or your server.
 
 CasaOS uses plain HTTP by default, so your password isn't encrypted on the network. Use Hearth on your home network, or connect through a VPN such as Tailscale or WireGuard when you're away. Your logins are stored encrypted on the phone, and the terminal uses SSH, which is always encrypted.
 

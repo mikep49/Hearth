@@ -1,0 +1,3 @@
+• First stable release
+• New Google Sans Flex font and clearer wording throughout
+• Stopped apps are grayed out in the Apps list

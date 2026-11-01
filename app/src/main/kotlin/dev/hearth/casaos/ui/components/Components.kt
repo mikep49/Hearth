@@ -51,6 +51,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.center
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -229,7 +231,7 @@ fun StatusDot(color: Color, modifier: Modifier = Modifier, pulse: Boolean = fals
 
 /** Remote icon with a lettered tile as placeholder/fallback. */
 @Composable
-fun AppIcon(url: String?, name: String, modifier: Modifier = Modifier, size: Dp = 52.dp) {
+fun AppIcon(url: String?, name: String, modifier: Modifier = Modifier, size: Dp = 52.dp, grayscale: Boolean = false) {
     val shape = RoundedCornerShape(size * 0.28f)
     val scheme = MaterialTheme.colorScheme
     val measurer = rememberTextMeasurer(cacheSize = 0)
@@ -253,9 +255,12 @@ fun AppIcon(url: String?, name: String, modifier: Modifier = Modifier, size: Dp 
             placeholder = tile,
             error = tile,
             fallback = tile,
+            colorFilter = if (grayscale) GrayscaleFilter else null,
         )
     }
 }
+
+private val GrayscaleFilter = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) })
 
 private class LetterTilePainter(private val letter: TextLayoutResult, private val brush: Brush) : Painter() {
     override val intrinsicSize: Size get() = Size.Unspecified

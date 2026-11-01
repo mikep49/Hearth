@@ -54,4 +54,4 @@ Hearth is an unofficial app and isn't affiliated with CasaOS or IceWhale.
 
 ## License
 
-Hearth is released under the [MIT License](LICENSE).
+Hearth is released under the [MIT License](LICENSE). It ships the Google Sans Flex font, which is under the [SIL Open Font License 1.1](fonts/GoogleSansFlex-OFL.txt).

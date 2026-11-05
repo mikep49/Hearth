@@ -43,7 +43,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.hearth.casaos.HearthApp
 import dev.hearth.casaos.data.ServerProfile
 import dev.hearth.casaos.ui.components.ClearOfCutout
-import dev.hearth.casaos.ui.components.HearthCard
+import dev.hearth.casaos.ui.components.ListGroup
+import dev.hearth.casaos.ui.components.ListRow
 import dev.hearth.casaos.ui.components.readableWidth
 import dev.hearth.casaos.ui.servers.ServerRow
 import dev.hearth.casaos.ui.theme.HearthTheme
@@ -106,10 +107,12 @@ private fun WidgetServerPicker(profiles: List<ServerProfile>, current: String?, 
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            HearthCard(Modifier.fillMaxWidth()) {
-                Surface(onClick = { onPick(null) }, color = androidx.compose.ui.graphics.Color.Transparent) {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        val selected = current == null
+            ListGroup {
+                val selected = current == null
+                ListRow(
+                    "Same as the app",
+                    subtitle = "Shows whichever server is open in Hearth",
+                    leading = {
                         Box(
                             Modifier.size(40.dp).clip(CircleShape).background(
                                 if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest,
@@ -122,18 +125,10 @@ private fun WidgetServerPicker(profiles: List<ServerProfile>, current: String?, 
                                 tint = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        Column(Modifier.weight(1f).padding(start = 14.dp)) {
-                            Text("Same as the app", style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                "Shows whichever server is open in Hearth",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
+                    },
+                    onClick = { onPick(null) },
+                )
                 profiles.forEach { profile ->
-                    HorizontalDivider(Modifier.padding(horizontal = 18.dp), color = MaterialTheme.colorScheme.outlineVariant)
                     ServerRow(profile, selected = profile.id == current, onClick = { onPick(profile.id) })
                 }
             }

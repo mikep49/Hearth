@@ -128,7 +128,8 @@ fun WebAppScreen(
                         }
                         IconButton(onClick = { openExternally(context, currentUrl) }) { Icon(Icons.Rounded.OpenInBrowser, "Open in browser") }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                    // Tinted, unlike other pages: the web app's own page starts right under it.
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                 )
                 // Drawn over the bar's bottom edge rather than below it, so showing it doesn't resize the page.
                 if (progress in 1..99) {

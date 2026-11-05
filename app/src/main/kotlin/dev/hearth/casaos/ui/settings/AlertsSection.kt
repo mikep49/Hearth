@@ -33,7 +33,16 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import dev.hearth.casaos.alerts.AlertNotifications
 import dev.hearth.casaos.alerts.AlertSchedule
 import dev.hearth.casaos.data.AlertSettings
-import dev.hearth.casaos.ui.components.HearthCard
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material.icons.rounded.CloudOff
+import androidx.compose.material.icons.rounded.NotificationsOff
+import androidx.compose.material.icons.rounded.StopCircle
+import androidx.compose.material.icons.rounded.Storage
+import androidx.compose.material.icons.rounded.SystemUpdateAlt
+import dev.hearth.casaos.ui.components.GroupFootnote
+import dev.hearth.casaos.ui.components.ListGroup
+import dev.hearth.casaos.ui.components.ListRow
+import dev.hearth.casaos.ui.components.SwitchRow
 
 @Composable
 fun AlertsSection(settings: AlertSettings, onChange: (AlertSettings) -> Unit, onError: (String) -> Unit) {
@@ -58,88 +67,66 @@ fun AlertsSection(settings: AlertSettings, onChange: (AlertSettings) -> Unit, on
         }
     }
 
-    HearthCard(Modifier.fillMaxWidth()) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .toggleable(value = settings.enabled, role = Role.Switch, onValueChange = ::toggle)
-                .padding(horizontal = 18.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Rounded.NotificationsActive, null)
-            Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
-                Text("Alerts", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "Get notified about your servers, even when Hearth is closed",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Switch(checked = settings.enabled, onCheckedChange = null)
-        }
-        if (settings.enabled) AlertOptions(settings, allowed, onChange)
-    }
-}
-
-@Composable
-private fun AlertOptions(settings: AlertSettings, allowed: Boolean, onChange: (AlertSettings) -> Unit) {
-    val context = LocalContext.current
-    Column {
-        if (!allowed) {
-            HorizontalDivider(Modifier.padding(horizontal = 18.dp), color = MaterialTheme.colorScheme.outlineVariant)
-            Row(Modifier.fillMaxWidth().padding(start = 18.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "Notifications are off for Hearth, so alerts can't be shown",
-                    Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                )
-                TextButton(onClick = {
-                    context.startActivity(
-                        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName),
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        ListGroup {
+            SwitchRow(
+                "Alerts",
+                checked = settings.enabled,
+                onCheckedChange = ::toggle,
+                subtitle = "Get notified about your servers, even when Hearth is closed",
+                icon = Icons.Rounded.NotificationsActive,
+            )
+            if (settings.enabled) {
+                if (!allowed) {
+                    ListRow(
+                        "Notifications are off",
+                        subtitle = "Turn them on for Hearth so alerts can show",
+                        icon = Icons.Rounded.NotificationsOff,
+                        iconTint = MaterialTheme.colorScheme.error,
+                        trailing = {
+                            TextButton(onClick = {
+                                context.startActivity(
+                                    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName),
+                                )
+                            }) { Text("Turn on") }
+                        },
                     )
-                }) { Text("Turn on") }
+                }
+                SwitchRow(
+                    "Server offline",
+                    checked = settings.offline,
+                    onCheckedChange = { onChange(settings.copy(offline = it)) },
+                    subtitle = "Can't be reached for about 15 minutes, including when your phone is off its network",
+                    icon = Icons.Rounded.CloudOff,
+                )
+                SwitchRow(
+                    "Storage almost full",
+                    checked = settings.storage,
+                    onCheckedChange = { onChange(settings.copy(storage = it)) },
+                    subtitle = "Storage or a drive passes 90%",
+                    icon = Icons.Rounded.Storage,
+                )
+                SwitchRow(
+                    "App stopped",
+                    checked = settings.appStopped,
+                    onCheckedChange = { onChange(settings.copy(appStopped = it)) },
+                    subtitle = "A running app stops or keeps restarting, and it wasn't stopped from Hearth",
+                    icon = Icons.Rounded.StopCircle,
+                )
+                SwitchRow(
+                    "App updates",
+                    checked = settings.updates,
+                    onCheckedChange = { onChange(settings.copy(updates = it)) },
+                    subtitle = "The App Store has a new version of an installed app",
+                    icon = Icons.Rounded.SystemUpdateAlt,
+                )
             }
         }
-
-        HorizontalDivider(Modifier.padding(horizontal = 18.dp), color = MaterialTheme.colorScheme.outlineVariant)
-        AlertRow(
-            "Server offline",
-            "When it can't be reached for about 15 minutes. That includes when your phone is off the server's network.",
-            settings.offline,
-        ) { onChange(settings.copy(offline = it)) }
-        AlertRow("Storage almost full", "When storage or a drive passes 90%", settings.storage) { onChange(settings.copy(storage = it)) }
-        AlertRow(
-            "App stopped",
-            "When a running app stops or keeps restarting, and it wasn't stopped from Hearth",
-            settings.appStopped,
-        ) { onChange(settings.copy(appStopped = it)) }
-        AlertRow("App updates", "When the App Store has a new version of an installed app", settings.updates) {
-            onChange(settings.copy(updates = it))
+        if (settings.enabled) {
+            GroupFootnote(
+                "Hearth checks every server you're signed in to about every ${AlertSchedule.EVERY_MINUTES} minutes. " +
+                    "Android may check less often to save battery.",
+            )
         }
-        Text(
-            "Hearth checks every server you're signed in to about every ${AlertSchedule.EVERY_MINUTES} minutes. " +
-                "Android may check less often to save battery.",
-            Modifier.padding(start = 18.dp, end = 18.dp, top = 4.dp, bottom = 16.dp),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-@Composable
-private fun AlertRow(title: String, detail: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .toggleable(value = checked, role = Role.Switch, onValueChange = onChange)
-            .padding(horizontal = 18.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f).padding(end = 16.dp)) {
-            Text(title, style = MaterialTheme.typography.titleSmall)
-            Text(detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Switch(checked = checked, onCheckedChange = null)
     }
 }

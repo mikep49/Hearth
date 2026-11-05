@@ -67,7 +67,15 @@ import dev.hearth.casaos.data.CasaException
 import dev.hearth.casaos.data.StoreApp
 import dev.hearth.casaos.ui.components.AppIcon
 import dev.hearth.casaos.ui.components.EmptyState
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import dev.hearth.casaos.ui.components.BackButton
+import dev.hearth.casaos.ui.components.CardRadius
 import dev.hearth.casaos.ui.components.HearthCard
+import dev.hearth.casaos.ui.components.groupShape
+import dev.hearth.casaos.ui.components.hearthTopBarColors
 import dev.hearth.casaos.ui.components.SearchField
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -141,18 +149,20 @@ fun StoreScreen(viewModel: StoreViewModel, onClose: () -> Unit, modifier: Modifi
     LaunchedEffect(viewModel) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
     BackHandler(onBack = onClose)
 
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
-        modifier = modifier,
+        modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
-                navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, "Close") } },
+                navigationIcon = { BackButton(onClose) },
                 title = { Text("App Store") },
                 actions = {
                     IconButton(onClick = viewModel::load, enabled = !state.loading) { Icon(Icons.Rounded.Refresh, "Reload") }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                colors = hearthTopBarColors(),
+                scrollBehavior = scrollBehavior,
             )
         },
     ) { padding ->
@@ -172,18 +182,16 @@ fun StoreScreen(viewModel: StoreViewModel, onClose: () -> Unit, modifier: Modifi
                                 (q.isEmpty() || a.title.contains(q, true) || a.tagline?.contains(q, true) == true || a.developer?.contains(q, true) == true)
                         }
                     }
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(AppCardMinWidth),
-                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
+                    AppGrid { columns ->
                         item(key = "search", span = { GridItemSpan(maxLineSpan) }, contentType = "search") {
                             SearchField(query, { query = it }, "Search ${apps.size} apps")
                         }
                         if (categories.size > 1) {
                             item(key = "categories", span = { GridItemSpan(maxLineSpan) }, contentType = "categories") {
-                                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(
+                                    Modifier.padding(top = 10.dp, bottom = 8.dp).horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
                                     FilterChip(selected = category == null, onClick = { category = null }, label = { Text("All") })
                                     categories.forEach { c ->
                                         FilterChip(selected = category == c, onClick = { category = if (category == c) null else c }, label = { Text(c) })
@@ -191,9 +199,10 @@ fun StoreScreen(viewModel: StoreViewModel, onClose: () -> Unit, modifier: Modifi
                                 }
                             }
                         }
-                        items(shown, key = { it.id }, contentType = { "app" }) { app ->
+                        itemsIndexed(shown, key = { _, it -> it.id }, contentType = { _, _ -> "app" }) { i, app ->
                             StoreRow(
                                 app,
+                                shape = if (columns == 1) groupShape(i, shown.size) else RoundedCornerShape(CardRadius),
                                 installed = state.isInstalled(app),
                                 installing = app.id in state.installing,
                                 onOpen = { selectedId = app.id },
@@ -222,11 +231,11 @@ fun StoreScreen(viewModel: StoreViewModel, onClose: () -> Unit, modifier: Modifi
 }
 
 @Composable
-private fun StoreRow(app: StoreApp, installed: Boolean, installing: Boolean, onOpen: () -> Unit, onInstall: () -> Unit) {
-    HearthCard(Modifier.fillMaxWidth(), onClick = onOpen) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            AppIcon(app.iconUrl, app.title)
-            Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
+private fun StoreRow(app: StoreApp, shape: Shape, installed: Boolean, installing: Boolean, onOpen: () -> Unit, onInstall: () -> Unit) {
+    HearthCard(Modifier.fillMaxWidth(), onClick = onOpen, shape = shape) {
+        Row(Modifier.padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            AppIcon(app.iconUrl, app.title, size = 48.dp)
+            Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
                 Text(app.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 (app.tagline ?: app.category)?.let {
                     Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -241,11 +250,12 @@ private fun StoreRow(app: StoreApp, installed: Boolean, installing: Boolean, onO
 private fun InstallButton(installed: Boolean, installing: Boolean, onInstall: () -> Unit, compact: Boolean, modifier: Modifier = Modifier) {
     when {
         installing -> Box(modifier.size(48.dp), Alignment.Center) { CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.5.dp) }
-        installed -> Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Rounded.CheckCircle, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-            Text("Installed", Modifier.padding(start = 6.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        // Quiet, so the apps still to install are the ones that stand out.
+        installed -> Row(modifier.padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.CheckCircle, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Installed", Modifier.padding(start = 6.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        compact -> TextButton(onClick = onInstall, modifier = modifier) { Text("Install") }
+        compact -> FilledTonalButton(onClick = onInstall, modifier = modifier.height(40.dp)) { Text("Install") }
         else -> Button(onClick = onInstall, modifier = modifier) {
             Icon(Icons.Rounded.Download, null, Modifier.size(18.dp))
             Text("Install", Modifier.padding(start = 8.dp))

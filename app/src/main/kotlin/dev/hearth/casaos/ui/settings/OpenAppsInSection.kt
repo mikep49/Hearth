@@ -20,13 +20,14 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import dev.hearth.casaos.data.OpenAppsIn
+import dev.hearth.casaos.ui.components.CardPadding
 import dev.hearth.casaos.ui.components.HearthCard
 
 @Composable
 fun OpenAppsInSection(value: OpenAppsIn, onChange: (OpenAppsIn) -> Unit) {
     val haptic = LocalHapticFeedback.current
     HearthCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.padding(CardPadding), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Text("Open apps in", style = MaterialTheme.typography.titleMedium)
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 OpenAppsIn.entries.forEachIndexed { i, option ->

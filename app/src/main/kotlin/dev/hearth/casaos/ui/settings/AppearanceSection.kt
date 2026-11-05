@@ -41,7 +41,12 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.rounded.Contrast
+import dev.hearth.casaos.ui.components.CardPadding
+import dev.hearth.casaos.ui.components.GroupRowShape
 import dev.hearth.casaos.ui.components.HearthCard
+import dev.hearth.casaos.ui.components.ListGroup
+import dev.hearth.casaos.ui.components.SwitchRow
 import dev.hearth.casaos.ui.theme.Palette
 import dev.hearth.casaos.ui.theme.ThemeMode
 import dev.hearth.casaos.ui.theme.ThemeSettings
@@ -56,8 +61,9 @@ fun AppearanceSection(settings: ThemeSettings, onChange: (ThemeSettings) -> Unit
         onChange(next)
     }
 
-    HearthCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    ListGroup {
+      HearthCard(Modifier.fillMaxWidth(), shape = GroupRowShape) {
+        Column(Modifier.padding(CardPadding), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Text("Theme", style = MaterialTheme.typography.titleMedium)
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 ThemeMode.entries.forEachIndexed { i, mode ->
@@ -92,27 +98,15 @@ fun AppearanceSection(settings: ThemeSettings, onChange: (ThemeSettings) -> Unit
                 }
             }
         }
-
-        HorizontalDivider(Modifier.padding(horizontal = 18.dp), color = MaterialTheme.colorScheme.outlineVariant)
-
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .selectable(selected = settings.pureBlack, enabled = dark, role = Role.Switch) {
-                    change(settings.copy(pureBlack = !settings.pureBlack))
-                }
-                .padding(horizontal = 18.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                "Pure black",
-                Modifier.weight(1f).padding(end = 12.dp),
-                style = MaterialTheme.typography.titleMedium,
-                color = if (dark) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline,
-            )
-            // The row handles the toggle so the whole line is one large touch target.
-            Switch(checked = settings.pureBlack, onCheckedChange = null, enabled = dark)
-        }
+      }
+        SwitchRow(
+            "Pure black",
+            checked = settings.pureBlack,
+            onCheckedChange = { change(settings.copy(pureBlack = it)) },
+            subtitle = if (dark) "Black background for OLED screens" else "Only in dark theme",
+            icon = Icons.Rounded.Contrast,
+            enabled = dark,
+        )
     }
 }
 

@@ -83,11 +83,32 @@ import dev.hearth.casaos.data.InstalledApp
 import dev.hearth.casaos.data.OpenAppsIn
 import dev.hearth.casaos.data.versionLabel
 import dev.hearth.casaos.data.webUrl
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.grid.LazyGridScope
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.material.icons.rounded.Apps
+import androidx.compose.material.icons.rounded.CloudOff
+import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.text.style.TextAlign
 import dev.hearth.casaos.ui.components.AppIcon
+import dev.hearth.casaos.ui.components.CardRadius
+import dev.hearth.casaos.ui.components.Chevron
 import dev.hearth.casaos.ui.components.EmptyState
+import dev.hearth.casaos.ui.components.GroupGap
+import dev.hearth.casaos.ui.components.HeaderSubtitle
 import dev.hearth.casaos.ui.components.HearthCard
+import dev.hearth.casaos.ui.components.ListGroup
+import dev.hearth.casaos.ui.components.ListRow
+import dev.hearth.casaos.ui.components.ScreenHeader
 import dev.hearth.casaos.ui.components.SearchField
 import dev.hearth.casaos.ui.components.StatusDot
+import dev.hearth.casaos.ui.components.adaptiveColumns
+import dev.hearth.casaos.ui.components.groupShape
 import dev.hearth.casaos.ui.theme.hearth
 import dev.hearth.casaos.ui.web.rememberCreateApp
 import kotlinx.coroutines.delay
@@ -167,6 +188,25 @@ class AppsViewModel(private val client: CasaClient) : ViewModel() {
 /** The narrowest an app card in the Apps and App Store grids gets before the grid drops a column. */
 internal val AppCardMinWidth = 340.dp
 
+/**
+ * The Apps and App Store list: one grouped column on a phone, separate cards side by side on wider
+ * screens. [content] gets the number of columns so rows can pick their shape.
+ */
+@Composable
+internal fun AppGrid(modifier: Modifier = Modifier, content: LazyGridScope.(columns: Int) -> Unit) {
+    BoxWithConstraints(modifier) {
+        val side = 20.dp
+        val gap = 12.dp
+        val columns = adaptiveColumns(maxWidth - side * 2, AppCardMinWidth, gap)
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(columns),
+            contentPadding = PaddingValues(start = side, end = side, top = 12.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(if (columns == 1) GroupGap else gap),
+            horizontalArrangement = Arrangement.spacedBy(gap),
+        ) { content(columns) }
+    }
+}
+
 private enum class Filter(val label: String) { All("All"), Running("Running"), Stopped("Stopped") }
 
 /** True if [q] appears in the app's name, id, tagline or image, ignoring case. */
@@ -203,8 +243,8 @@ fun AppsScreen(
     val apps = state.apps
     when {
         apps == null && state.error == null -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
-        apps == null -> EmptyState("Couldn't load apps", state.error.orEmpty())
-        apps.isEmpty() -> EmptyState("No apps installed", "Install apps from the App Store and they'll show up here.") {
+        apps == null -> EmptyState("Couldn't load apps", state.error.orEmpty(), icon = Icons.Rounded.CloudOff)
+        apps.isEmpty() -> EmptyState("No apps installed", "Install apps from the App Store and they'll show up here.", icon = Icons.Rounded.Apps) {
             Button(onClick = onOpenStore) {
                 Icon(Icons.Rounded.Storefront, null, Modifier.size(18.dp))
                 Text("Browse the App Store", Modifier.padding(start = 8.dp))
@@ -223,23 +263,10 @@ fun AppsScreen(
                 }
             }
             val running = remember(apps) { apps.count { it.state == AppState.Running } }
-            // One column on a phone; wider screens fit two or three app cards side by side.
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(AppCardMinWidth),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
+            // One column on a phone, as one grouped list; wider screens fit two or three app cards side by side.
+            AppGrid { columns ->
                 item(key = "header", span = { GridItemSpan(maxLineSpan) }, contentType = "header") {
-                    Row(Modifier.padding(top = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Apps", style = MaterialTheme.typography.headlineMedium)
-                            Text(
-                                "$running of ${apps.size} running",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
+                    ScreenHeader("Apps", subtitle = { HeaderSubtitle("$running of ${apps.size} running") }) {
                         FilledTonalButton(onClick = onOpenStore) {
                             Icon(Icons.Rounded.Storefront, null, Modifier.size(18.dp))
                             Text("App Store", Modifier.padding(start = 8.dp))
@@ -247,19 +274,20 @@ fun AppsScreen(
                     }
                 }
                 item(key = "search", span = { GridItemSpan(maxLineSpan) }, contentType = "search") {
-                    SearchField(query, { query = it }, "Search ${apps.size} apps")
+                    SearchField(query, { query = it }, "Search ${apps.size} apps", Modifier.padding(top = 8.dp))
                 }
                 item(key = "filters", span = { GridItemSpan(maxLineSpan) }, contentType = "filters") {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.padding(top = 4.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Filter.entries.forEach { f ->
                             FilterChip(selected = filter == f, onClick = { filter = f }, label = { Text(f.label) })
                         }
                     }
                 }
-                items(shown, key = { it.id }, contentType = { "app" }) { app ->
+                itemsIndexed(shown, key = { _, it -> it.id }, contentType = { _, _ -> "app" }) { i, app ->
                     val webUrl = app.webUrl(serverBaseUrl)
                     AppRow(
                         app = app,
+                        shape = if (columns == 1) groupShape(i, shown.size) else RoundedCornerShape(CardRadius),
                         busy = app.id in state.busy,
                         onOpen = { selectedId = app.id },
                         onToggle = {
@@ -279,8 +307,9 @@ fun AppsScreen(
                                 filter == Filter.All -> "No apps match \"$q\"."
                                 else -> "No ${filter.label.lowercase()} apps match \"$q\"."
                             },
-                            Modifier.padding(top = 24.dp),
+                            Modifier.padding(top = 24.dp).fillMaxWidth(),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
                         )
                     }
                 }
@@ -367,6 +396,7 @@ private fun UninstallDialog(app: InstalledApp, busy: Boolean, onDismiss: () -> U
 @Composable
 private fun AppRow(
     app: InstalledApp,
+    shape: Shape,
     busy: Boolean,
     onOpen: () -> Unit,
     onToggle: () -> Unit,
@@ -375,7 +405,7 @@ private fun AppRow(
 ) {
     var menu by remember { mutableStateOf(false) }
     Box {
-        AppCard(app, busy, onOpen, onToggle, onLongClick = { menu = true })
+        AppCard(app, shape, busy, onOpen, onToggle, onLongClick = { menu = true })
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, offset = DpOffset(14.dp, 0.dp)) {
             if (onCreateApp != null) {
                 DropdownMenuItem(
@@ -401,13 +431,13 @@ private fun AppRow(
 }
 
 @Composable
-private fun AppCard(app: InstalledApp, busy: Boolean, onOpen: () -> Unit, onToggle: () -> Unit, onLongClick: (() -> Unit)?) {
+private fun AppCard(app: InstalledApp, shape: Shape, busy: Boolean, onOpen: () -> Unit, onToggle: () -> Unit, onLongClick: (() -> Unit)?) {
     // Stopped apps are greyed out so they stand apart from running ones; the Start button keeps full colour.
     val stopped = app.state == AppState.Stopped
-    HearthCard(Modifier.fillMaxWidth(), onClick = onOpen, onLongClick = onLongClick) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            AppIcon(app.iconUrl, app.name, Modifier.alpha(if (stopped) 0.45f else 1f), grayscale = stopped)
-            Column(Modifier.weight(1f).padding(horizontal = 14.dp).alpha(if (stopped) 0.6f else 1f)) {
+    HearthCard(Modifier.fillMaxWidth(), onClick = onOpen, onLongClick = onLongClick, shape = shape) {
+        Row(Modifier.padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            AppIcon(app.iconUrl, app.name, Modifier.alpha(if (stopped) 0.45f else 1f), size = 48.dp, grayscale = stopped)
+            Column(Modifier.weight(1f).padding(horizontal = 16.dp).alpha(if (stopped) 0.6f else 1f)) {
                 Text(
                     app.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     color = if (stopped) MaterialTheme.colorScheme.onSurfaceVariant else Color.Unspecified,
@@ -427,7 +457,18 @@ private fun AppCard(app: InstalledApp, busy: Boolean, onOpen: () -> Unit, onTogg
                     CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.5.dp)
                 } else if (app.state != AppState.Restarting) {
                     val running = app.state == AppState.Running
-                    FilledTonalIconButton(onClick = onToggle) {
+                    // Stop is quiet; Start, the way back for a stopped app, carries the accent.
+                    FilledTonalIconButton(
+                        onClick = onToggle,
+                        colors = if (running) {
+                            IconButtonDefaults.filledTonalIconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else {
+                            IconButtonDefaults.filledTonalIconButtonColors()
+                        },
+                    ) {
                         Icon(if (running) Icons.Rounded.Stop else Icons.Rounded.PlayArrow, if (running) "Stop ${app.name}" else "Start ${app.name}")
                     }
                 }
@@ -509,88 +550,77 @@ private fun AppSheet(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 val running = app.state == AppState.Running
-                OutlinedButton(
+                FilledTonalButton(
                     onClick = { haptic.performHapticFeedback(HapticFeedbackType.ContextClick); onAction(if (running) AppAction.Stop else AppAction.Start) },
                     enabled = !busy,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).height(48.dp),
                 ) {
-                    Icon(if (running) Icons.Rounded.Stop else Icons.Rounded.PlayArrow, null, Modifier.size(18.dp))
+                    if (busy) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    } else {
+                        Icon(if (running) Icons.Rounded.Stop else Icons.Rounded.PlayArrow, null, Modifier.size(18.dp))
+                    }
                     Text(if (running) "Stop" else "Start", Modifier.padding(start = 8.dp), maxLines = 1)
                 }
-                OutlinedButton(
+                FilledTonalButton(
                     onClick = { haptic.performHapticFeedback(HapticFeedbackType.ContextClick); onAction(AppAction.Restart) },
                     enabled = !busy,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).height(48.dp),
                 ) {
                     Icon(Icons.Rounded.RestartAlt, null, Modifier.size(18.dp))
                     Text("Restart", Modifier.padding(start = 8.dp), maxLines = 1)
                 }
             }
-            if (busy) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                    Text("Working…", Modifier.padding(start = 10.dp), style = MaterialTheme.typography.bodyMedium)
-                }
-            }
-            if (webUrl != null) {
-                Text(webUrl, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.outline)
-            }
 
-            VersionRow(app, onOpenVersion)
-
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedButton(onClick = onOpenLogs, Modifier.weight(1f)) {
-                    Icon(Icons.AutoMirrored.Rounded.Article, null, Modifier.size(18.dp))
-                    Text("Logs", Modifier.padding(start = 8.dp), maxLines = 1)
-                }
-                OutlinedButton(onClick = onOpenSettings, Modifier.weight(1f)) {
-                    Icon(Icons.Rounded.Tune, null, Modifier.size(18.dp))
-                    Text("Settings", Modifier.padding(start = 8.dp), maxLines = 1)
-                }
+            ListGroup(Modifier.padding(top = 8.dp)) {
+                val update = app.updateAvailable
+                ListRow(
+                    if (update) "Update available" else "Version",
+                    subtitle = app.image?.let(::versionLabel) ?: "Choose a version",
+                    icon = if (update) Icons.Rounded.SystemUpdateAlt else Icons.Rounded.Sell,
+                    trailing = {
+                        if (update) {
+                            Badge("Update")
+                        } else {
+                            Chevron()
+                        }
+                    },
+                    onClick = onOpenVersion,
+                )
+                ListRow("Logs", icon = Icons.AutoMirrored.Rounded.Article, trailing = { Chevron() }, onClick = onOpenLogs)
+                ListRow(
+                    "Settings",
+                    subtitle = "Ports, folders and environment",
+                    icon = Icons.Rounded.Tune,
+                    trailing = { Chevron() },
+                    onClick = onOpenSettings,
+                )
+                if (webUrl != null) ListRow("Web address", subtitle = webUrl, icon = Icons.Rounded.Link)
             }
-
-            TextButton(
-                onClick = onUninstall,
-                enabled = !busy,
-                modifier = Modifier.align(Alignment.CenterHorizontally),
-            ) {
-                Icon(Icons.Rounded.Delete, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
-                Text("Uninstall", Modifier.padding(start = 8.dp), color = MaterialTheme.colorScheme.error)
+            ListGroup {
+                ListRow(
+                    "Uninstall",
+                    icon = Icons.Rounded.Delete,
+                    iconTint = MaterialTheme.colorScheme.error,
+                    titleColor = MaterialTheme.colorScheme.error,
+                    enabled = !busy,
+                    onClick = onUninstall,
+                )
             }
         }
     }
 }
 
-/** The version the app runs, opening the page to switch it; highlighted when CasaOS has an update. */
+/** A small accent pill at the end of a row, e.g. "Update". */
 @Composable
-private fun VersionRow(app: InstalledApp, onClick: () -> Unit) {
-    val update = app.updateAvailable
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(16.dp),
-        color = if (update) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        val fg = if (update) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-        Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(if (update) Icons.Rounded.SystemUpdateAlt else Icons.Rounded.Sell, null, Modifier.size(20.dp), tint = fg)
-            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                Text(
-                    if (update) "Update available" else "Version",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = if (update) fg else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    app.image?.let(::versionLabel) ?: "Choose a version",
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontFamily = if (app.image != null) FontFamily.Monospace else null,
-                    color = fg,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Text(if (update) "Update" else "Change", style = MaterialTheme.typography.labelLarge, color = if (update) fg else MaterialTheme.colorScheme.primary)
-            Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, Modifier.size(20.dp), tint = if (update) fg else MaterialTheme.colorScheme.primary)
-        }
-    }
+private fun Badge(text: String) {
+    Text(
+        text,
+        Modifier
+            .clip(RoundedCornerShape(50))
+            .background(MaterialTheme.colorScheme.primary)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onPrimary,
+    )
 }

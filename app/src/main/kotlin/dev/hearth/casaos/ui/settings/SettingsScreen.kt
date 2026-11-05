@@ -48,8 +48,12 @@ import dev.hearth.casaos.data.OpenAppsIn
 import dev.hearth.casaos.data.PowerAction
 import dev.hearth.casaos.data.PrefsStore
 import dev.hearth.casaos.data.SessionStore
-import dev.hearth.casaos.ui.components.HearthCard
-import dev.hearth.casaos.ui.components.SectionLabel
+import androidx.compose.ui.text.style.TextAlign
+import dev.hearth.casaos.ui.components.Chevron
+import dev.hearth.casaos.ui.components.ListGroup
+import dev.hearth.casaos.ui.components.ListRow
+import dev.hearth.casaos.ui.components.ScreenHeader
+import dev.hearth.casaos.ui.components.SectionHeader
 import dev.hearth.casaos.ui.theme.ThemeSettings
 import dev.hearth.casaos.ui.theme.ThemeStore
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -136,72 +140,75 @@ fun SettingsScreen(
 
     Column(
         Modifier.verticalScroll(rememberScrollState()).readableWidth().padding(horizontal = 20.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Settings", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.headlineMedium)
+        ScreenHeader("Settings")
 
-        HearthCard(Modifier.fillMaxWidth(), onClick = onOpenServers) {
-            Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier.size(52.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        username.firstOrNull()?.uppercase() ?: "?",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
-                }
-                Column(Modifier.padding(start = 16.dp)) {
-                    Text(username.ifBlank { "Signed in" }, style = MaterialTheme.typography.titleMedium)
-                    Text(serverLabel, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    version?.let { Text("CasaOS $it", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.outline) }
-                }
+        // Who's signed in where; tapping it switches server.
+        ListGroup(Modifier.padding(top = 4.dp)) {
+            ListRow(
+                username.ifBlank { "Signed in" },
+                subtitle = listOfNotNull(serverLabel, version?.let { "CasaOS $it" }).joinToString(" · "),
+                leading = {
+                    Box(
+                        Modifier.size(48.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            username.firstOrNull()?.uppercase() ?: "?",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
+                },
+                trailing = { Chevron() },
+                onClick = onOpenServers,
+            )
+        }
+
+        Section("Appearance") { AppearanceSection(theme, viewModel::setTheme) }
+
+        Section("Apps") { OpenAppsInSection(openAppsIn, viewModel::setOpenAppsIn) }
+
+        Section("Alerts") { AlertsSection(alerts, viewModel::setAlerts, onError = viewModel::showError) }
+
+        Section("Security") {
+            SecuritySection(
+                lockEnabled,
+                lockAfter,
+                available = viewModel::lockAvailable,
+                onEnabledChange = viewModel::setLockEnabled,
+                onLockAfterChange = viewModel::setLockAfter,
+                onError = viewModel::showError,
+            )
+        }
+
+        Section("Server") {
+            ListGroup {
+                ListRow("Restart server", icon = Icons.Rounded.RestartAlt, onClick = { confirm = PowerAction.Restart })
+                ListRow(
+                    "Shut down",
+                    icon = Icons.Rounded.PowerSettingsNew,
+                    iconTint = MaterialTheme.colorScheme.error,
+                    titleColor = MaterialTheme.colorScheme.error,
+                    onClick = { confirm = PowerAction.Shutdown },
+                )
             }
         }
 
-        SectionLabel("Appearance")
-        AppearanceSection(theme, viewModel::setTheme)
-
-        SectionLabel("Apps")
-        OpenAppsInSection(openAppsIn, viewModel::setOpenAppsIn)
-
-        SectionLabel("Alerts")
-        AlertsSection(alerts, viewModel::setAlerts, onError = viewModel::showError)
-
-        SectionLabel("Security")
-        SecuritySection(
-            lockEnabled,
-            lockAfter,
-            available = viewModel::lockAvailable,
-            onEnabledChange = viewModel::setLockEnabled,
-            onLockAfterChange = viewModel::setLockAfter,
-            onError = viewModel::showError,
-        )
-
-        SectionLabel("Server")
-        HearthCard(Modifier.fillMaxWidth()) {
-            ActionRow(Icons.Rounded.RestartAlt, "Restart server", MaterialTheme.colorScheme.onSurface) {
-                confirm = PowerAction.Restart
+        Section("Account") {
+            ListGroup {
+                ListRow("Switch server", icon = Icons.Rounded.SwapHoriz, trailing = { Chevron() }, onClick = onOpenServers)
+                ListRow("Sign out", icon = Icons.AutoMirrored.Rounded.Logout, onClick = viewModel::signOut)
             }
-            HorizontalDivider(Modifier.padding(horizontal = 18.dp), color = MaterialTheme.colorScheme.outlineVariant)
-            ActionRow(Icons.Rounded.PowerSettingsNew, "Shut down", MaterialTheme.colorScheme.error) {
-                confirm = PowerAction.Shutdown
-            }
-        }
-
-        SectionLabel("Account")
-        HearthCard(Modifier.fillMaxWidth()) {
-            ActionRow(Icons.Rounded.SwapHoriz, "Switch server", MaterialTheme.colorScheme.onSurface, onClick = onOpenServers)
-            HorizontalDivider(Modifier.padding(horizontal = 18.dp), color = MaterialTheme.colorScheme.outlineVariant)
-            ActionRow(Icons.AutoMirrored.Rounded.Logout, "Sign out", MaterialTheme.colorScheme.onSurface, onClick = viewModel::signOut)
         }
 
         Text(
             "Hearth ${BuildConfig.VERSION_NAME} · unofficial CasaOS client",
-            Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            Modifier.fillMaxWidth().padding(vertical = 12.dp),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.outline,
+            textAlign = TextAlign.Center,
         )
     }
 
@@ -226,12 +233,11 @@ fun SettingsScreen(
     }
 }
 
+/** A titled group of settings. */
 @Composable
-private fun ActionRow(icon: ImageVector, title: String, tint: Color, onClick: () -> Unit) {
-    androidx.compose.material3.Surface(onClick = onClick, color = Color.Transparent) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, null, tint = tint)
-            Text(title, Modifier.padding(start = 16.dp), style = MaterialTheme.typography.titleMedium, color = tint)
-        }
+private fun Section(title: String, content: @Composable () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionHeader(title)
+        content()
     }
 }

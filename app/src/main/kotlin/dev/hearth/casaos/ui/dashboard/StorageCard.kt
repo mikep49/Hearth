@@ -28,6 +28,7 @@ import dev.hearth.casaos.data.DriveHealth
 import dev.hearth.casaos.data.DriveKind
 import dev.hearth.casaos.data.Volume
 import dev.hearth.casaos.ui.components.HearthCard
+import dev.hearth.casaos.ui.components.IconTile
 import dev.hearth.casaos.ui.components.SectionLabel
 import dev.hearth.casaos.ui.components.formatBytes
 import dev.hearth.casaos.ui.theme.hearth
@@ -56,15 +57,14 @@ internal fun StorageCard(drives: List<Drive>, total: DiskStats?) {
 private fun DriveRow(drive: Drive) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
+            IconTile(
                 when (drive.kind) {
                     DriveKind.System -> Icons.Rounded.Dns
                     DriveKind.Usb -> Icons.Rounded.Usb
                     else -> Icons.Rounded.Storage
                 },
-                null,
-                Modifier.size(22.dp),
                 tint = MaterialTheme.hearth.storage,
+                size = 36.dp,
             )
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
                 Text(driveTitle(drive), style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -78,7 +78,7 @@ private fun DriveRow(drive: Drive) {
             }
             HealthBadge(drive.health)
         }
-        Column(Modifier.padding(start = 34.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.padding(start = 48.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (drive.volumes.isEmpty()) {
                 Text("Not mounted", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }

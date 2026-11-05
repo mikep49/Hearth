@@ -1,5 +1,8 @@
 package dev.hearth.casaos.ui.apps
 
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import dev.hearth.casaos.ui.components.BackButton
+import dev.hearth.casaos.ui.components.hearthTopBarColors
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -220,13 +223,14 @@ fun AppLogsScreen(
     val all = ui.lines
     val shown = remember(all, q) { all?.let { filterLogLines(it, q) } }
 
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
-        modifier = modifier,
+        modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
-                navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, "Close") } },
+                navigationIcon = { BackButton(onClose) },
                 title = {
                     Column {
                         Text(appName, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -298,7 +302,8 @@ fun AppLogsScreen(
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                colors = hearthTopBarColors(),
+                scrollBehavior = scrollBehavior,
             )
         },
     ) { padding ->

@@ -180,9 +180,9 @@ private fun AppRow(app: AppUsage, stats: SystemStats, sort: SortBy) {
 }
 
 @Composable
-internal fun UsageBar(fraction: Float, color: Color) {
-    Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(MaterialTheme.colorScheme.surfaceContainerHighest)) {
-        Box(Modifier.fillMaxHeight().fillMaxWidth(fraction.coerceIn(0f, 1f)).background(color))
+internal fun UsageBar(fraction: Float, color: Color, height: androidx.compose.ui.unit.Dp = 4.dp) {
+    Box(Modifier.fillMaxWidth().height(height).clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.surfaceContainerHighest)) {
+        Box(Modifier.fillMaxHeight().fillMaxWidth(fraction.coerceIn(0f, 1f)).clip(RoundedCornerShape(50)).background(color))
     }
 }
 

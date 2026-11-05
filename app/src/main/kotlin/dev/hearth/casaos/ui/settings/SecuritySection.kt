@@ -31,7 +31,11 @@ import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import dev.hearth.casaos.data.LockAfter
+import dev.hearth.casaos.ui.components.CardPadding
+import dev.hearth.casaos.ui.components.GroupRowShape
 import dev.hearth.casaos.ui.components.HearthCard
+import dev.hearth.casaos.ui.components.ListGroup
+import dev.hearth.casaos.ui.components.SwitchRow
 import dev.hearth.casaos.ui.lock.confirmOwner
 
 @Composable
@@ -63,30 +67,17 @@ fun SecuritySection(
         )
     }
 
-    HearthCard(Modifier.fillMaxWidth()) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .toggleable(value = enabled, enabled = canLock || enabled, role = Role.Switch, onValueChange = ::toggle)
-                .padding(horizontal = 18.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Rounded.Fingerprint, null)
-            Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
-                Text("Lock Hearth", style = MaterialTheme.typography.titleMedium)
-                if (!canLock) {
-                    Text(
-                        "Set up a screen lock on your phone first, in Android's Settings › Security",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            Switch(checked = enabled, onCheckedChange = null, enabled = canLock || enabled)
-        }
-        if (enabled) {
-            HorizontalDivider(Modifier.padding(horizontal = 18.dp), color = MaterialTheme.colorScheme.outlineVariant)
-            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    ListGroup {
+        SwitchRow(
+            "Lock Hearth",
+            checked = enabled,
+            onCheckedChange = ::toggle,
+            subtitle = if (canLock) "Fingerprint, face or your phone's PIN" else "Set up a screen lock on your phone first, in Android's Settings › Security",
+            icon = Icons.Rounded.Fingerprint,
+            enabled = canLock || enabled,
+        )
+        if (enabled) HearthCard(Modifier.fillMaxWidth(), shape = GroupRowShape) {
+            Column(Modifier.padding(CardPadding), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Text("Lock again after leaving", style = MaterialTheme.typography.titleMedium)
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                     LockAfter.entries.forEachIndexed { i, option ->

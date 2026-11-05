@@ -98,7 +98,7 @@ fun FilePreview(entry: FileEntry, viewModel: FilesViewModel, transfer: Transfer?
                             }
                             IconButton(onClick = { viewModel.download(entry) }, enabled = idle) { Icon(Icons.Rounded.Download, "Download", tint = fg) }
                         },
-                        colors = TopAppBarDefaults.topAppBarColors(containerColor = if (dark) Color.Black.copy(alpha = 0.6f) else MaterialTheme.colorScheme.surfaceContainerLow),
+                        colors = TopAppBarDefaults.topAppBarColors(containerColor = if (dark) Color.Black.copy(alpha = 0.6f) else MaterialTheme.colorScheme.background),
                     )
                     if (transfer != null) {
                         val p = transfer.progress

@@ -7,15 +7,34 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.LocalTextStyle
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import kotlin.math.max
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.displayCutout
@@ -115,32 +134,203 @@ fun ClearOfCutout(content: @Composable () -> Unit) {
     ) { content() }
 }
 
-/** The app's base container: tonal fill with a hairline border so cards read as glass-like on dark. */
+/** Corner radius of cards, and of the outer corners of a grouped list. */
+val CardRadius = 24.dp
+
+/** Corner radius where two rows of a grouped list meet. */
+private val InnerRadius = 6.dp
+
+/** The gap between rows of a grouped list. */
+val GroupGap = 2.dp
+
+/** Padding inside a card that shows a block of content (charts, forms, choices). */
+val CardPadding = 20.dp
+
+/**
+ * The shape of row [index] of [count] in a grouped list: round outer corners at the ends, tight ones
+ * where rows meet, like Android's own Settings. Used where rows can't share a parent, as in lazy lists.
+ */
+fun groupShape(index: Int, count: Int): Shape {
+    val top = if (index == 0) CardRadius else InnerRadius
+    val bottom = if (index == count - 1) CardRadius else InnerRadius
+    return RoundedCornerShape(top, top, bottom, bottom)
+}
+
+/** How many columns `GridCells.Adaptive(min)` makes in [width] with [spacing] between them. */
+fun adaptiveColumns(width: Dp, min: Dp, spacing: Dp): Int = max(1, ((width + spacing) / (min + spacing)).toInt())
+
+/** The app's base container: a tonal fill a step up from the background. */
 @Composable
 fun HearthCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
+    shape: Shape = RoundedCornerShape(CardRadius),
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val shape = RoundedCornerShape(24.dp)
     val color = MaterialTheme.colorScheme.surfaceContainer
-    val border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
     if (onLongClick != null) {
         // Surface's own onClick has no long press. Clicking inside it keeps the ripple within the rounded corners.
-        Surface(modifier = modifier, shape = shape, color = color, border = border) {
+        Surface(modifier = modifier, shape = shape, color = color) {
             Column(Modifier.combinedClickable(onClick = onClick ?: {}, onLongClick = onLongClick), content = content)
         }
     } else if (onClick != null) {
-        Surface(onClick = onClick, modifier = modifier, shape = shape, color = color, border = border) {
+        Surface(onClick = onClick, modifier = modifier, shape = shape, color = color) {
             Column(content = content)
         }
     } else {
-        Surface(modifier = modifier, shape = shape, color = color, border = border) {
+        Surface(modifier = modifier, shape = shape, color = color) {
             Column(content = content)
         }
     }
 }
+
+/**
+ * Rows grouped into one rounded block, 2dp apart. Each child is one row: use [ListRow], or a [HearthCard]
+ * with [GroupRowShape] for anything else. Clipping the column rounds the outer corners of the first and last rows.
+ */
+@Composable
+fun ListGroup(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier.fillMaxWidth().clip(RoundedCornerShape(CardRadius)),
+        verticalArrangement = Arrangement.spacedBy(GroupGap),
+        content = content,
+    )
+}
+
+/** The shape of a row inside a [ListGroup]; the group rounds the outer corners. */
+val GroupRowShape: Shape = RoundedCornerShape(InnerRadius)
+
+/** An icon on a tinted rounded tile, leading a row. */
+@Composable
+fun IconTile(
+    icon: ImageVector,
+    modifier: Modifier = Modifier,
+    tint: Color = MaterialTheme.colorScheme.primary,
+    container: Color = tint.copy(alpha = 0.14f),
+    size: Dp = 40.dp,
+) {
+    Box(modifier.size(size).clip(RoundedCornerShape(size * 0.32f)).background(container), contentAlignment = Alignment.Center) {
+        Icon(icon, null, Modifier.size(size * 0.55f), tint = tint)
+    }
+}
+
+/**
+ * One row of a list: a leading icon or tile, a title with an optional subtitle, and something trailing.
+ * Rows in a [ListGroup] get the group's look; pass [shape] for rows that stand alone or sit in a lazy list.
+ */
+@Composable
+fun ListRow(
+    title: String,
+    modifier: Modifier = Modifier,
+    subtitle: String? = null,
+    icon: ImageVector? = null,
+    iconTint: Color = MaterialTheme.colorScheme.primary,
+    leading: (@Composable () -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null,
+    titleColor: Color = Color.Unspecified,
+    enabled: Boolean = true,
+    shape: Shape = GroupRowShape,
+    onClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
+    /** Turns the whole row into a switch, for rows whose trailing content is a [Switch] with no click of its own. */
+    toggle: Pair<Boolean, (Boolean) -> Unit>? = null,
+) {
+    val alpha = if (enabled) 1f else 0.45f
+    val click = when {
+        toggle != null -> Modifier.toggleable(toggle.first, enabled = enabled, role = Role.Switch, onValueChange = toggle.second)
+        onLongClick != null -> Modifier.combinedClickable(enabled = enabled, onClick = onClick ?: {}, onLongClick = onLongClick)
+        onClick != null -> Modifier.clickable(enabled = enabled, onClick = onClick)
+        else -> Modifier
+    }
+    Surface(modifier.fillMaxWidth(), shape = shape, color = MaterialTheme.colorScheme.surfaceContainer) {
+        Row(
+            click.heightIn(min = 64.dp).padding(start = 16.dp, end = if (trailing != null) 12.dp else 16.dp, top = 12.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            when {
+                leading != null -> Box(Modifier.alpha(alpha)) { leading() }
+                icon != null -> IconTile(icon, Modifier.alpha(alpha), tint = iconTint)
+            }
+            Column(Modifier.weight(1f).padding(start = if (leading != null || icon != null) 16.dp else 0.dp, end = 8.dp).alpha(alpha)) {
+                Text(title, style = MaterialTheme.typography.titleMedium, color = titleColor, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (subtitle != null) {
+                    Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            trailing?.invoke()
+        }
+    }
+}
+
+/** A row that's a switch, with the whole row as its touch target. */
+@Composable
+fun SwitchRow(
+    title: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    subtitle: String? = null,
+    icon: ImageVector? = null,
+    enabled: Boolean = true,
+) {
+    ListRow(
+        title, modifier, subtitle = subtitle, icon = icon, enabled = enabled,
+        toggle = checked to onCheckedChange,
+        trailing = { Switch(checked = checked, onCheckedChange = null, enabled = enabled) },
+    )
+}
+
+/** The chevron that ends a row which opens another page. */
+@Composable
+fun Chevron() {
+    Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+/**
+ * The title at the top of each tab, with a line under it and actions beside it, so every tab starts the
+ * same way. [subtitle] is free-form so a tab can put a server switcher or a folder path there.
+ */
+@Composable
+fun ScreenHeader(
+    title: String,
+    modifier: Modifier = Modifier,
+    subtitle: (@Composable () -> Unit)? = null,
+    actions: @Composable RowScope.() -> Unit = {},
+) {
+    Row(modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.headlineMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (subtitle != null) {
+                CompositionLocalProvider(
+                    LocalContentColor provides MaterialTheme.colorScheme.onSurfaceVariant,
+                    LocalTextStyle provides MaterialTheme.typography.bodyMedium,
+                ) { subtitle() }
+            }
+        }
+        actions()
+    }
+}
+
+/** A plain-text [ScreenHeader] subtitle. */
+@Composable
+fun HeaderSubtitle(text: String) {
+    Text(text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+}
+
+/** The back arrow at the start of a page's top bar. */
+@Composable
+fun BackButton(onClick: () -> Unit, enabled: Boolean = true) {
+    IconButton(onClick = onClick, enabled = enabled) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
+}
+
+/** Top bar colours for pages: the page's own background, lifting to a tint once the content scrolls under it. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun hearthTopBarColors() = TopAppBarDefaults.topAppBarColors(
+    containerColor = MaterialTheme.colorScheme.background,
+    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+)
 
 /** Circular progress ring that animates to [fraction] (0..1). */
 @Composable
@@ -274,24 +464,62 @@ private class LetterTilePainter(private val letter: TextLayoutResult, private va
     }
 }
 
+/** The small caps title inside a card, e.g. PROCESSOR on Home. Groups of cards or rows use [SectionHeader]. */
 @Composable
 fun SectionLabel(text: String, modifier: Modifier = Modifier) {
     Text(
         text.uppercase(),
-        modifier = modifier.padding(horizontal = 4.dp),
+        modifier = modifier,
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         letterSpacing = 1.2.sp,
     )
 }
 
+/** The title above a group of rows or cards, as in Android's Settings. */
 @Composable
-fun EmptyState(title: String, message: String, modifier: Modifier = Modifier, action: @Composable () -> Unit = {}) {
+fun SectionHeader(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text,
+        modifier = modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 2.dp),
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+    )
+}
+
+/** Small print under a group of rows. */
+@Composable
+fun GroupFootnote(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text,
+        modifier = modifier.padding(horizontal = 16.dp),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+@Composable
+fun EmptyState(
+    title: String,
+    message: String,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+    action: @Composable () -> Unit = {},
+) {
     Column(
         modifier.fillMaxSize().padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+        verticalArrangement = Arrangement.Center,
     ) {
+        if (icon != null) {
+            IconTile(
+                icon,
+                Modifier.padding(bottom = 20.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                container = MaterialTheme.colorScheme.surfaceContainerHigh,
+                size = 72.dp,
+            )
+        }
         Text(title, style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
         Text(
             message,
@@ -320,6 +548,13 @@ fun SearchField(query: String, onQueryChange: (String) -> Unit, placeholder: Str
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
         keyboardActions = KeyboardActions(onSearch = { focus.clearFocus() }),
         shape = RoundedCornerShape(28.dp),
+        // A filled pill, outlined in the accent only while typing.
+        colors = OutlinedTextFieldDefaults.colors(
+            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            unfocusedBorderColor = Color.Transparent,
+            unfocusedLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        ),
         modifier = modifier.fillMaxWidth(),
     )
 }

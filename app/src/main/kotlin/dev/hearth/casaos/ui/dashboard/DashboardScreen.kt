@@ -45,8 +45,13 @@ import dev.hearth.casaos.data.InstalledApp
 import dev.hearth.casaos.data.UsageUnavailable
 import dev.hearth.casaos.data.groupUsage
 import dev.hearth.casaos.data.SystemStats
+import dev.hearth.casaos.ui.components.CardPadding
+import dev.hearth.casaos.ui.components.CardRadius
 import dev.hearth.casaos.ui.components.EmptyState
 import dev.hearth.casaos.ui.components.HearthCard
+import dev.hearth.casaos.ui.components.ListRow
+import dev.hearth.casaos.ui.components.ScreenHeader
+import dev.hearth.casaos.ui.components.StatusDot
 import dev.hearth.casaos.ui.components.ReadableWidth
 import dev.hearth.casaos.ui.components.RingGauge
 import dev.hearth.casaos.ui.components.SectionLabel
@@ -223,22 +228,16 @@ fun DashboardScreen(
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Header(username, serverLabel, onOpenServers)
+            Header(username, serverLabel, online = state.error == null && stats != null, onOpenServers)
 
             AnimatedVisibility(state.error != null) {
-                HearthCard(Modifier.fillMaxWidth()) {
-                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.CloudOff, null, tint = MaterialTheme.colorScheme.error)
-                        Column(Modifier.padding(start = 12.dp)) {
-                            Text("Can't reach your server", style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                state.error.orEmpty() + (if (stats != null) " · showing last reading" else ""),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
+                ListRow(
+                    "Can't reach your server",
+                    subtitle = state.error.orEmpty() + (if (stats != null) " · showing last reading" else ""),
+                    icon = Icons.Rounded.CloudOff,
+                    iconTint = MaterialTheme.colorScheme.error,
+                    shape = RoundedCornerShape(CardRadius),
+                )
             }
 
             if (stats == null) {
@@ -247,7 +246,7 @@ fun DashboardScreen(
                         CircularProgressIndicator()
                     }
                 } else {
-                    EmptyState("No data yet", "We'll keep trying while this screen is open.")
+                    EmptyState("No data yet", "We'll keep trying while this screen is open.", icon = Icons.Rounded.CloudOff)
                 }
                 return@Column
             }
@@ -284,23 +283,23 @@ private val TwoColumnWidth = 840.dp
 private val TwoColumnMaxWidth = 1200.dp
 
 @Composable
-private fun Header(username: String, serverLabel: String, onOpenServers: () -> Unit) {
+private fun Header(username: String, serverLabel: String, online: Boolean, onOpenServers: () -> Unit) {
     val hour = remember { Calendar.getInstance().get(Calendar.HOUR_OF_DAY) }
     val greeting = when (hour) { in 5..11 -> "Good morning"; in 12..17 -> "Good afternoon"; else -> "Good evening" }
-    Column(Modifier.padding(top = 8.dp)) {
-        Text(
-            if (username.isBlank()) greeting else "$greeting, $username",
-            style = MaterialTheme.typography.headlineMedium,
-        )
-        // Tapping the server's name switches to another one.
-        Row(
-            Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClickLabel = "Switch server", onClick = onOpenServers).padding(vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(serverLabel, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Icon(Icons.Rounded.ExpandMore, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
+    ScreenHeader(
+        if (username.isBlank()) greeting else "$greeting, $username",
+        subtitle = {
+            // The server's name, with whether it's answering; tapping it switches to another server.
+            Row(
+                Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClickLabel = "Switch server", onClick = onOpenServers).padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                StatusDot(if (online) MaterialTheme.hearth.good else MaterialTheme.hearth.bad)
+                Text(serverLabel, Modifier.padding(start = 8.dp))
+                Icon(Icons.Rounded.ExpandMore, null, Modifier.size(18.dp))
+            }
+        },
+    )
 }
 
 @Composable
@@ -333,11 +332,7 @@ private fun CpuCard(stats: SystemStats, history: List<Float>) {
             Row(verticalAlignment = Alignment.Top) {
                 Column(Modifier.weight(1f)) {
                     SectionLabel("Processor")
-                    Text(
-                        "${stats.cpuPercent.toInt()}%",
-                        style = MaterialTheme.typography.headlineSmall.copy(fontSize = 30.sp),
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
+                    MetricValue("${stats.cpuPercent.toInt()}%")
                 }
                 Column(horizontalAlignment = Alignment.End) {
                     val parts = buildList {
@@ -385,34 +380,52 @@ private fun RateColumn(
             Icon(icon, null, Modifier.size(16.dp), tint = color)
             Text(label, Modifier.padding(start = 4.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Text(formatRate(rate), style = MaterialTheme.typography.titleMedium)
+        Text(formatRate(rate), style = MaterialTheme.typography.titleLarge)
         Sparkline(history, color, Modifier.fillMaxWidth().height(44.dp))
     }
 }
 
-/** [showStorage]: the storage total, for servers where the Storage card can't show each drive. */
+/** A card's headline figure, e.g. CPU use, the same size on every card. */
+@Composable
+private fun MetricValue(value: String, unit: String? = null) {
+    Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.Bottom) {
+        Text(value, style = MaterialTheme.typography.headlineMedium)
+        if (unit != null) {
+            Text(
+                unit,
+                Modifier.padding(start = 6.dp, bottom = 4.dp),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** [showStorage]: the storage total too, for servers where the Storage card can't show each drive. */
 @Composable
 private fun MemoryCard(stats: SystemStats, showStorage: Boolean) {
+    val c = MaterialTheme.hearth
     HearthCard(Modifier.fillMaxWidth()) {
-        Row(Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                SectionLabel("Memory")
-                Text(
-                    "${formatBytes(stats.memUsed)} of ${formatBytes(stats.memTotal)}",
-                    Modifier.padding(top = 4.dp),
-                    style = MaterialTheme.typography.titleMedium,
-                )
-            }
+        Column(Modifier.padding(CardPadding), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            UsedOf("Memory", stats.memUsed, stats.memTotal, c.memory, "${stats.memPercent.toInt()}% used")
             stats.disk?.takeIf { showStorage }?.let {
-                Column(horizontalAlignment = Alignment.End) {
-                    SectionLabel("Storage")
-                    Text(
-                        "${formatBytes(it.usedBytes)} of ${formatBytes(it.totalBytes)}",
-                        Modifier.padding(top = 4.dp),
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                }
+                UsedOf("Storage", it.usedBytes, it.totalBytes, c.storage, "${it.percent.toInt()}% used")
             }
         }
+    }
+}
+
+/** e.g. MEMORY  6.4 GB of 16 GB, with a bar. */
+@Composable
+private fun UsedOf(label: String, used: Long, total: Long, color: Color, detail: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(verticalAlignment = Alignment.Top) {
+            Column(Modifier.weight(1f)) {
+                SectionLabel(label)
+                MetricValue(formatBytes(used), "of ${formatBytes(total)}")
+            }
+            Text(detail, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        UsageBar(if (total > 0) used.toFloat() / total else 0f, color, height = 8.dp)
     }
 }

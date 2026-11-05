@@ -80,8 +80,9 @@ import dev.hearth.casaos.data.FoundServer
 import dev.hearth.casaos.data.ServerFinder
 import dev.hearth.casaos.data.ServerProfile
 import dev.hearth.casaos.data.mergeFound
-import dev.hearth.casaos.ui.components.HearthCard
-import dev.hearth.casaos.ui.components.SectionLabel
+import dev.hearth.casaos.ui.components.ListGroup
+import dev.hearth.casaos.ui.components.ListRow
+import dev.hearth.casaos.ui.components.SectionHeader
 import dev.hearth.casaos.ui.servers.ServerRow
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -313,7 +314,6 @@ fun ConnectScreen(
                 onClick = ::submit,
                 enabled = state.canSubmit,
                 modifier = Modifier.fillMaxWidth().height(56.dp),
-                shape = RoundedCornerShape(18.dp),
                 colors = ButtonDefaults.buttonColors(),
             ) {
                 if (state.loading) {
@@ -327,11 +327,10 @@ fun ConnectScreen(
             val others = saved.filterNot { it.address.equals(state.server.trim(), ignoreCase = true) && it.username.equals(state.username.trim(), ignoreCase = true) }
             if (!adding && others.isNotEmpty()) {
                 Spacer(Modifier.height(28.dp))
-                SectionLabel("Your servers", Modifier.fillMaxWidth())
+                SectionHeader("Your servers", Modifier.fillMaxWidth())
                 Spacer(Modifier.height(8.dp))
-                HearthCard(Modifier.fillMaxWidth()) {
-                    others.forEachIndexed { i, profile ->
-                        if (i > 0) HorizontalDivider(Modifier.padding(horizontal = 18.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                ListGroup {
+                    others.forEach { profile ->
                         ServerRow(profile, selected = false, onClick = { if (profile.signedIn) onSwitch(profile) else viewModel.prefill(profile) })
                     }
                 }
@@ -376,27 +375,16 @@ private fun FoundServers(state: ConnectState, onFind: () -> Unit, onPick: (Found
             )
         }
         if (state.found.isNotEmpty()) {
-            HearthCard(Modifier.fillMaxWidth()) {
-                state.found.forEachIndexed { i, server ->
-                    if (i > 0) HorizontalDivider(Modifier.padding(horizontal = 18.dp), color = MaterialTheme.colorScheme.outlineVariant)
+            ListGroup {
+                state.found.forEach { server ->
                     val picked = server.address.equals(state.server.trim(), ignoreCase = true)
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable { onPick(server) }
-                            .padding(horizontal = 18.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(Icons.Rounded.Dns, null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.size(14.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(server.address, style = MaterialTheme.typography.bodyLarge)
-                            if (server.address != server.ip) {
-                                Text(server.ip, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
-                        if (picked) Icon(Icons.Rounded.Check, "Selected", tint = MaterialTheme.colorScheme.primary)
-                    }
+                    ListRow(
+                        server.address,
+                        subtitle = server.ip.takeIf { it != server.address },
+                        icon = Icons.Rounded.Dns,
+                        trailing = if (picked) { { Icon(Icons.Rounded.Check, "Selected", tint = MaterialTheme.colorScheme.primary) } } else null,
+                        onClick = { onPick(server) },
+                    )
                 }
             }
         }

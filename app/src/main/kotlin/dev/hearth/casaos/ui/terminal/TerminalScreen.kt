@@ -65,7 +65,10 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.termux.terminal.KeyHandler
+import dev.hearth.casaos.ui.components.CardPadding
+import dev.hearth.casaos.ui.components.HeaderSubtitle
 import dev.hearth.casaos.ui.components.HearthCard
+import dev.hearth.casaos.ui.components.ScreenHeader
 import dev.hearth.casaos.ui.components.readableWidth
 
 @Composable
@@ -125,16 +128,11 @@ private fun SessionView(viewModel: TerminalViewModel, state: TerminalUiState) {
     }
 
     Column(Modifier.fillMaxSize().imePadding()) {
-        Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("Terminal", style = MaterialTheme.typography.titleLarge)
-                Text(
-                    "${state.form.username.trim()}@${state.form.host.trim()}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                )
-            }
+        ScreenHeader(
+            "Terminal",
+            Modifier.padding(start = 20.dp, end = 8.dp, top = 12.dp),
+            subtitle = { HeaderSubtitle("${state.form.username.trim()}@${state.form.host.trim()}") },
+        ) {
             IconButton(onClick = { confirmUpdate = true }, enabled = state.ended == null) {
                 Icon(Icons.Rounded.SystemUpdateAlt, contentDescription = "Update server")
             }
@@ -182,7 +180,7 @@ private fun SessionView(viewModel: TerminalViewModel, state: TerminalUiState) {
                 .weight(1f)
                 .fillMaxWidth()
                 .padding(horizontal = 8.dp, vertical = 4.dp)
-                .clip(RoundedCornerShape(14.dp)),
+                .clip(RoundedCornerShape(16.dp)),
         )
 
         ExtraKeys(
@@ -271,7 +269,7 @@ private fun ExtraKeys(
 private fun ExtraKey(label: String, selected: Boolean = false, description: String = label, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(12.dp),
         color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
         contentColor = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
         modifier = Modifier.height(40.dp),
@@ -295,7 +293,7 @@ private fun SignInForm(viewModel: TerminalViewModel, state: TerminalUiState) {
         Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).readableWidth().padding(horizontal = 20.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text("Terminal", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.headlineMedium)
+        ScreenHeader("Terminal", subtitle = { HeaderSubtitle("Sign in over SSH") })
         Text(
             "Open a shell on the server over SSH to run commands or update CasaOS. Sign in with a Linux account on the server, which may differ from your CasaOS login.",
             style = MaterialTheme.typography.bodyMedium,
@@ -303,7 +301,7 @@ private fun SignInForm(viewModel: TerminalViewModel, state: TerminalUiState) {
         )
 
         HearthCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.padding(CardPadding), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedTextField(
                         value = form.host,
@@ -371,7 +369,6 @@ private fun SignInForm(viewModel: TerminalViewModel, state: TerminalUiState) {
             onClick = viewModel::connect,
             enabled = form.canSubmit && !state.connecting,
             modifier = Modifier.fillMaxWidth().height(56.dp),
-            shape = RoundedCornerShape(18.dp),
         ) {
             if (state.connecting) {
                 CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.5.dp, color = MaterialTheme.colorScheme.onPrimary)

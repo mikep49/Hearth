@@ -20,6 +20,11 @@ import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Apps
+import androidx.compose.material.icons.outlined.Dashboard
+import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.Folder
@@ -164,12 +169,13 @@ private fun Root(container: AppContainer) {
 /** The width from which the tabs move from the bottom bar to a side rail: Material's medium window size. */
 private val RailWidth = 600.dp
 
-private enum class Tab(val label: String, val icon: ImageVector) {
-    Dashboard("Home", Icons.Rounded.Dashboard),
-    Apps("Apps", Icons.Rounded.Apps),
-    Files("Files", Icons.Rounded.Folder),
-    Terminal("Terminal", Icons.Rounded.Terminal),
-    Settings("Settings", Icons.Rounded.Settings),
+/** Each tab's icon is outlined, and filled in while the tab is open. */
+private enum class Tab(val label: String, val icon: ImageVector, val selectedIcon: ImageVector) {
+    Dashboard("Home", Icons.Outlined.Dashboard, Icons.Rounded.Dashboard),
+    Apps("Apps", Icons.Outlined.Apps, Icons.Rounded.Apps),
+    Files("Files", Icons.Outlined.Folder, Icons.Rounded.Folder),
+    Terminal("Terminal", Icons.Outlined.Terminal, Icons.Rounded.Terminal),
+    Settings("Settings", Icons.Outlined.Settings, Icons.Rounded.Settings),
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -224,7 +230,7 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
                         NavigationRailItem(
                             selected = tab == i,
                             onClick = { select(i) },
-                            icon = { Icon(t.icon, null) },
+                            icon = { Icon(if (tab == i) t.selectedIcon else t.icon, null) },
                             label = { Text(t.label) },
                         )
                     }
@@ -245,7 +251,7 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
                             NavigationBarItem(
                                 selected = tab == i,
                                 onClick = { select(i) },
-                                icon = { Icon(t.icon, null) },
+                                icon = { Icon(if (tab == i) t.selectedIcon else t.icon, null) },
                                 label = { Text(t.label) },
                             )
                         }

@@ -120,10 +120,22 @@ import dev.hearth.casaos.data.searchFiles
 import dev.hearth.casaos.data.uniqueName
 import dev.hearth.casaos.data.walkFolders
 import dev.hearth.casaos.data.without
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material.icons.rounded.CloudOff
+import androidx.compose.material.icons.rounded.FolderOpen
+import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Shape
 import dev.hearth.casaos.ui.components.ReadableGutter
 import dev.hearth.casaos.ui.components.EmptyState
+import dev.hearth.casaos.ui.components.GroupGap
 import dev.hearth.casaos.ui.components.HearthCard
+import dev.hearth.casaos.ui.components.IconTile
+import dev.hearth.casaos.ui.components.ScreenHeader
 import dev.hearth.casaos.ui.components.SearchField
+import dev.hearth.casaos.ui.components.SectionHeader
+import dev.hearth.casaos.ui.components.groupShape
 import dev.hearth.casaos.ui.components.formatBytes
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -566,14 +578,12 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState) {
     Box(Modifier.fillMaxSize()) {
         ReadableGutter(min = 20.dp) { side ->
             Column(Modifier.fillMaxSize()) {
-                Column(Modifier.padding(start = side, end = side, top = 20.dp, bottom = 8.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Files", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+                Column(Modifier.padding(start = side, end = side, top = 12.dp, bottom = 8.dp)) {
+                    ScreenHeader("Files", subtitle = { Breadcrumbs(state.path, onNavigate = viewModel::open) }) {
                         SortButton(sort, onSortBy = viewModel::sortBy, onShowHidden = viewModel::setShowHidden)
                     }
-                    Breadcrumbs(state.path, onNavigate = viewModel::open)
                     if (state.listing != null || query.isNotEmpty()) {
-                        SearchField(query, { query = it }, "Search all files on the server", Modifier.padding(top = 4.dp))
+                        SearchField(query, { query = it }, "Search all files on the server", Modifier.padding(top = 8.dp))
                     }
                 }
                 state.transfer?.let { TransferBar(it, side) }
@@ -589,13 +599,17 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState) {
                     val listing = state.listing
                     when {
                         listing == null && state.loading -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
-                        listing == null -> EmptyState("Couldn't open this folder", state.error.orEmpty()) {
+                        listing == null -> EmptyState("Couldn't open this folder", state.error.orEmpty(), icon = Icons.Rounded.CloudOff) {
                             TextButton(onClick = viewModel::reload) { Text("Try again") }
                         }
                         listing.entries.isEmpty() && !searching ->
-                            EmptyState("Empty folder", "There's nothing in ${state.path}. Tap + to upload files or make a folder.")
+                            EmptyState(
+                                "Empty folder",
+                                "There's nothing in ${state.path}. Tap + to upload files or make a folder.",
+                                icon = Icons.Rounded.FolderOpen,
+                            )
                         !sort.showHidden && !searching && listing.entries.all { isHidden(it.name) } ->
-                            EmptyState("Only hidden files", "Everything in ${state.path} is hidden.") {
+                            EmptyState("Only hidden files", "Everything in ${state.path} is hidden.", icon = Icons.Rounded.VisibilityOff) {
                                 TextButton(onClick = { viewModel.setShowHidden(true) }) { Text("Show hidden files") }
                             }
                         else -> {
@@ -617,22 +631,28 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState) {
                             LazyColumn(
                                 // Room at the bottom so the last row isn't under the + button.
                                 contentPadding = PaddingValues(start = side, end = side, top = 8.dp, bottom = 96.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(GroupGap),
                             ) {
                                 if (searching && shown.isNotEmpty()) {
-                                    item(key = "here-header") { SectionLabel("In ${folderName(state.path)}") }
+                                    item(key = "here-header") { SectionHeader("In ${folderName(state.path)}", Modifier.padding(bottom = 6.dp)) }
                                 }
-                                items(shown, key = { it.path }) { entry ->
-                                    FileRow(entry, onClick = { openEntry(entry) }, onAction = { onAction(entry, it) })
+                                itemsIndexed(shown, key = { _, it -> it.path }) { i, entry ->
+                                    FileRow(
+                                        entry,
+                                        groupShape(i, shown.size),
+                                        onClick = { openEntry(entry) },
+                                        onAction = { onAction(entry, it) },
+                                    )
                                 }
                                 if (searching) {
-                                    item(key = "elsewhere-header") { SectionLabel("Everywhere else") }
+                                    item(key = "elsewhere-header") { SectionHeader("Everywhere else", Modifier.padding(top = 8.dp, bottom = 6.dp)) }
                                     item(key = "elsewhere-status") {
                                         SearchStatus(index, elsewhere, nothingHere = shown.isEmpty(), query = q)
                                     }
-                                    items(elsewhere.entries, key = { "elsewhere:" + it.path }) { entry ->
+                                    itemsIndexed(elsewhere.entries, key = { _, it -> "elsewhere:" + it.path }) { i, entry ->
                                         FileRow(
                                             entry,
+                                            groupShape(i, elsewhere.entries.size),
                                             location = locationOf(entry),
                                             onClick = { openEntry(entry) },
                                             onAction = { onAction(entry, it) },
@@ -764,22 +784,12 @@ private fun directionLabel(sort: FileSort): String = when (sort.by) {
     SortBy.Date -> if (sort.descending) "Newest" else "Oldest"
 }
 
-@Composable
-private fun SectionLabel(text: String) {
-    Text(
-        text,
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(top = 8.dp),
-    )
-}
-
 /** How far the server-wide search has got, or why there's nothing (more) to show. */
 @Composable
 private fun SearchStatus(index: FileIndex?, hits: SearchHits, nothingHere: Boolean, query: String) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val style = MaterialTheme.typography.bodyMedium
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         if (index == null || !index.done) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
@@ -850,11 +860,13 @@ private fun Breadcrumbs(path: String, onNavigate: (String) -> Unit) {
             val last = i == segments.lastIndex
             Text(
                 name,
-                modifier = Modifier.clickable(enabled = !last) { onNavigate(target) }.padding(vertical = 8.dp),
-                style = MaterialTheme.typography.labelLarge,
-                color = if (last) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(enabled = !last, onClickLabel = "Open $name") { onNavigate(target) }
+                    .padding(vertical = 2.dp),
+                color = if (last) LocalContentColor.current else MaterialTheme.colorScheme.primary,
             )
-            if (!last) Icon(Icons.Rounded.ChevronRight, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.outline)
+            if (!last) Icon(Icons.Rounded.ChevronRight, null, Modifier.padding(horizontal = 2.dp).size(16.dp), tint = MaterialTheme.colorScheme.outline)
         }
     }
 }
@@ -871,23 +883,27 @@ private enum class FileAction(val label: String, val icon: ImageVector, val file
 
 /** Tap opens; long-press or the ⋮ button shows the item's actions. */
 @Composable
-private fun FileRow(entry: FileEntry, onClick: () -> Unit, onAction: (FileAction) -> Unit, location: String? = null) {
+private fun FileRow(entry: FileEntry, shape: Shape, onClick: () -> Unit, onAction: (FileAction) -> Unit, location: String? = null) {
     var menu by remember { mutableStateOf(false) }
     val haptic = LocalHapticFeedback.current
     Box {
-        HearthCard(Modifier.fillMaxWidth(), onClick = onClick, onLongClick = {
+        HearthCard(Modifier.fillMaxWidth(), shape = shape, onClick = onClick, onLongClick = {
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
             menu = true
         }) {
-            Row(Modifier.padding(start = 14.dp, end = 4.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    iconFor(entry),
-                    null,
-                    Modifier.size(28.dp),
-                    tint = if (entry.isDir) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Column(Modifier.weight(1f).padding(horizontal = 14.dp, vertical = 6.dp)) {
-                    Text(entry.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(Modifier.padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                // Folders carry the accent; files get a neutral tile so folders are easy to pick out.
+                if (entry.isDir) {
+                    IconTile(iconFor(entry))
+                } else {
+                    IconTile(
+                        iconFor(entry),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        container = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    )
+                }
+                Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
+                    Text(entry.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     val meta = remember(entry) {
                         listOfNotNull(if (entry.isDir) null else formatBytes(entry.size), formatModified(entry.modified)).joinToString(" · ")
                     }

@@ -1,5 +1,8 @@
 package dev.hearth.casaos.ui.apps
 
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import dev.hearth.casaos.ui.components.BackButton
+import dev.hearth.casaos.ui.components.hearthTopBarColors
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -105,7 +108,10 @@ import dev.hearth.casaos.data.parseAppSettings
 import dev.hearth.casaos.data.validate
 import dev.hearth.casaos.ui.components.AppIcon
 import dev.hearth.casaos.ui.components.EmptyState
+import dev.hearth.casaos.ui.components.CardPadding
 import dev.hearth.casaos.ui.components.HearthCard
+import dev.hearth.casaos.ui.components.IconTile
+import dev.hearth.casaos.ui.components.SectionHeader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -265,15 +271,19 @@ fun AppSettingsScreen(
 
     BackHandler { back() }
 
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
-        modifier = modifier,
+        modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 navigationIcon = {
-                    IconButton(onClick = ::back, enabled = !ui.saving) {
-                        Icon(Icons.Rounded.Close, if (ui.editing) "Stop editing" else "Close")
+                    // A cross while editing, as it drops the changes; otherwise the usual back arrow.
+                    if (ui.editing) {
+                        IconButton(onClick = ::back, enabled = !ui.saving) { Icon(Icons.Rounded.Close, "Stop editing") }
+                    } else {
+                        BackButton(::back)
                     }
                 },
                 title = {
@@ -315,7 +325,8 @@ fun AppSettingsScreen(
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                colors = hearthTopBarColors(),
+                scrollBehavior = scrollBehavior,
             )
         },
     ) { padding ->
@@ -374,7 +385,7 @@ private fun SettingsForm(
     LaunchedEffect(error) { if (error != null) scroll.animateScrollTo(0) }
 
     Column(
-        Modifier.fillMaxSize().verticalScroll(scroll).readableWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+        Modifier.fillMaxSize().verticalScroll(scroll).readableWidth().padding(horizontal = 20.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (error != null) Banner(error, isError = true)
@@ -383,12 +394,7 @@ private fun SettingsForm(
         AppSection(settings.app, editing, enabled, serverHost) { onChange(settings.copy(app = it)) }
 
         if (settings.services.size > 1) {
-            Text(
-                "Containers",
-                Modifier.padding(top = 4.dp, start = 4.dp),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            SectionHeader("Containers")
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 settings.services.forEachIndexed { i, s ->
                     FilterChip(selected = i == index, onClick = { serviceIndex = i }, label = { Text(s.name) })
@@ -627,10 +633,10 @@ private fun formatMb(mb: Long): String =
 @Composable
 private fun Section(title: String, icon: ImageVector, content: @Composable ColumnScope.() -> Unit) {
     HearthCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(icon, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
-                Text(title, Modifier.padding(start = 10.dp), style = MaterialTheme.typography.titleMedium)
+        Column(Modifier.padding(CardPadding), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconTile(icon, size = 32.dp)
+                Text(title, Modifier.padding(start = 12.dp), style = MaterialTheme.typography.titleMedium)
             }
             content()
         }

@@ -1,5 +1,8 @@
 package dev.hearth.casaos.ui.apps
 
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import dev.hearth.casaos.ui.components.BackButton
+import dev.hearth.casaos.ui.components.hearthTopBarColors
 import android.text.format.DateUtils
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
@@ -89,6 +92,11 @@ import dev.hearth.casaos.data.withImageTag
 import dev.hearth.casaos.ui.components.ReadableGutter
 import dev.hearth.casaos.ui.components.EmptyState
 import dev.hearth.casaos.ui.components.HearthCard
+import dev.hearth.casaos.ui.components.CardPadding
+import dev.hearth.casaos.ui.components.GroupGap
+import dev.hearth.casaos.ui.components.groupShape
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import dev.hearth.casaos.ui.components.formatBytes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -310,15 +318,14 @@ fun AppVersionScreen(
     }
     BackHandler { close() }
 
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
-        modifier = modifier,
+        modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
-                navigationIcon = {
-                    IconButton(onClick = ::close, enabled = !ui.applying) { Icon(Icons.Rounded.Close, "Close") }
-                },
+                navigationIcon = { BackButton(::close, enabled = !ui.applying) },
                 title = {
                     Column {
                         Text(appName, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -332,7 +339,8 @@ fun AppVersionScreen(
                         IconButton(onClick = viewModel::load, enabled = !ui.loading) { Icon(Icons.Rounded.Refresh, "Reload") }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                colors = hearthTopBarColors(),
+                scrollBehavior = scrollBehavior,
             )
         },
     ) { padding ->
@@ -456,7 +464,7 @@ private fun VersionList(
     LaunchedEffect(ui.error) { if (ui.error != null) listState.animateScrollToItem(0) }
 
     // No spacing between items: the tag rows join into one card. Other items add their own gap below.
-    ReadableGutter(min = 16.dp) { side ->
+    ReadableGutter(min = 20.dp) { side ->
         LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(horizontal = side, vertical = 12.dp)) {
             if (ui.error != null) item(key = "error") { Box(gap) { Banner(ui.error, isError = true) } }
 
@@ -472,7 +480,7 @@ private fun VersionList(
 
             item(key = "current") {
                 HearthCard(gap.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(Modifier.padding(CardPadding), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Running version", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(versionLabel(fullImage), style = MaterialTheme.typography.headlineSmall, fontFamily = FontFamily.Monospace)
                         Text(
@@ -526,6 +534,14 @@ private fun VersionList(
                     trailingIcon = if (ui.query.isNotEmpty()) { { IconButton(onClick = { onSearch("") }) { Icon(Icons.Rounded.Close, "Clear search") } } } else null,
                     placeholder = { Text("Search, or type a tag") },
                     textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace),
+                    shape = RoundedCornerShape(28.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        unfocusedBorderColor = Color.Transparent,
+                        disabledBorderColor = Color.Transparent,
+                    ),
                     keyboardOptions = KeyboardOptions(
                         capitalization = KeyboardCapitalization.None,
                         autoCorrectEnabled = false,
@@ -613,22 +629,19 @@ private fun VersionList(
 
 private val TagLike = Regex("""[\w][\w.-]{0,127}""")
 
-/** One tag. Consecutive rows join into a single rounded card. */
+/** One tag. Consecutive rows join into a grouped list. */
 @Composable
 private fun TagItem(row: TagRow, first: Boolean, last: Boolean, enabled: Boolean, onClick: () -> Unit) {
     val now = remember { System.currentTimeMillis() }
-    val radius = 24.dp
-    val shape = RoundedCornerShape(
-        topStart = if (first) radius else 0.dp, topEnd = if (first) radius else 0.dp,
-        bottomStart = if (last) radius else 0.dp, bottomEnd = if (last) radius else 0.dp,
-    )
-    Surface(shape = shape, color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
+    // Round outer corners only at the ends of the list, like the other grouped lists.
+    val shape = groupShape(if (first) 0 else 1, if (last) (if (first) 1 else 2) else 3)
+    Surface(shape = shape, color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth().padding(top = if (first) 0.dp else GroupGap)) {
         Column {
-            if (!first) HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             Row(
                 Modifier
                     .fillMaxWidth()
                     .clickable(enabled = enabled, onClickLabel = "Switch to ${row.tag.name}", onClick = onClick)
+                    .heightIn(min = 64.dp)
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {

@@ -38,7 +38,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.hearth.casaos.data.ServerProfile
-import dev.hearth.casaos.ui.components.HearthCard
+import androidx.compose.foundation.layout.heightIn
+import dev.hearth.casaos.ui.components.GroupFootnote
+import dev.hearth.casaos.ui.components.GroupRowShape
+import dev.hearth.casaos.ui.components.ListGroup
+import dev.hearth.casaos.ui.components.ListRow
 
 /** One saved server: its address, the account, and whether it's signed in. */
 @Composable
@@ -49,8 +53,8 @@ fun ServerRow(
     modifier: Modifier = Modifier,
     trailing: @Composable () -> Unit = {},
 ) {
-    Surface(onClick = onClick, modifier = modifier, color = Color.Transparent) {
-        Row(Modifier.fillMaxWidth().padding(start = 18.dp, end = 8.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+    Surface(onClick = onClick, modifier = modifier, shape = GroupRowShape, color = MaterialTheme.colorScheme.surfaceContainer) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
                 Modifier.size(40.dp).clip(CircleShape).background(
                     if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest,
@@ -67,7 +71,7 @@ fun ServerRow(
                     )
                 }
             }
-            Column(Modifier.weight(1f).padding(start = 14.dp)) {
+            Column(Modifier.weight(1f).padding(start = 16.dp)) {
                 Text(profile.label, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 val user = profile.username.ifBlank { "Account" }
                 Text(
@@ -106,9 +110,8 @@ fun ServerSheet(
     ) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Servers", Modifier.padding(horizontal = 8.dp), style = MaterialTheme.typography.headlineSmall)
-            HearthCard(Modifier.fillMaxWidth()) {
-                profiles.forEachIndexed { i, profile ->
-                    if (i > 0) HorizontalDivider(Modifier.padding(horizontal = 18.dp), color = MaterialTheme.colorScheme.outlineVariant)
+            ListGroup {
+                profiles.forEach { profile ->
                     ServerRow(
                         profile,
                         selected = profile.id == currentId,
@@ -126,22 +129,14 @@ fun ServerSheet(
                         },
                     )
                 }
-                if (profiles.isNotEmpty()) HorizontalDivider(Modifier.padding(horizontal = 18.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                Surface(onClick = onAdd, color = Color.Transparent) {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
-                            Icon(Icons.Rounded.Add, null, tint = MaterialTheme.colorScheme.primary)
-                        }
-                        Text("Add a server", Modifier.padding(start = 14.dp), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                    }
-                }
+                ListRow(
+                    "Add a server",
+                    icon = Icons.Rounded.Add,
+                    titleColor = MaterialTheme.colorScheme.primary,
+                    onClick = onAdd,
+                )
             }
-            Text(
-                "Each server keeps its own login. Home screen widgets can show any of them: tap a widget's server name to pick.",
-                Modifier.padding(horizontal = 8.dp),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            GroupFootnote("Each server keeps its own login. Home screen widgets can show any of them: tap a widget's server name to pick.")
         }
     }
 

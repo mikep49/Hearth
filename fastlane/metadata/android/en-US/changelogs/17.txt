@@ -1,0 +1,3 @@
+• A fresh, consistent design across the whole app
+• Home shows whether your server is online
+• Clearer app details and settings

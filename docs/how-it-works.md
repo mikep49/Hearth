@@ -74,10 +74,11 @@ Hearth runs on Android 10 or later, phones and tablets.
 
 ### Widget
 
-- Shows your server's CPU, memory and storage use. At 2×1 it shows three numbers, larger sizes add bars, and 3×2 and up add CPU cores, temperature and the amount of memory and storage used.
-- Each widget can show any saved server or follow the app. To pick, tap the server name on the widget.
+- Shows your server's status, CPU load, RAM usage and storage. At 1×1 and 2×1 it shows just the numbers, larger sizes add bars (one stat on its own gets a large number), and 3×2 and up add CPU cores, temperature and the amount of memory and storage used.
+- Each widget has its own settings: which of status, CPU, RAM and storage it shows, its theme (the app's, Light, Dark or OLED black) and its text size. Larger text needs a larger widget for the same detail. Showing only the status gives a large Online or Offline with the time of the last reading.
+- Each widget can show any saved server or follow the app.
+- To open a widget's settings, tap the server name on it, long-press it and pick its settings (Android 12+), or go to Settings → Home screen widgets in Hearth.
 - It refreshes every 30 minutes, when you leave Hearth, and when you tap its refresh button. If the server can't be reached, it keeps the last reading and marks it offline.
-- It follows Hearth's theme.
 
 ### Themes
 

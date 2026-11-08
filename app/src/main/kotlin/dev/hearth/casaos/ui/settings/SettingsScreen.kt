@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.RestartAlt
@@ -35,8 +36,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import dev.hearth.casaos.BuildConfig
@@ -57,6 +60,9 @@ import dev.hearth.casaos.ui.components.ScreenHeader
 import dev.hearth.casaos.ui.components.SectionHeader
 import dev.hearth.casaos.ui.theme.ThemeSettings
 import dev.hearth.casaos.ui.theme.ThemeStore
+import dev.hearth.casaos.widget.WidgetConfigActivity
+import dev.hearth.casaos.widget.WidgetOptions
+import dev.hearth.casaos.widget.WidgetOptionsStore
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -72,6 +78,7 @@ class SettingsViewModel(
     private val themeStore: ThemeStore,
     private val prefs: PrefsStore,
     private val lock: AppLock,
+    widgetOptions: WidgetOptionsStore,
 ) : ViewModel() {
     private val _version = MutableStateFlow<String?>(null)
     val version: StateFlow<String?> = _version.asStateFlow()
@@ -79,6 +86,9 @@ class SettingsViewModel(
     val theme: StateFlow<ThemeSettings> = themeStore.settings
 
     fun setTheme(settings: ThemeSettings) = themeStore.update(settings)
+
+    /** How each home screen widget is set up, by app widget id. */
+    val widgetOptions: StateFlow<Map<Int, WidgetOptions>> = widgetOptions.options
 
     val openAppsIn: StateFlow<OpenAppsIn> = prefs.openAppsIn
 
@@ -171,6 +181,8 @@ fun SettingsScreen(
 
         Section("Appearance") { AppearanceSection(theme, viewModel::setTheme) }
 
+        WidgetsSection(viewModel)
+
         Section("Apps") {
             OpenAppsInSection(openAppsIn, viewModel::setOpenAppsIn)
             ListGroup {
@@ -244,6 +256,33 @@ fun SettingsScreen(
             },
             dismissButton = { TextButton(onClick = { confirm = null }) { Text("Cancel") } },
         )
+    }
+}
+
+/** The home screen widgets, each opening its own settings. Hidden while none is placed. */
+@Composable
+private fun WidgetsSection(viewModel: SettingsViewModel) {
+    val context = LocalContext.current
+    val options by viewModel.widgetOptions.collectAsStateWithLifecycle()
+    // Checked again on return, in case a widget was just added or removed.
+    var placed by remember { mutableStateOf(WidgetConfigActivity.placed(context)) }
+    LifecycleResumeEffect(Unit) {
+        placed = WidgetConfigActivity.placed(context)
+        onPauseOrDispose {}
+    }
+    if (placed.isEmpty()) return
+    Section("Home screen widgets") {
+        ListGroup {
+            placed.forEachIndexed { i, id ->
+                ListRow(
+                    if (placed.size == 1) "Server stats" else "Server stats ${i + 1}",
+                    subtitle = (options[id] ?: WidgetOptions()).summary,
+                    icon = Icons.Rounded.Dashboard,
+                    trailing = { Chevron() },
+                    onClick = { context.startActivity(WidgetConfigActivity.intent(context, id)) },
+                )
+            }
+        }
     }
 }
 

@@ -6,7 +6,15 @@ import dev.hearth.casaos.data.CasaClient
 import dev.hearth.casaos.data.Credentials
 import dev.hearth.casaos.data.ServerProfile
 import dev.hearth.casaos.data.TokenDto
+import dev.hearth.casaos.ui.theme.Palette
+import dev.hearth.casaos.ui.theme.ThemeMode
+import dev.hearth.casaos.ui.theme.ThemeSettings
 import dev.hearth.casaos.widget.StatsLayout
+import dev.hearth.casaos.widget.WidgetItem
+import dev.hearth.casaos.widget.WidgetOptions
+import dev.hearth.casaos.widget.WidgetOptionsStore
+import dev.hearth.casaos.widget.WidgetTextSize
+import dev.hearth.casaos.widget.WidgetTheme
 import dev.hearth.casaos.widget.WidgetServerChoices
 import dev.hearth.casaos.widget.WidgetTarget
 import dev.hearth.casaos.widget.WidgetStatsStore
@@ -58,12 +66,57 @@ class WidgetStatsTest {
 
     @Test fun `each size gets the largest layout that fits`() {
         assertEquals(StatsLayout.Strip, StatsLayout.forSize(DpSize(110.dp, 40.dp)))
-        assertEquals(StatsLayout.Strip, StatsLayout.forSize(DpSize(60.dp, 30.dp)))
+        assertEquals(StatsLayout.Tiny, StatsLayout.forSize(DpSize(60.dp, 30.dp)))
+        assertEquals(StatsLayout.Tiny, StatsLayout.forSize(DpSize(57.dp, 57.dp)))
         assertEquals(StatsLayout.Bars, StatsLayout.forSize(DpSize(150.dp, 110.dp)))
         assertEquals(StatsLayout.Stacked, StatsLayout.forSize(DpSize(200.dp, 400.dp)))
         assertEquals(StatsLayout.Stacked, StatsLayout.forSize(DpSize(160.dp, 190.dp)))
         assertEquals(StatsLayout.WideBars, StatsLayout.forSize(DpSize(320.dp, 120.dp)))
         assertEquals(StatsLayout.Detailed, StatsLayout.forSize(DpSize(230.dp, 200.dp)))
+    }
+
+    @Test fun `larger text needs a larger widget for the same layout`() {
+        val size = DpSize(230.dp, 200.dp)
+        assertEquals(StatsLayout.Detailed, StatsLayout.forSize(size, WidgetTextSize.Medium.scale))
+        assertEquals(StatsLayout.Bars, StatsLayout.forSize(size, WidgetTextSize.Large.scale))
+        assertEquals(StatsLayout.Detailed, StatsLayout.forSize(DpSize(200.dp, 175.dp), WidgetTextSize.Small.scale))
+    }
+
+    @Test fun `a widget always shows at least one thing`() {
+        val cpuOnly = WidgetOptions(show = setOf(WidgetItem.Cpu))
+        assertEquals(cpuOnly, cpuOnly.toggle(WidgetItem.Cpu, on = false))
+        assertEquals(setOf(WidgetItem.Cpu, WidgetItem.Status), cpuOnly.toggle(WidgetItem.Status, on = true).show)
+        assertEquals(setOf(WidgetItem.Status), cpuOnly.toggle(WidgetItem.Status, on = true).toggle(WidgetItem.Cpu, on = false).show)
+    }
+
+    @Test fun `a widget theme keeps the app's accent`() {
+        val app = ThemeSettings(ThemeMode.Light, Palette.Ocean, pureBlack = false)
+        assertEquals(app, WidgetTheme.App.applyTo(app))
+        assertEquals(ThemeSettings(ThemeMode.Dark, Palette.Ocean, pureBlack = true), WidgetTheme.Oled.applyTo(app))
+        assertEquals(ThemeSettings(ThemeMode.Dark, Palette.Ocean, pureBlack = false), WidgetTheme.Dark.applyTo(app.copy(pureBlack = true)))
+        assertEquals(ThemeSettings(ThemeMode.Light, Palette.Ocean, pureBlack = true), WidgetTheme.Light.applyTo(app.copy(mode = ThemeMode.Dark, pureBlack = true)))
+    }
+
+    @Test fun `widget options are kept per widget, and dropped for removed widgets`() {
+        val store = WidgetOptionsStore(storage)
+        val statusOnly = WidgetOptions(show = setOf(WidgetItem.Status), theme = WidgetTheme.Oled, textSize = WidgetTextSize.Large)
+        store.set(7, statusOnly)
+        store.set(8, WidgetOptions(theme = WidgetTheme.Light))
+        val reloaded = WidgetOptionsStore(storage)
+        assertEquals(statusOnly, reloaded[7])
+        assertEquals(WidgetTheme.Light, reloaded[8].theme)
+        assertEquals("a widget with nothing saved uses the defaults", WidgetOptions(), reloaded[9])
+        assertEquals("Status · OLED · Large text", statusOnly.summary)
+
+        store.keepOnly(setOf(8))
+        assertEquals(setOf(8), WidgetOptionsStore(storage).options.value.keys)
+    }
+
+    @Test fun `an unreadable widget's options don't reset the others`() {
+        storage.saved = """{"7":{"show":["Cpu"],"theme":"Dark"},"8":{"show":["Hologram"]},"x":{}}"""
+        val store = WidgetOptionsStore(storage)
+        assertEquals(WidgetOptions(show = setOf(WidgetItem.Cpu), theme = WidgetTheme.Dark), store[7])
+        assertEquals(setOf(7), store.options.value.keys)
     }
 
     @Test fun `a reading is fetched, shown and kept for the next run`() = runTest {

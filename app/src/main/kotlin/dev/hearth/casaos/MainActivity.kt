@@ -320,7 +320,7 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
                         }
                         Tab.Settings -> {
                             val vm: SettingsViewModel = viewModel(key = "settings$key", factory = viewModelFactory {
-                                initializer { SettingsViewModel(client, container.session, container.theme, container.prefs, container.lock) }
+                                initializer { SettingsViewModel(client, container.session, container.theme, container.prefs, container.lock, container.widgetOptions) }
                             })
                             val loginsRemembered by container.webLogins.remember.collectAsStateWithLifecycle()
                             SettingsScreen(

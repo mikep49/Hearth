@@ -17,3 +17,6 @@
 -dontwarn org.apache.logging.log4j.**
 -dontwarn org.slf4j.**
 -dontwarn org.newsclub.net.unix.**
+
+# Glance creates widget button callbacks (e.g. the refresh button) by class name, with no arguments.
+-keep class * implements androidx.glance.appwidget.action.ActionCallback { <init>(); }

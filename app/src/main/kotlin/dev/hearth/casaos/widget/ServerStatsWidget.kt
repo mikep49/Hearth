@@ -7,12 +7,16 @@ import android.net.Uri
 import android.os.Build
 import android.text.format.DateUtils
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.ColorFilter
@@ -80,7 +84,9 @@ import androidx.glance.material3.ColorProviders as material3Colors
 
 /** The layouts the widget switches between as it's resized. */
 internal enum class StatsLayout(val minSize: DpSize) {
-    /** 2×1: three numbers in a row. */
+    /** 1×1: the numbers in a row, in smaller type. */
+    Tiny(DpSize(40.dp, 40.dp)),
+    /** 2×1: the numbers in a row. */
     Strip(DpSize(110.dp, 40.dp)),
     /** A bar per stat under a header with the server and a refresh button. */
     Bars(DpSize(150.dp, 110.dp)),
@@ -91,10 +97,19 @@ internal enum class StatsLayout(val minSize: DpSize) {
     /** Bars with a detail line under each: cores and temperature, used of total. */
     Detailed(DpSize(230.dp, 200.dp));
 
+    /** A single row of numbers, with no header. */
+    val compact: Boolean get() = this == Tiny || this == Strip
+
     companion object {
-        /** The largest layout that fits [size]; [Strip] when none does. */
-        fun forSize(size: DpSize): StatsLayout =
-            entries.lastOrNull { size.width >= it.minSize.width && size.height >= it.minSize.height } ?: Strip
+        /**
+         * The largest layout that fits [size] with text [scale]d up or down; [Tiny] when none does.
+         * Bigger text needs a bigger widget for the same layout.
+         */
+        fun forSize(size: DpSize, scale: Float = 1f): StatsLayout {
+            val w = size.width / scale
+            val h = size.height / scale
+            return entries.lastOrNull { w >= it.minSize.width && h >= it.minSize.height } ?: Tiny
+        }
     }
 }
 
@@ -138,13 +153,14 @@ class ServerStatsWidget : GlanceAppWidget() {
             val choices by container.widgetChoices.choices.collectAsState()
             val all by container.widgetStats.state.collectAsState()
             val theme by container.theme.settings.collectAsState()
+            val allOptions by container.widgetOptions.options.collectAsState()
             val target = WidgetTarget.of(choices[widgetId], shown, profiles)
             val server = target.serverId
             // Covers placing the widget, the 30-minute update, signing in and picking a server; skipped if a reading is recent.
             LaunchedEffect(server) { if (server != null) container.widgetStats.refresh(server, ServerStatsWidgets.FRESH_MS) }
             val baseUrl = (target as? WidgetTarget.Server)?.profile?.baseUrl
             val stats = server?.let(all::get)?.takeIf { it.snapshot == null || it.snapshot.baseUrl == baseUrl } ?: WidgetStats()
-            StatsWidget(theme, target, stats, widgetId)
+            StatsWidget(theme, allOptions[widgetId] ?: WidgetOptions(), target, stats, widgetId)
         }
     }
 
@@ -152,7 +168,7 @@ class ServerStatsWidget : GlanceAppWidget() {
     override suspend fun providePreview(context: Context, widgetCategory: Int) {
         val theme = context.container.theme.settings.value
         val sample = WidgetTarget.Server(ServerProfile("sample", SAMPLE.baseUrl, "", signedIn = true))
-        provideContent { StatsWidget(theme, sample, WidgetStats(SAMPLE), widgetId = null) }
+        provideContent { StatsWidget(theme, WidgetOptions(), sample, WidgetStats(SAMPLE), widgetId = null) }
     }
 
     private companion object {
@@ -201,7 +217,10 @@ object ServerStatsWidgets {
         val manager = GlanceAppWidgetManager(context)
         val container = context.container
         val widgetIds = ids.associateWith { manager.getAppWidgetId(it) }
-        if (only == null) container.widgetChoices.keepOnly(widgetIds.values.toSet())
+        if (only == null) {
+            container.widgetChoices.keepOnly(widgetIds.values.toSet())
+            container.widgetOptions.keepOnly(widgetIds.values.toSet())
+        }
         val servers = widgetIds.filterKeys { only == null || it == only }.values
             .mapNotNull { container.widgetServer(it) }
             .toSet()
@@ -233,8 +252,23 @@ private val Context.container: AppContainer get() = (applicationContext as Heart
 
 // region UI
 
-/** The app's theme as widget colors. "System" follows the phone's dark mode, like the app does. */
-private class WidgetColors(val scheme: ColorProviders, val cpu: ColorProvider, val memory: ColorProvider, val storage: ColorProvider) {
+/** The widget's text size, as a factor of the normal size. */
+private val LocalTextScale = staticCompositionLocalOf { 1f }
+
+@Composable
+private fun scaled(sp: Float): TextUnit = (sp * LocalTextScale.current).sp
+
+@Composable
+private fun scaledDp(dp: Float): Dp = (dp * LocalTextScale.current).dp
+
+/** A theme as widget colors. "System" follows the phone's dark mode, like the app does. */
+private class WidgetColors(
+    val scheme: ColorProviders,
+    val cpu: ColorProvider,
+    val memory: ColorProvider,
+    val storage: ColorProvider,
+    val good: ColorProvider,
+) {
     companion object {
         fun of(context: Context, theme: ThemeSettings): WidgetColors {
             val light = hearthColorScheme(context, theme, dark = false)
@@ -255,47 +289,72 @@ private class WidgetColors(val scheme: ColorProviders, val cpu: ColorProvider, v
                 cpu = pick(lightChart.cpu, darkChart.cpu),
                 memory = pick(lightChart.memory, darkChart.memory),
                 storage = pick(lightChart.storage, darkChart.storage),
+                good = pick(lightChart.good, darkChart.good),
             )
         }
     }
 }
 
-private class Stat(val label: String, val shortLabel: String, val percent: Double, val color: ColorProvider, val detail: String)
+private class Stat(
+    val label: String,
+    val shortLabel: String,
+    val percent: Double,
+    val color: ColorProvider,
+    val detail: String,
+    /** The CPU temperature, for the CPU row. */
+    val temp: String? = null,
+)
 
-private fun StatsSnapshot.stats(colors: WidgetColors): List<Stat> = buildList {
-    val cpuDetail = listOfNotNull(
-        cpuCores.takeIf { it > 0 }?.let { if (it == 1) "1 core" else "$it cores" },
-        cpuTempC?.takeIf { it > 0 }?.let { "$it°C" },
-    ).joinToString(" · ")
-    add(Stat("CPU", "CPU", cpuPercent, colors.cpu, cpuDetail))
-    add(Stat("Memory", "RAM", memPercent, colors.memory, "${formatBytes(memUsed)} of ${formatBytes(memTotal)}"))
+/** The stats [options] picked, in a fixed order. Storage is left out when the server doesn't report it. */
+private fun StatsSnapshot.stats(colors: WidgetColors, options: WidgetOptions): List<Stat> = buildList {
+    if (options.shows(WidgetItem.Cpu)) {
+        val temp = cpuTempC?.takeIf { it > 0 }?.let { "$it°C" }
+        val detail = listOfNotNull(cpuCores.takeIf { it > 0 }?.let { if (it == 1) "1 core" else "$it cores" }, temp).joinToString(" · ")
+        add(Stat("CPU", "CPU", cpuPercent, colors.cpu, detail, temp))
+    }
+    if (options.shows(WidgetItem.Memory)) {
+        add(Stat("Memory", "RAM", memPercent, colors.memory, "${formatBytes(memUsed)} of ${formatBytes(memTotal)}"))
+    }
     val disk = diskPercent
-    if (disk != null && diskUsed != null && diskTotal != null) {
+    if (options.shows(WidgetItem.Storage) && disk != null && diskUsed != null && diskTotal != null) {
         add(Stat("Storage", "Disk", disk, colors.storage, "${formatBytes(diskUsed)} of ${formatBytes(diskTotal)}"))
     }
 }
 
 private fun percent(value: Double) = "${value.coerceIn(0.0, 100.0).roundToInt()}%"
 
+/** When the reading was taken, e.g. "10:42", or the date if it's not from today. */
+private fun sampledAt(stats: WidgetStats): String? = stats.snapshot?.sampledAtMs?.let {
+    DateUtils.formatSameDayTime(it, System.currentTimeMillis(), DateFormat.SHORT, DateFormat.SHORT).toString()
+}
+
 @Composable
-private fun StatsWidget(theme: ThemeSettings, target: WidgetTarget, stats: WidgetStats, widgetId: Int?) {
+private fun StatsWidget(appTheme: ThemeSettings, options: WidgetOptions, target: WidgetTarget, stats: WidgetStats, widgetId: Int?) {
     // The picker's preview has no widget yet, so nothing in it can be tapped.
     val interactive = widgetId != null
     val context = LocalContext.current
+    val theme = options.theme.applyTo(appTheme)
     val colors = remember(theme) { WidgetColors.of(context, theme) }
-    val layout = StatsLayout.forSize(LocalSize.current)
-    GlanceTheme(colors.scheme) {
-        var root = GlanceModifier.fillMaxSize().appWidgetBackground().background(GlanceTheme.colors.background)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) root = root.cornerRadius(android.R.dimen.system_app_widget_background_radius)
-        if (interactive) root = root.clickable(actionStartActivity<MainActivity>())
-        val padding = if (layout == StatsLayout.Strip) 8.dp else 14.dp
-        Box(root.padding(horizontal = padding, vertical = if (layout == StatsLayout.Strip) 6.dp else 12.dp)) {
-            val pick = widgetId?.let { pickServerAction(context, it) }
-            when (target) {
-                WidgetTarget.NoServer -> Message("Sign in to Hearth", "to see your server here", layout)
-                WidgetTarget.Removed -> Message("Server removed", "Tap to pick another", layout, onClick = pick)
-                is WidgetTarget.SignedOut -> Message("Signed out of ${target.profile.label}", "Open Hearth to sign in again", layout)
-                is WidgetTarget.Server -> ServerStats(target.profile.baseUrl, stats, layout, colors, interactive, pick)
+    val scale = options.textSize.scale
+    val layout = StatsLayout.forSize(LocalSize.current, scale)
+    CompositionLocalProvider(LocalTextScale provides scale) {
+        GlanceTheme(colors.scheme) {
+            var root = GlanceModifier.fillMaxSize().appWidgetBackground().background(GlanceTheme.colors.background)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) root = root.cornerRadius(android.R.dimen.system_app_widget_background_radius)
+            if (interactive) root = root.clickable(actionStartActivity<MainActivity>())
+            val padding = when (layout) {
+                StatsLayout.Tiny -> GlanceModifier.padding(horizontal = 4.dp, vertical = 4.dp)
+                StatsLayout.Strip -> GlanceModifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                else -> GlanceModifier.padding(horizontal = 14.dp, vertical = 12.dp)
+            }
+            Box(root.then(padding)) {
+                val pick = widgetId?.let { pickServerAction(context, it) }
+                when (target) {
+                    WidgetTarget.NoServer -> Message("Sign in to Hearth", "to see your server here", layout)
+                    WidgetTarget.Removed -> Message("Server removed", "Tap to pick another", layout, onClick = pick)
+                    is WidgetTarget.SignedOut -> Message("Signed out of ${target.profile.label}", "Open Hearth to sign in again", layout)
+                    is WidgetTarget.Server -> ServerStats(target.profile.baseUrl, stats, options, layout, colors, interactive, pick)
+                }
             }
         }
     }
@@ -305,31 +364,47 @@ private fun StatsWidget(theme: ThemeSettings, target: WidgetTarget, stats: Widge
 private fun ServerStats(
     baseUrl: String,
     stats: WidgetStats,
+    options: WidgetOptions,
     layout: StatsLayout,
     colors: WidgetColors,
     interactive: Boolean,
     pick: Action?,
 ) {
     val snapshot = stats.snapshot
+    val showStatus = options.shows(WidgetItem.Status)
+    val rows = snapshot?.stats(colors, options).orEmpty()
+    val online = stats.error == null
     when {
-        snapshot == null && stats.error != null -> Column(GlanceModifier.fillMaxSize()) {
-            if (layout != StatsLayout.Strip) Header(baseUrl, stats, interactive, pick)
-            Message("Can't reach your server", stats.error, layout)
-        }
-        snapshot == null -> Box(GlanceModifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        snapshot == null && online -> Box(GlanceModifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(GlanceModifier.size(20.dp), color = GlanceTheme.colors.primary)
         }
-        layout == StatsLayout.Strip -> Strip(snapshot.stats(colors), stale = stats.error != null)
+        // Only the status was picked (or the only stat picked isn't reported).
+        rows.isEmpty() && showStatus -> if (layout.compact) {
+            StatusStrip(baseUrl, online, colors, layout)
+        } else {
+            StatusPanel(baseUrl, stats, colors, interactive, pick)
+        }
+        snapshot == null -> Column(GlanceModifier.fillMaxSize()) {
+            if (showStatus && !layout.compact) Header(baseUrl, stats, interactive, pick)
+            Message("Can't reach your server", stats.error.orEmpty(), layout)
+        }
+        rows.isEmpty() -> Message("No storage reading", "Your server doesn't report its storage", layout)
+        layout.compact -> Strip(rows, stale = !online, status = if (showStatus) online else null, colors, layout)
         else -> Column(GlanceModifier.fillMaxSize()) {
-            Header(baseUrl, stats, interactive, pick)
+            if (showStatus) Header(baseUrl, stats, interactive, pick)
             Spacer(GlanceModifier.defaultWeight())
-            val rows = snapshot.stats(colors)
-            rows.forEachIndexed { i, stat ->
+            // With no header to say so, dimmed labels mark a reading that couldn't be updated.
+            val stale = !online && !showStatus
+            val single = rows.singleOrNull()
+            if (single != null) {
+                val roomy = layout == StatsLayout.Stacked || layout == StatsLayout.Detailed
+                SingleStat(single, big = roomy, showDetail = roomy || layout == StatsLayout.WideBars, stale)
+            } else rows.forEachIndexed { i, stat ->
                 if (i > 0) Spacer(GlanceModifier.height(if (layout == StatsLayout.Bars || layout == StatsLayout.WideBars) 6.dp else 8.dp))
                 when (layout) {
-                    StatsLayout.Detailed -> StackedRow(stat, showDetail = true)
-                    StatsLayout.Stacked -> StackedRow(stat, showDetail = false)
-                    else -> BarRow(stat, showTemp = layout == StatsLayout.WideBars, snapshot)
+                    StatsLayout.Detailed -> StackedRow(stat, showDetail = true, stale)
+                    StatsLayout.Stacked -> StackedRow(stat, showDetail = false, stale)
+                    else -> BarRow(stat, showTemp = layout == StatsLayout.WideBars && options.shows(WidgetItem.Cpu), stale)
                 }
             }
             Spacer(GlanceModifier.defaultWeight())
@@ -337,19 +412,17 @@ private fun ServerStats(
     }
 }
 
-/** Opens the server picker for one widget. */
+/** Opens the widget's settings, where you also pick its server. */
 private fun pickServerAction(context: Context, widgetId: Int): Action = startActivityWithIntent(
     Intent(context, WidgetConfigActivity::class.java)
         .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
-        // Makes each widget's intent distinct, so tapping one never opens the picker for another.
+        // Makes each widget's intent distinct, so tapping one never opens the settings for another.
         .setData(Uri.parse("hearth://widget/$widgetId")),
 )
 
 @Composable
 private fun Header(baseUrl: String, stats: WidgetStats, interactive: Boolean, pick: Action?) {
-    val context = LocalContext.current
-    val sampledAt = stats.snapshot?.sampledAtMs
-    val time = sampledAt?.let { DateUtils.formatSameDayTime(it, System.currentTimeMillis(), DateFormat.SHORT, DateFormat.SHORT).toString() }
+    val time = sampledAt(stats)
     val status = when {
         stats.error != null && time != null -> "Offline · $time"
         stats.error != null -> "Offline"
@@ -357,62 +430,132 @@ private fun Header(baseUrl: String, stats: WidgetStats, interactive: Boolean, pi
     }
     Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         // The status gets its own line, so a narrow widget doesn't cut the server's name short.
-        // Tapping the name picks which server the widget shows.
+        // Tapping the name opens the widget's settings.
         var name = GlanceModifier.defaultWeight()
         if (pick != null) name = name.clickable(pick)
         Column(name) {
             Text(
                 serverLabel(baseUrl),
-                style = TextStyle(GlanceTheme.colors.onSurface, fontSize = 13.sp, fontWeight = FontWeight.Medium),
+                style = TextStyle(GlanceTheme.colors.onSurface, fontSize = scaled(13f), fontWeight = FontWeight.Medium),
                 maxLines = 1,
             )
             if (status.isNotEmpty()) {
                 Text(
                     status,
-                    style = TextStyle(if (stats.error != null) GlanceTheme.colors.error else GlanceTheme.colors.onSurfaceVariant, fontSize = 11.sp),
+                    style = TextStyle(if (stats.error != null) GlanceTheme.colors.error else GlanceTheme.colors.onSurfaceVariant, fontSize = scaled(11f)),
                     maxLines = 1,
                 )
             }
         }
-        var button = GlanceModifier.size(28.dp)
-        if (interactive) button = button.clickable(actionRunCallback<RefreshStatsAction>())
-        Box(button, contentAlignment = Alignment.Center) {
-            if (stats.refreshing) {
-                CircularProgressIndicator(GlanceModifier.size(16.dp), color = GlanceTheme.colors.primary)
-            } else {
-                Image(
-                    ImageProvider(R.drawable.ic_widget_refresh),
-                    contentDescription = context.getString(R.string.widget_refresh),
-                    GlanceModifier.size(18.dp),
-                    colorFilter = ColorFilter.tint(GlanceTheme.colors.onSurfaceVariant),
-                )
-            }
-        }
+        RefreshButton(stats, interactive)
     }
 }
 
 @Composable
-private fun BarRow(stat: Stat, showTemp: Boolean, snapshot: StatsSnapshot) {
+private fun RefreshButton(stats: WidgetStats, interactive: Boolean) {
+    val context = LocalContext.current
+    var button = GlanceModifier.size(28.dp)
+    if (interactive) button = button.clickable(actionRunCallback<RefreshStatsAction>())
+    Box(button, contentAlignment = Alignment.Center) {
+        if (stats.refreshing) {
+            CircularProgressIndicator(GlanceModifier.size(16.dp), color = GlanceTheme.colors.primary)
+        } else {
+            Image(
+                ImageProvider(R.drawable.ic_widget_refresh),
+                contentDescription = context.getString(R.string.widget_refresh),
+                GlanceModifier.size(18.dp),
+                colorFilter = ColorFilter.tint(GlanceTheme.colors.onSurfaceVariant),
+            )
+        }
+    }
+}
+
+/** The status on its own: the server's name, a large "Online" or "Offline", and when it last updated. */
+@Composable
+private fun StatusPanel(baseUrl: String, stats: WidgetStats, colors: WidgetColors, interactive: Boolean, pick: Action?) {
+    val online = stats.error == null
+    Column(GlanceModifier.fillMaxSize()) {
+        Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            var name = GlanceModifier.defaultWeight()
+            if (pick != null) name = name.clickable(pick)
+            Text(
+                serverLabel(baseUrl),
+                name,
+                style = TextStyle(GlanceTheme.colors.onSurface, fontSize = scaled(14f), fontWeight = FontWeight.Medium),
+                maxLines = 1,
+            )
+            RefreshButton(stats, interactive)
+        }
+        Spacer(GlanceModifier.defaultWeight())
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("●", style = TextStyle(if (online) colors.good else GlanceTheme.colors.error, fontSize = scaled(14f)))
+            Spacer(GlanceModifier.width(6.dp))
+            Text(
+                if (online) "Online" else "Offline",
+                style = TextStyle(GlanceTheme.colors.onSurface, fontSize = scaled(22f), fontWeight = FontWeight.Bold),
+                maxLines = 1,
+            )
+        }
+        val time = sampledAt(stats)
+        val detail = when {
+            online -> time?.let { "Updated $it" }
+            time != null -> "Last seen $time"
+            else -> stats.error
+        }
+        if (detail != null) {
+            Text(detail, style = TextStyle(GlanceTheme.colors.onSurfaceVariant, fontSize = scaled(11f)), maxLines = 2)
+        }
+        Spacer(GlanceModifier.defaultWeight())
+    }
+}
+
+/** The status on its own, for the smallest sizes. */
+@Composable
+private fun StatusStrip(baseUrl: String, online: Boolean, colors: WidgetColors, layout: StatsLayout) {
+    val tiny = layout == StatsLayout.Tiny
+    Column(
+        GlanceModifier.fillMaxSize(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("●", style = TextStyle(if (online) colors.good else GlanceTheme.colors.error, fontSize = scaled(if (tiny) 10f else 12f)))
+            Spacer(GlanceModifier.width(4.dp))
+            Text(
+                if (online) "Online" else "Offline",
+                style = TextStyle(GlanceTheme.colors.onSurface, fontSize = scaled(if (tiny) 12f else 15f), fontWeight = FontWeight.Bold),
+                maxLines = 1,
+            )
+        }
+        Text(
+            serverLabel(baseUrl),
+            style = TextStyle(GlanceTheme.colors.onSurfaceVariant, fontSize = scaled(if (tiny) 9f else 11f), textAlign = TextAlign.Center),
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun BarRow(stat: Stat, showTemp: Boolean, stale: Boolean) {
     Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(
             stat.shortLabel,
-            GlanceModifier.width(36.dp),
-            style = TextStyle(GlanceTheme.colors.onSurfaceVariant, fontSize = 11.sp, fontWeight = FontWeight.Medium),
+            GlanceModifier.width(scaledDp(36f)),
+            style = TextStyle(labelColor(stale), fontSize = scaled(11f), fontWeight = FontWeight.Medium),
             maxLines = 1,
         )
         Bar(stat, GlanceModifier.defaultWeight())
         Text(
             percent(stat.percent),
-            GlanceModifier.width(40.dp),
-            style = TextStyle(GlanceTheme.colors.onSurface, fontSize = 12.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.End),
+            GlanceModifier.width(scaledDp(40f)),
+            style = TextStyle(GlanceTheme.colors.onSurface, fontSize = scaled(12f), fontWeight = FontWeight.Bold, textAlign = TextAlign.End),
             maxLines = 1,
         )
         if (showTemp) {
-            val temp = snapshot.cpuTempC?.takeIf { stat.shortLabel == "CPU" && it > 0 }
             Text(
-                temp?.let { "$it°C" }.orEmpty(),
-                GlanceModifier.width(44.dp),
-                style = TextStyle(GlanceTheme.colors.onSurfaceVariant, fontSize = 11.sp, textAlign = TextAlign.End),
+                stat.temp.orEmpty(),
+                GlanceModifier.width(scaledDp(44f)),
+                style = TextStyle(GlanceTheme.colors.onSurfaceVariant, fontSize = scaled(11f), textAlign = TextAlign.End),
                 maxLines = 1,
             )
         }
@@ -420,18 +563,18 @@ private fun BarRow(stat: Stat, showTemp: Boolean, snapshot: StatsSnapshot) {
 }
 
 @Composable
-private fun StackedRow(stat: Stat, showDetail: Boolean) {
+private fun StackedRow(stat: Stat, showDetail: Boolean, stale: Boolean) {
     Column(GlanceModifier.fillMaxWidth()) {
         Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 stat.label,
                 GlanceModifier.defaultWeight(),
-                style = TextStyle(GlanceTheme.colors.onSurface, fontSize = 12.sp, fontWeight = FontWeight.Medium),
+                style = TextStyle(if (stale) GlanceTheme.colors.error else GlanceTheme.colors.onSurface, fontSize = scaled(12f), fontWeight = FontWeight.Medium),
                 maxLines = 1,
             )
             Text(
                 percent(stat.percent),
-                style = TextStyle(stat.color, fontSize = 13.sp, fontWeight = FontWeight.Bold),
+                style = TextStyle(stat.color, fontSize = scaled(13f), fontWeight = FontWeight.Bold),
                 maxLines = 1,
             )
         }
@@ -441,7 +584,38 @@ private fun StackedRow(stat: Stat, showDetail: Boolean) {
             Text(
                 stat.detail,
                 GlanceModifier.padding(top = 2.dp),
-                style = TextStyle(GlanceTheme.colors.onSurfaceVariant, fontSize = 11.sp),
+                style = TextStyle(GlanceTheme.colors.onSurfaceVariant, fontSize = scaled(11f)),
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+/** One stat on its own, with a larger number when there's room ([big]). */
+@Composable
+private fun SingleStat(stat: Stat, big: Boolean, showDetail: Boolean, stale: Boolean) {
+    Column(GlanceModifier.fillMaxWidth()) {
+        if (big) {
+            Text(stat.label, style = TextStyle(labelColor(stale), fontSize = scaled(12f), fontWeight = FontWeight.Medium), maxLines = 1)
+            Text(percent(stat.percent), style = TextStyle(stat.color, fontSize = scaled(34f), fontWeight = FontWeight.Bold), maxLines = 1)
+        } else {
+            Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    stat.label,
+                    GlanceModifier.defaultWeight(),
+                    style = TextStyle(labelColor(stale), fontSize = scaled(12f), fontWeight = FontWeight.Medium),
+                    maxLines = 1,
+                )
+                Text(percent(stat.percent), style = TextStyle(stat.color, fontSize = scaled(22f), fontWeight = FontWeight.Bold), maxLines = 1)
+            }
+        }
+        Spacer(GlanceModifier.height(6.dp))
+        Bar(stat, GlanceModifier.fillMaxWidth())
+        if (showDetail && stat.detail.isNotEmpty()) {
+            Text(
+                stat.detail,
+                GlanceModifier.padding(top = 4.dp),
+                style = TextStyle(GlanceTheme.colors.onSurfaceVariant, fontSize = scaled(11f)),
                 maxLines = 1,
             )
         }
@@ -449,31 +623,68 @@ private fun StackedRow(stat: Stat, showDetail: Boolean) {
 }
 
 @Composable
+private fun labelColor(stale: Boolean) = if (stale) GlanceTheme.colors.error else GlanceTheme.colors.onSurfaceVariant
+
+@Composable
 private fun Bar(stat: Stat, modifier: GlanceModifier) {
     LinearProgressIndicator(
         progress = (stat.percent / 100).coerceIn(0.0, 1.0).toFloat(),
-        modifier = modifier.height(6.dp),
+        modifier = modifier.height(scaledDp(6f)),
         color = stat.color,
         backgroundColor = GlanceTheme.colors.surfaceVariant,
     )
 }
 
-/** Three numbers side by side, for the smallest size. A dimmed label marks a reading that couldn't be updated. */
+/**
+ * The numbers side by side, for the smallest sizes; larger when there are fewer of them. A dimmed label marks a
+ * reading that couldn't be updated. [status] (online or not) adds a dot before the first label, when the status was picked.
+ */
 @Composable
-private fun Strip(stats: List<Stat>, stale: Boolean) {
+private fun Strip(stats: List<Stat>, stale: Boolean, status: Boolean?, colors: WidgetColors, layout: StatsLayout) {
+    val tiny = layout == StatsLayout.Tiny
+    val number = when (stats.size) {
+        1 -> if (tiny) 20f else 26f
+        2 -> if (tiny) 15f else 21f
+        else -> if (tiny) 13f else 17f
+    }
+    val label = if (tiny) 9f else 11f
+    if (tiny && stats.size > 1) {
+        TinyList(stats, stale, status, colors)
+        return
+    }
     Row(GlanceModifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-        stats.forEach { stat ->
+        stats.forEachIndexed { i, stat ->
             Column(GlanceModifier.defaultWeight(), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     percent(stat.percent),
-                    style = TextStyle(stat.color, fontSize = 17.sp, fontWeight = FontWeight.Bold),
+                    style = TextStyle(stat.color, fontSize = scaled(number), fontWeight = FontWeight.Bold),
                     maxLines = 1,
                 )
-                Text(
-                    stat.shortLabel,
-                    style = TextStyle(if (stale) GlanceTheme.colors.error else GlanceTheme.colors.onSurfaceVariant, fontSize = 11.sp),
-                    maxLines = 1,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (i == 0 && status != null) {
+                        Text("●", style = TextStyle(if (status) colors.good else GlanceTheme.colors.error, fontSize = scaled(label - 2)))
+                        Spacer(GlanceModifier.width(3.dp))
+                    }
+                    Text(stat.shortLabel, style = TextStyle(labelColor(stale), fontSize = scaled(label)), maxLines = 1)
+                }
+            }
+        }
+    }
+}
+
+/** Several stats at 1×1: one per line, as there's no room for them side by side. */
+@Composable
+private fun TinyList(stats: List<Stat>, stale: Boolean, status: Boolean?, colors: WidgetColors) {
+    Column(GlanceModifier.fillMaxSize().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        stats.forEachIndexed { i, stat ->
+            if (i > 0) Spacer(GlanceModifier.height(2.dp))
+            Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                if (i == 0 && status != null) {
+                    Text("●", style = TextStyle(if (status) colors.good else GlanceTheme.colors.error, fontSize = scaled(7f)))
+                    Spacer(GlanceModifier.width(2.dp))
+                }
+                Text(stat.shortLabel, GlanceModifier.defaultWeight(), style = TextStyle(labelColor(stale), fontSize = scaled(10f)), maxLines = 1)
+                Text(percent(stat.percent), style = TextStyle(stat.color, fontSize = scaled(13f), fontWeight = FontWeight.Bold), maxLines = 1)
             }
         }
     }
@@ -490,14 +701,14 @@ private fun Message(title: String, detail: String, layout: StatsLayout, onClick:
     ) {
         Text(
             title,
-            style = TextStyle(GlanceTheme.colors.onSurface, fontSize = 13.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center),
-            maxLines = 1,
+            style = TextStyle(GlanceTheme.colors.onSurface, fontSize = scaled(13f), fontWeight = FontWeight.Medium, textAlign = TextAlign.Center),
+            maxLines = if (layout == StatsLayout.Tiny) 2 else 1,
         )
-        if (layout != StatsLayout.Strip) {
+        if (!layout.compact && detail.isNotEmpty()) {
             Text(
                 detail,
                 GlanceModifier.padding(top = 2.dp),
-                style = TextStyle(GlanceTheme.colors.onSurfaceVariant, fontSize = 11.sp, textAlign = TextAlign.Center),
+                style = TextStyle(GlanceTheme.colors.onSurfaceVariant, fontSize = scaled(11f), textAlign = TextAlign.Center),
                 maxLines = 2,
             )
         }

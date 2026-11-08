@@ -26,6 +26,7 @@ import dev.hearth.casaos.data.WebLogins
 import dev.hearth.casaos.ui.theme.ThemeStore
 import dev.hearth.casaos.widget.PrefsWidgetStorage
 import dev.hearth.casaos.widget.ServerStatsWidgets
+import dev.hearth.casaos.widget.WidgetOptionsStore
 import dev.hearth.casaos.widget.WidgetServerChoices
 import dev.hearth.casaos.widget.WidgetStatsStore
 import dev.hearth.casaos.widget.WidgetTarget
@@ -74,6 +75,8 @@ class AppContainer(private val app: Application) {
     val lock = AppLock.create(app)
     val widgetStats = WidgetStatsStore(PrefsWidgetStorage(app), session::credentialsFor, ::clientFor)
     val widgetChoices = WidgetServerChoices(PrefsWidgetStorage(app, key = "server_choices"))
+    /** What each placed widget shows, and its theme and text size. */
+    val widgetOptions = WidgetOptionsStore(PrefsWidgetStorage(app, key = "widget_options"))
     val alerts = AlertStore(PrefsAlertStorage(app))
 
     /** Logins web apps keep in the in-app browser. */
@@ -148,6 +151,11 @@ class AppContainer(private val app: Application) {
     /** Called when Hearth goes to the background, so the widgets you're about to see are current. */
     fun refreshWidgets() {
         scope.launch(Dispatchers.Default) { ServerStatsWidgets.refresh(app) }
+    }
+
+    /** Redraws the widgets without fetching, e.g. after changing what one shows. */
+    fun redrawWidgets() {
+        scope.launch(Dispatchers.Default) { ServerStatsWidgets.redraw(app) }
     }
 }
 

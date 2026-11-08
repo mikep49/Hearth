@@ -51,7 +51,7 @@ class WebAppActivity : FragmentActivity() {
             HearthTheme(theme) {
                 ClearOfCutout {
                     LockGate(container.lock) {
-                        WebAppScreen(name, url, onClose = ::finishAndRemoveTask, Modifier.fillMaxSize(), standalone = true)
+                        WebAppScreen(name, url, container.webLogins, onClose = ::finishAndRemoveTask, Modifier.fillMaxSize(), standalone = true)
                     }
                 }
             }

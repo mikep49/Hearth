@@ -84,6 +84,7 @@ import dev.hearth.casaos.ui.files.FilesScreen
 import dev.hearth.casaos.ui.files.FilesViewModel
 import dev.hearth.casaos.ui.lock.LockGate
 import dev.hearth.casaos.ui.servers.ServerSheet
+import dev.hearth.casaos.ui.settings.SavedLoginsScreen
 import dev.hearth.casaos.ui.settings.SettingsScreen
 import dev.hearth.casaos.ui.settings.SettingsViewModel
 import dev.hearth.casaos.ui.terminal.TerminalScreen
@@ -214,6 +215,7 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
     var logsAppId by rememberSaveable { mutableStateOf<String?>(null) }
     var logsAppName by rememberSaveable { mutableStateOf<String?>(null) }
     var storeOpen by rememberSaveable { mutableStateOf(false) }
+    var loginsOpen by rememberSaveable { mutableStateOf(false) }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         // Tablets, and phones on their side, get a rail down the side instead of the bar along the bottom.
@@ -320,7 +322,13 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
                             val vm: SettingsViewModel = viewModel(key = "settings$key", factory = viewModelFactory {
                                 initializer { SettingsViewModel(client, container.session, container.theme, container.prefs, container.lock) }
                             })
-                            SettingsScreen(vm, session.username, label, snackbar, onOpenServers = { serversOpen = true })
+                            val loginsRemembered by container.webLogins.remember.collectAsStateWithLifecycle()
+                            SettingsScreen(
+                                vm, session.username, label, snackbar,
+                                onOpenServers = { serversOpen = true },
+                                loginsRemembered = loginsRemembered,
+                                onOpenLogins = { loginsOpen = true },
+                            )
                         }
                     }
                 }
@@ -332,6 +340,7 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
             WebAppScreen(
                 webApp.orEmpty(),
                 url,
+                container.webLogins,
                 onClose = { webUrl = null; webApp = null; webIcon = null },
                 Modifier.fillMaxSize(),
                 iconUrl = webIcon,
@@ -358,6 +367,8 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
             })
             StoreScreen(vm, onClose = { storeOpen = false }, Modifier.fillMaxSize())
         }
+
+        if (loginsOpen) SavedLoginsScreen(container.webLogins, onClose = { loginsOpen = false }, Modifier.fillMaxSize())
 
         val versionId = versionAppId
         if (versionId != null) {

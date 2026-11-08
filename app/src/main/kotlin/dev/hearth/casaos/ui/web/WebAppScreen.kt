@@ -18,6 +18,7 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -44,6 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -57,6 +59,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.net.toUri
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import dev.hearth.casaos.data.WebLogins
 import dev.hearth.casaos.ui.components.EmptyState
 
 /**
@@ -65,6 +71,8 @@ import dev.hearth.casaos.ui.components.EmptyState
  * Inside Hearth, the top bar has reload, open-in-browser and "Create app", which puts the app on the home
  * screen with [iconUrl] as its icon. A [standalone] app (opened from that icon) is just the page, like a
  * native app; the top bar is there when the app is opened through Hearth.
+ *
+ * Each app keeps its own logins, through [logins].
  */
 @SuppressLint("SetJavaScriptEnabled")
 @OptIn(ExperimentalMaterial3Api::class)
@@ -72,12 +80,14 @@ import dev.hearth.casaos.ui.components.EmptyState
 fun WebAppScreen(
     appName: String,
     url: String,
+    logins: WebLogins,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
     iconUrl: String? = null,
     standalone: Boolean = false,
 ) {
     val context = LocalContext.current
+    val activity = LocalActivity.current
     val createApp = rememberCreateApp()
     // Survives rotation, which recreates the WebView, so the user stays on the page they were on.
     var currentUrl by rememberSaveable(url) { mutableStateOf(url) }
@@ -94,6 +104,16 @@ fun WebAppScreen(
         pendingFiles = null
     }
     val launchPicker by rememberUpdatedState { intent: Intent -> filePicker.launch(intent) }
+
+    // Saves the login when the page leaves the screen, in case Android ends Hearth while it's away.
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle, url) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE) logins.flush(url)
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
 
     BackHandler {
         val view = webView
@@ -146,6 +166,8 @@ fun WebAppScreen(
                 modifier = Modifier.fillMaxSize(),
                 factory = { ctx ->
                     WebView(ctx).apply {
+                        // First, since the profile (whose cookies the app gets) can't change once the view is in use.
+                        logins.attach(this, appName, url, iconUrl)
                         // Without this the view defaults to wrap-content height, which WebView treats as a
                         // zero-height viewport: pages sized with height: 100% or vh collapse or lay out wrong.
                         layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
@@ -221,6 +243,8 @@ fun WebAppScreen(
                     if (webView === view) webView = null
                     view.stopLoading()
                     view.destroy()
+                    // Rotating recreates the view, but the app is still open.
+                    if (activity?.isChangingConfigurations == true) logins.flush(url) else logins.closed(url)
                 },
             )
 

@@ -1,8 +1,6 @@
 package dev.hearth.casaos
 
 import android.app.Application
-import android.webkit.CookieManager
-import android.webkit.WebStorage
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
@@ -24,6 +22,7 @@ import dev.hearth.casaos.data.PrefsStore
 import dev.hearth.casaos.data.ServerProfile
 import dev.hearth.casaos.data.SessionStore
 import dev.hearth.casaos.data.SshProfileStore
+import dev.hearth.casaos.data.WebLogins
 import dev.hearth.casaos.ui.theme.ThemeStore
 import dev.hearth.casaos.widget.PrefsWidgetStorage
 import dev.hearth.casaos.widget.ServerStatsWidgets
@@ -77,6 +76,9 @@ class AppContainer(private val app: Application) {
     val widgetChoices = WidgetServerChoices(PrefsWidgetStorage(app, key = "server_choices"))
     val alerts = AlertStore(PrefsAlertStorage(app))
 
+    /** Logins web apps keep in the in-app browser. */
+    val webLogins = WebLogins(app)
+
     /** A server and tab to show, from a tapped alert. The app clears it once it's shown. */
     val openRequest = MutableStateFlow<OpenRequest?>(null)
 
@@ -109,6 +111,8 @@ class AppContainer(private val app: Application) {
         scope.launch {
             session.session.drop(1).distinctUntilChanged().collect { if (it != null) refreshWidgets() }
         }
+        // With logins not remembered, an app that was open when Android ended Hearth is signed out now.
+        scope.launch { webLogins.clearLeftovers() }
         // The background check runs only while alerts are on.
         AlertNotifications.createChannels(app)
         scope.launch(Dispatchers.Default) {
@@ -134,10 +138,9 @@ class AppContainer(private val app: Application) {
             if (now.none { it.id == profile.id }) clients.remove(profile.id)
         }
         PhoneFiles.clearCache(app)
-        // Logins made inside the in-app browser go too. Its cookies can't be told apart reliably by server
-        // (apps on other ports share the host's cookies), so all of them are cleared.
-        CookieManager.getInstance().removeAllCookies(null)
-        WebStorage.getInstance().deleteAllData()
+        // Logins made inside the in-app browser go too, for every server: an app could be reached from more
+        // than one, and the in-app browser doesn't know which server an address belongs to.
+        webLogins.forgetAll()
         // Widgets showing that server say it's signed out.
         scope.launch(Dispatchers.Default) { ServerStatsWidgets.redraw(app) }
     }

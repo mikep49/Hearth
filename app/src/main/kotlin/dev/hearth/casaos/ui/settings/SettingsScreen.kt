@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.SwapHoriz
@@ -128,6 +129,8 @@ fun SettingsScreen(
     serverLabel: String,
     snackbar: SnackbarHostState,
     onOpenServers: () -> Unit,
+    loginsRemembered: Boolean,
+    onOpenLogins: () -> Unit,
 ) {
     val version by viewModel.version.collectAsStateWithLifecycle()
     val theme by viewModel.theme.collectAsStateWithLifecycle()
@@ -168,7 +171,18 @@ fun SettingsScreen(
 
         Section("Appearance") { AppearanceSection(theme, viewModel::setTheme) }
 
-        Section("Apps") { OpenAppsInSection(openAppsIn, viewModel::setOpenAppsIn) }
+        Section("Apps") {
+            OpenAppsInSection(openAppsIn, viewModel::setOpenAppsIn)
+            ListGroup {
+                ListRow(
+                    "Saved logins",
+                    subtitle = if (loginsRemembered) "Apps opened in Hearth that keep you signed in" else "Off: apps sign you out when you close them",
+                    icon = Icons.Rounded.Key,
+                    trailing = { Chevron() },
+                    onClick = onOpenLogins,
+                )
+            }
+        }
 
         Section("Alerts") { AlertsSection(alerts, viewModel::setAlerts, onError = viewModel::showError) }
 

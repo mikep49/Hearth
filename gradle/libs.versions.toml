@@ -18,6 +18,7 @@ glance = "1.2.0"
 work = "2.11.2"
 biometric = "1.1.0"
 fragment = "1.8.9"
+webkit = "1.18.0"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
@@ -42,6 +43,7 @@ termux-terminal-emulator = { module = "com.github.termux.termux-app:terminal-emu
 # Biometric 1.1.0 brings fragment 1.2.5; the newer one handles activity results and state properly.
 androidx-biometric = { module = "androidx.biometric:biometric", version.ref = "biometric" }
 androidx-fragment = { module = "androidx.fragment:fragment", version.ref = "fragment" }
+androidx-webkit = { module = "androidx.webkit:webkit", version.ref = "webkit" }
 glance-appwidget = { module = "androidx.glance:glance-appwidget", version.ref = "glance" }
 glance-material3 = { module = "androidx.glance:glance-material3", version.ref = "glance" }
 # Glance pulls in WorkManager 2.7.1, whose old Room crashes at launch once R8 shrinks the release build.

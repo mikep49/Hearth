@@ -1,0 +1,206 @@
+package dev.hearth.casaos.ui.settings
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.Key
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.hearth.casaos.data.SavedLogin
+import dev.hearth.casaos.data.WebLogins
+import dev.hearth.casaos.ui.components.AppIcon
+import dev.hearth.casaos.ui.components.BackButton
+import dev.hearth.casaos.ui.components.CardPadding
+import dev.hearth.casaos.ui.components.GroupFootnote
+import dev.hearth.casaos.ui.components.HearthCard
+import dev.hearth.casaos.ui.components.ListGroup
+import dev.hearth.casaos.ui.components.ListRow
+import dev.hearth.casaos.ui.components.SectionHeader
+import dev.hearth.casaos.ui.components.SwitchRow
+import dev.hearth.casaos.ui.components.hearthTopBarColors
+import dev.hearth.casaos.ui.components.readableWidth
+
+/**
+ * Settings › Saved logins: whether apps opened in Hearth stay signed in, and which ones are, each with a
+ * way to sign out of it. Like a browser's password list, except Hearth keeps the app's login (its cookies)
+ * rather than the password.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SavedLoginsScreen(logins: WebLogins, onClose: () -> Unit, modifier: Modifier = Modifier) {
+    val keep by logins.remember.collectAsStateWithLifecycle()
+    val perApp = remember(logins) { logins.perApp }
+    var saved by remember { mutableStateOf<List<SavedLogin>?>(null) }
+    // Bumped to read the list again: after a removal, and on returning to the page.
+    var reload by remember { mutableIntStateOf(0) }
+    LaunchedEffect(reload) { saved = logins.saved() }
+    LifecycleResumeEffect(Unit) {
+        reload++
+        onPauseOrDispose {}
+    }
+
+    var removing by remember { mutableStateOf<SavedLogin?>(null) }
+    var removingAll by remember { mutableStateOf(false) }
+    var turningOff by remember { mutableStateOf(false) }
+
+    BackHandler(onBack = onClose)
+
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+    Scaffold(
+        modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            TopAppBar(
+                navigationIcon = { BackButton(onClose) },
+                title = { Text("Saved logins") },
+                colors = hearthTopBarColors(),
+                scrollBehavior = scrollBehavior,
+            )
+        },
+    ) { padding ->
+        Column(
+            Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).readableWidth()
+                .padding(horizontal = 20.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            ListGroup {
+                SwitchRow(
+                    "Remember logins",
+                    checked = keep,
+                    onCheckedChange = { on -> if (on) logins.setRemember(true) else turningOff = true },
+                    subtitle = if (keep) "Apps you open in Hearth keep you signed in" else "Apps sign you out when you close them",
+                    icon = Icons.Rounded.Key,
+                )
+            }
+            GroupFootnote(
+                "Hearth keeps the login an app saves when you sign in to it, not your password. " +
+                    "Signing out of Hearth signs you out of every app too.",
+            )
+
+            SectionHeader("Apps")
+            val list = saved
+            when {
+                !perApp -> Notice(
+                    "This phone's WebView keeps one set of logins for every app, so they can only be removed together. " +
+                        "Updating Android System WebView from the Play Store lets Hearth list them per app.",
+                )
+                list == null -> Box(Modifier.fillMaxWidth().padding(24.dp), Alignment.Center) {
+                    CircularProgressIndicator(Modifier.size(28.dp))
+                }
+                list.isEmpty() -> Notice(
+                    if (keep) "No saved logins. When you sign in to an app inside Hearth and it remembers you, it shows up here."
+                    else "No saved logins.",
+                )
+                else -> ListGroup {
+                    list.forEach { login ->
+                        ListRow(
+                            login.name,
+                            subtitle = login.origin.substringAfter("://"),
+                            leading = { AppIcon(login.iconUrl, login.name, size = 40.dp) },
+                            trailing = {
+                                IconButton(onClick = { removing = login }) { Icon(Icons.Rounded.Close, "Remove ${login.name}'s login") }
+                            },
+                        )
+                    }
+                }
+            }
+
+            if (!perApp || !list.isNullOrEmpty()) {
+                ListGroup(Modifier.padding(top = 8.dp)) {
+                    ListRow(
+                        "Remove all logins",
+                        icon = Icons.Rounded.DeleteSweep,
+                        iconTint = MaterialTheme.colorScheme.error,
+                        titleColor = MaterialTheme.colorScheme.error,
+                        onClick = { removingAll = true },
+                    )
+                }
+            }
+        }
+    }
+
+    removing?.let { login ->
+        Confirm(
+            title = "Remove ${login.name}'s login?",
+            text = "You'll need to sign in to ${login.name} again next time you open it.",
+            action = "Remove",
+            onConfirm = { logins.forget(login.origin); reload++ },
+            onDismiss = { removing = null },
+        )
+    }
+    if (removingAll) {
+        Confirm(
+            title = "Remove all logins?",
+            text = "You'll need to sign in again to every app you open in Hearth.",
+            action = "Remove all",
+            onConfirm = { logins.forgetAll(); reload++ },
+            onDismiss = { removingAll = false },
+        )
+    }
+    if (turningOff) {
+        Confirm(
+            title = "Stop remembering logins?",
+            text = "You'll be signed out of every app now, and of each app whenever you close it.",
+            action = "Turn off",
+            onConfirm = { logins.setRemember(false); reload++ },
+            onDismiss = { turningOff = false },
+        )
+    }
+}
+
+@Composable
+private fun Notice(text: String) {
+    HearthCard(Modifier.fillMaxWidth()) {
+        Text(
+            text,
+            Modifier.padding(CardPadding),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun Confirm(title: String, text: String, action: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { Text(text) },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(); onDismiss() }) { Text(action, color = MaterialTheme.colorScheme.error) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}

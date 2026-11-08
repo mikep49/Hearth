@@ -17,7 +17,7 @@ Hearth runs on Android 10 or later, phones and tablets.
 - Sign in with the server address and your CasaOS login. Tokens are encrypted with an Android Keystore key and refreshed automatically.
 - The sign-in page looks for CasaOS servers on your Wi-Fi when it opens, or when you tap **Find servers on this network**. It tries `casaos.local` and every address on the phone's subnet (at most 254) on port 80. Tap a result to fill in the address. If it finds exactly one and you haven't typed anything, it fills it in for you.
 - You can save more than one server. Each one keeps its own encrypted login. Switch servers from the server name on Home or from Settings, where you can also add and remove servers. A signed-out server opens the sign-in form already filled in.
-- **Sign out** ends the current login but keeps the server in your list. It also forgets that server's SSH password, its widget reading and the in-app browser's logins.
+- **Sign out** ends the current login but keeps the server in your list. It also forgets that server's SSH password, its widget reading and every login saved in the in-app browser.
 
 ### Home
 
@@ -37,6 +37,7 @@ Hearth runs on Android 10 or later, phones and tablets.
 - **Uninstall** is at the bottom of an app's details and in its long-press menu. You choose whether its data in `/DATA/AppData` is deleted too.
 - **App Store** (top of Apps) lists the apps your server's stores offer, with search, categories, screenshots and descriptions, and installs them.
 - **Create app** (long-press an app, or the button in the in-app browser's top bar) puts an app's web UI on your home screen with its icon. It opens full screen in its own window, like a native app.
+- **Saved logins** (Settings › Apps) lists the apps opened in Hearth that keep you signed in, with a button to sign out of each one or all of them. Hearth keeps the login an app saves (its cookies and site data), not your password. Each app's address and port gets its own WebView profile, so apps on one server don't share logins. Phones whose WebView is too old for profiles share one set for every app, which can only be removed all at once. Turn off **Remember logins** to be signed out of an app whenever you close it.
 
 ### Files
 
@@ -121,6 +122,7 @@ CasaOS expects the raw JWT in the `Authorization` header (no `Bearer`). Endpoint
 - CasaOS has no TLS by default, so Hearth allows plain HTTP (`network_security_config.xml`), and your password crosses the network unencrypted. Stay on your home network, or put the server behind HTTPS or a VPN (Tailscale, WireGuard) for remote use.
 - SSH is encrypted end to end. On the first connection, Hearth shows the server's host key fingerprint for you to confirm. It uses the same `SHA256:` format as `ssh-keygen -lf`. If the key changes later, Hearth warns you before connecting.
 - A remembered SSH password is encrypted like the CasaOS tokens and wiped on sign-out. Signing out also closes any open shell.
+- Logins saved by apps in the in-app browser stay in Hearth's private app storage, and Hearth turns off Android backups, so they never leave the phone.
 - The auth token is only sent to the server you signed in to, never to other hosts such as icon CDNs. A unit test covers this.
 
 ## Building

@@ -396,6 +396,33 @@ class CasaClient(
         }
     }
 
+    /**
+     * A file's contents from byte [offset] on, for other apps reading it through Android's Files app. Asks for
+     * just that range; if the server sends the whole file instead, the start is skipped. Blocks the calling
+     * thread, and the caller closes the stream.
+     */
+    fun openFrom(path: String, offset: Long): InputStream {
+        val req = Request.Builder().url(fileUrl(path)).apply { if (offset > 0) header("Range", "bytes=$offset-") }.build()
+        val r = try {
+            http.newCall(req).execute()
+        } catch (e: IOException) {
+            throw CasaException.Network(friendly(e), e)
+        }
+        try {
+            if (r.code == 416) { // asked from the end of the file
+                r.close()
+                return java.io.ByteArrayInputStream(ByteArray(0))
+            }
+            checkStatus(r.code, null)
+            val stream = r.body.byteStream()
+            if (offset > 0 && r.code != 206 && skipFully(stream, offset) < offset) throw IOException("The file is shorter than expected")
+            return stream
+        } catch (t: Throwable) {
+            r.close()
+            throw if (t is IOException) CasaException.Network(friendly(t), t) else t
+        }
+    }
+
     // endregion
 
     // region plumbing

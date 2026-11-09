@@ -76,7 +76,21 @@ class PrefsStore(context: Context) {
         _alerts.value = value
     }
 
+    private val _showInFiles = MutableStateFlow(prefs.getBoolean(KEY_SHOW_IN_FILES, false))
+
+    /**
+     * Whether signed-in servers show in Android's Files app and other apps' file pickers. Turned off when the
+     * app lock is turned on, since the Files app can't ask for it.
+     */
+    val showInFiles: StateFlow<Boolean> = _showInFiles.asStateFlow()
+
+    fun setShowInFiles(value: Boolean) {
+        prefs.edit().putBoolean(KEY_SHOW_IN_FILES, value).apply()
+        _showInFiles.value = value
+    }
+
     private companion object {
+        const val KEY_SHOW_IN_FILES = "show_in_files"
         const val KEY_ALERTS = "alerts"
         const val KEY_ALERT_OFFLINE = "alert_offline"
         const val KEY_ALERT_STORAGE = "alert_storage"

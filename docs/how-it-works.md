@@ -47,6 +47,16 @@ Hearth runs on Android 10 or later, phones and tablets.
 - **+** uploads photos, videos or any files from the phone, and makes new folders. If an uploaded file's name is already taken, you choose to skip it, keep both or replace it.
 - **Search** covers the whole server. CasaOS has no search API, so the first search walks the folders under `/DATA` in the background, and later searches filter that list as you type. Results from the open folder come first, then everywhere else. The walk stops at 100,000 items and shows the best 300 matches. Pull to refresh rescans.
 
+### Android Files
+
+- Off until you turn on **Show in Android Files** in Settings. Then each server you're signed in to shows in the Files app's side menu as **Hearth**, with the server's address under it, and in the file pickers other apps open (for example to attach a file, or to choose a backup folder).
+- Browse `/DATA`, open files in other apps, copy files to and from the phone, rename, delete, move and make new folders. Photos get thumbnails. Hidden files follow Hearth's **Show hidden files** choice.
+- Opening a file doesn't download it first. Hearth reads just the parts the other app asks for (HTTP range requests), so a video can start playing and a zip can be opened without fetching the whole file.
+- Copying or moving within one server happens on the server, like **Paste here** in Hearth. Between two servers, the Files app copies through the phone.
+- A file another app saves to the server is written to the phone first and uploaded when the app closes it. Hearth tries the upload three times. If it still fails, the file is saved to `Downloads/Hearth` on the phone instead, and a message says so.
+- **The app lock and the Files app don't mix**, since the Files app can't ask for your fingerprint or PIN. Turning on **Lock Hearth** turns off Show in Android Files, and the switch stays unavailable while the lock is on. Turning the lock off later doesn't turn it back on.
+- Signing out of a server removes it from the Files app. Turning the switch off removes Hearth entirely, and links other apps saved to server files stop working.
+
 ### Terminal
 
 - A shell on the server over SSH. Most CasaOS installs already run an SSH server. If connecting fails, install one on the server with `sudo apt install openssh-server`.
@@ -107,7 +117,7 @@ Hearth runs on Android 10 or later, phones and tablets.
 | Apps | `GET /v2/app_management/compose`, `PUT .../compose/{id}/status`, `GET .../compose/{id}/logs` |
 | App settings | `GET /v2/app_management/compose/{id}` with `Accept: application/yaml`, `PUT .../compose/{id}?check_port_conflict=true` with the YAML |
 | App version | Switching writes the new tag with the app settings call above. App Store version: `GET /v2/app_management/apps/{id}/stable`; update: `PATCH /v2/app_management/compose/{id}` |
-| Files | `GET /v1/folder?path=`, `GET /v1/file?path=`; new folder `POST /v1/folder`, rename `PUT /v1/file/name`, delete `DELETE /v1/file`, copy / move `POST /v1/batch/task`, upload `POST /v1/file/upload` (1 MB chunks, like the dashboard) |
+| Files | `GET /v1/folder?path=`, `GET /v1/file?path=` (with a `Range` header for Android Files); new folder `POST /v1/folder`, rename `PUT /v1/file/name`, delete `DELETE /v1/file`, copy / move `POST /v1/batch/task`, upload `POST /v1/file/upload` (1 MB chunks, like the dashboard) |
 | App Store | `GET /v2/app_management/apps`; install: `GET .../apps/{id}/compose` (YAML), then `POST /v2/app_management/compose?check_port_conflict=true`; uninstall: `DELETE .../compose/{id}?delete_config_folder=` |
 | Power | `PUT /v1/sys/state/{restart\|off}` |
 | Alerts | `GET /v1/sys/utilization` and `GET /v2/app_management/compose` at each check, `GET /v1/disks` and `/v1/disks/usb` at most every 6 hours |
@@ -124,6 +134,7 @@ CasaOS expects the raw JWT in the `Authorization` header (no `Bearer`). Endpoint
 - SSH is encrypted end to end. On the first connection, Hearth shows the server's host key fingerprint for you to confirm. It uses the same `SHA256:` format as `ssh-keygen -lf`. If the key changes later, Hearth warns you before connecting.
 - A remembered SSH password is encrypted like the CasaOS tokens and wiped on sign-out. Signing out also closes any open shell.
 - Logins saved by apps in the in-app browser stay in Hearth's private app storage, and Hearth turns off Android backups, so they never leave the phone.
+- Only Android itself can list the servers Hearth puts in the Files app (the provider requires `MANAGE_DOCUMENTS`). Other apps only get the files or folders you pick for them, and links to a folder can't reach outside it (paths with `.` or `..` are refused). The provider is disabled while **Show in Android Files** is off and whenever the app lock is on.
 - The auth token is only sent to the server you signed in to, never to other hosts such as icon CDNs. A unit test covers this.
 
 ## Building
@@ -166,6 +177,7 @@ app/src/main/kotlin/dev/hearth/casaos/
            ServerFinder (finding servers on the Wi-Fi), FileSearch, FileSort, FileDownloader,
            AppLogs, AppLock, Alerts (what each background check should notify about)
   alerts/  the background check (WorkManager), its schedule and notifications
+  files/   ServerDocumentsProvider: servers in Android's Files app (ServerDocuments holds its testable parts)
   widget/  the home screen widget (Glance), its settings screen and saved readings
   ui/      theme, components, and one package per screen (screen + ViewModel together)
 ```

@@ -18,6 +18,7 @@ Sign in with your server's address (for example `192.168.1.20` or `casaos.local`
 | **Apps** | Start, stop, restart and update apps, change their settings or version, and read their logs live |
 | **App Store** | Browse and install apps from your server's stores |
 | **Files** | Browse, preview, upload, download, share and search everything on the server |
+| **Android Files** | Optional: your servers in the Files app's side menu, and in other apps' file pickers |
 | **Terminal** | An SSH shell with extra keys and a one-tap server update |
 | **Alerts** | Optional notifications when a server goes offline, storage is nearly full, an app stops or an update is out |
 | **Servers** | Save several servers and switch between them |

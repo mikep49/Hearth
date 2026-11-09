@@ -23,6 +23,7 @@ import dev.hearth.casaos.data.ServerProfile
 import dev.hearth.casaos.data.SessionStore
 import dev.hearth.casaos.data.SshProfileStore
 import dev.hearth.casaos.data.WebLogins
+import dev.hearth.casaos.files.ServerDocumentsProvider
 import dev.hearth.casaos.ui.theme.ThemeStore
 import dev.hearth.casaos.widget.PrefsWidgetStorage
 import dev.hearth.casaos.widget.ServerStatsWidgets
@@ -35,6 +36,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectIndexed
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
@@ -104,6 +106,7 @@ class AppContainer(private val app: Application) {
                 val prev = before
                 before = now
                 if (prev == null) return@collect
+                ServerDocumentsProvider.serversChanged(app)
                 fun List<ServerProfile>.signedIn(id: String) = any { it.id == id && it.signedIn }
                 val ended = prev.filter { it.signedIn && !now.signedIn(it.id) }
                 if (ended.isNotEmpty()) forget(ended, now)
@@ -113,6 +116,12 @@ class AppContainer(private val app: Application) {
         // Widgets that follow the app show the server you switch to.
         scope.launch {
             session.session.drop(1).distinctUntilChanged().collect { if (it != null) refreshWidgets() }
+        }
+        // Servers show in Android's Files app while that's on, but never with the lock on: the Files app can't ask for it.
+        scope.launch(Dispatchers.Default) {
+            combine(prefs.showInFiles, lock.enabled) { show, locked -> show && !locked }
+                .distinctUntilChanged()
+                .collect { ServerDocumentsProvider.setShown(app, it) }
         }
         // With logins not remembered, an app that was open when Android ended Hearth is signed out now.
         scope.launch { webLogins.clearLeftovers() }
@@ -141,6 +150,7 @@ class AppContainer(private val app: Application) {
             if (now.none { it.id == profile.id }) clients.remove(profile.id)
         }
         PhoneFiles.clearCache(app)
+        ServerDocumentsProvider.clearCache(app)
         // Logins made inside the in-app browser go too, for every server: an app could be reached from more
         // than one, and the in-app browser doesn't know which server an address belongs to.
         webLogins.forgetAll()

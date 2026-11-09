@@ -310,6 +310,35 @@ class CasaClientTest {
         assertEquals("/v1/file?path=%2FDATA%2Flog.txt", server.takeRequest().path)
     }
 
+    @Test fun `reading from an offset asks for that range, signed in`() = runTest {
+        signedIn()
+        server.enqueue(MockResponse().setResponseCode(206).setBody("lo world"))
+        val text = client.openFrom("/DATA/a.txt", 3).use { it.readBytes().decodeToString() }
+        assertEquals("lo world", text)
+        val req = server.takeRequest()
+        assertEquals("bytes=3-", req.getHeader("Range"))
+        assertEquals("A1", req.getHeader("Authorization"))
+        assertEquals("/v1/file?path=%2FDATA%2Fa.txt", req.path)
+    }
+
+    @Test fun `a server that ignores the range has the start skipped`() = runTest {
+        signedIn()
+        server.enqueue(MockResponse().setBody("hello world"))
+        assertEquals("world", client.openFrom("/DATA/a.txt", 6).use { it.readBytes().decodeToString() })
+        server.enqueue(MockResponse().setBody("hello"))
+        assertEquals("hello", client.openFrom("/DATA/a.txt", 0).use { it.readBytes().decodeToString() })
+        server.takeRequest()
+        assertNull(server.takeRequest().getHeader("Range")) // the whole file needs no range
+    }
+
+    @Test fun `reading from the very end gives nothing, and errors say why`() = runTest {
+        signedIn()
+        server.enqueue(MockResponse().setResponseCode(416))
+        assertEquals(0, client.openFrom("/DATA/a.txt", 5).use { it.readBytes().size })
+        server.enqueue(json("""{"message":"not found"}""", 404))
+        assertThrows(CasaException.Server::class.java) { client.openFrom("/DATA/gone.txt", 0) }
+    }
+
     /** The value of a plain field in a multipart form body. */
     private fun formField(body: String, name: String): String? =
         Regex("name=\"$name\"\r\n(?:[^\r\n]+\r\n)*\r\n([^\r]*)\r\n").find(body)?.groupValues?.get(1)

@@ -44,6 +44,20 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <!-- Signed-in servers in Android's Files app. Off until "Show in Android Files" is turned on in Settings,
+             which enables it. Only the system (MANAGE_DOCUMENTS) can query it; other apps get the files you pick. -->
+        <provider
+            android:name=".files.ServerDocumentsProvider"
+            android:authorities="${applicationId}.documents"
+            android:enabled="false"
+            android:exported="true"
+            android:grantUriPermissions="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter>
+                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
+            </intent-filter>
+        </provider>
+
         <!-- Picks the server a stats widget shows. Exported so the launcher can open it; it only acts on Hearth's widgets. -->
         <activity
             android:name=".widget.WidgetConfigActivity"

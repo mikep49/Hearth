@@ -42,6 +42,7 @@ import dev.hearth.casaos.ui.lock.confirmOwner
 fun SecuritySection(
     enabled: Boolean,
     lockAfter: LockAfter,
+    showInFiles: Boolean,
     available: () -> Boolean,
     onEnabledChange: (Boolean) -> Unit,
     onLockAfterChange: (LockAfter) -> Unit,
@@ -72,7 +73,10 @@ fun SecuritySection(
             "Lock Hearth",
             checked = enabled,
             onCheckedChange = ::toggle,
-            subtitle = if (canLock) "Fingerprint, face or your phone's PIN" else "Set up a screen lock on your phone first, in Android's Settings › Security",
+            subtitle = if (canLock) {
+                // Said up front, since turning the lock on also turns that off.
+                if (showInFiles && !enabled) "Fingerprint, face or your phone's PIN. Also turns off Show in Android Files" else "Fingerprint, face or your phone's PIN"
+            } else "Set up a screen lock on your phone first, in Android's Settings › Security",
             icon = Icons.Rounded.Fingerprint,
             enabled = canLock || enabled,
         )

@@ -14,6 +14,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.Dashboard
+import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.RestartAlt
@@ -58,6 +59,7 @@ import dev.hearth.casaos.ui.components.ListGroup
 import dev.hearth.casaos.ui.components.ListRow
 import dev.hearth.casaos.ui.components.ScreenHeader
 import dev.hearth.casaos.ui.components.SectionHeader
+import dev.hearth.casaos.ui.components.SwitchRow
 import dev.hearth.casaos.ui.theme.ThemeSettings
 import dev.hearth.casaos.ui.theme.ThemeStore
 import dev.hearth.casaos.widget.WidgetConfigActivity
@@ -103,7 +105,18 @@ class SettingsViewModel(
 
     fun lockAvailable(): Boolean = lock.available()
 
-    fun setLockEnabled(value: Boolean) = lock.setEnabled(value)
+    fun setLockEnabled(value: Boolean) {
+        lock.setEnabled(value)
+        // The Files app can't ask for the lock, so turning it on takes Hearth out of there.
+        if (value && prefs.showInFiles.value) {
+            prefs.setShowInFiles(false)
+            _messages.tryEmit("Turned off Show in Android Files")
+        }
+    }
+
+    val showInFiles: StateFlow<Boolean> = prefs.showInFiles
+
+    fun setShowInFiles(value: Boolean) = prefs.setShowInFiles(value)
 
     fun setLockAfter(value: LockAfter) = lock.setLockAfter(value)
 
@@ -148,6 +161,7 @@ fun SettingsScreen(
     val lockEnabled by viewModel.lockEnabled.collectAsStateWithLifecycle()
     val lockAfter by viewModel.lockAfter.collectAsStateWithLifecycle()
     val alerts by viewModel.alerts.collectAsStateWithLifecycle()
+    val showInFiles by viewModel.showInFiles.collectAsStateWithLifecycle()
     var confirm by remember { mutableStateOf<PowerAction?>(null) }
     LaunchedEffect(viewModel) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
 
@@ -196,12 +210,27 @@ fun SettingsScreen(
             }
         }
 
+        Section("Files") {
+            ListGroup {
+                SwitchRow(
+                    "Show in Android Files",
+                    checked = showInFiles && !lockEnabled,
+                    onCheckedChange = viewModel::setShowInFiles,
+                    subtitle = if (lockEnabled) "Turn off Lock Hearth to use this. The Files app can't ask for your fingerprint or PIN"
+                    else "Your servers appear in the Files app's side menu, and when other apps open or save files",
+                    icon = Icons.Rounded.FolderOpen,
+                    enabled = !lockEnabled,
+                )
+            }
+        }
+
         Section("Alerts") { AlertsSection(alerts, viewModel::setAlerts, onError = viewModel::showError) }
 
         Section("Security") {
             SecuritySection(
                 lockEnabled,
                 lockAfter,
+                showInFiles = showInFiles,
                 available = viewModel::lockAvailable,
                 onEnabledChange = viewModel::setLockEnabled,
                 onLockAfterChange = viewModel::setLockAfter,

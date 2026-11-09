@@ -1,0 +1,4 @@
+• Web app logins are kept, with a Saved logins page in Settings
+• Each widget can pick what it shows, its theme and text size
+• Your servers can show in Android's Files app
+• Fixed the widget refresh button

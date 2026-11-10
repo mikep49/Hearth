@@ -75,9 +75,12 @@ import kotlin.coroutines.cancellation.CancellationException
  */
 class ServerDocumentsProvider : DocumentsProvider() {
 
+    /** ContentProvider.requireContext() only exists from Android 11, and Hearth runs on Android 10. */
+    private val appContext: Context get() = checkNotNull(context) { "The provider isn't attached yet" }
+
     // Providers start before the Application, so the container is looked up on each call, not here.
-    private val container: AppContainer get() = (requireContext().applicationContext as HearthApp).container
-    private val authority: String get() = authority(requireContext())
+    private val container: AppContainer get() = (appContext.applicationContext as HearthApp).container
+    private val authority: String get() = authority(appContext)
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -97,7 +100,7 @@ class ServerDocumentsProvider : DocumentsProvider() {
 
     override fun onCreate(): Boolean {
         // Left over from writes Android cut short when it ended Hearth. Those uploads can't finish now.
-        runCatching { uploadDir(requireContext()).deleteRecursively() }
+        runCatching { uploadDir(appContext).deleteRecursively() }
         return true
     }
 
@@ -105,7 +108,7 @@ class ServerDocumentsProvider : DocumentsProvider() {
 
     override fun queryRoots(projection: Array<out String>?): Cursor {
         val cursor = MatrixCursor(projection ?: ROOT_COLUMNS)
-        cursor.setNotificationUri(requireContext().contentResolver, DocumentsContract.buildRootsUri(authority))
+        cursor.setNotificationUri(appContext.contentResolver, DocumentsContract.buildRootsUri(authority))
         if (!shown()) return cursor
         val servers = container.session.profiles.value.filter { it.signedIn }
         val summaries = rootSummaries(servers)
@@ -113,7 +116,7 @@ class ServerDocumentsProvider : DocumentsProvider() {
             cursor.newRow()
                 .add(Root.COLUMN_ROOT_ID, server.id)
                 .add(Root.COLUMN_DOCUMENT_ID, DocumentRef.root(server.id).id)
-                .add(Root.COLUMN_TITLE, requireContext().getString(R.string.app_name))
+                .add(Root.COLUMN_TITLE, appContext.getString(R.string.app_name))
                 .add(Root.COLUMN_SUMMARY, summaries[server.id])
                 .add(Root.COLUMN_ICON, R.mipmap.ic_launcher)
                 .add(Root.COLUMN_FLAGS, Root.FLAG_SUPPORTS_CREATE or Root.FLAG_SUPPORTS_IS_CHILD)
@@ -154,7 +157,7 @@ class ServerDocumentsProvider : DocumentsProvider() {
         for (e in entries + waiting) {
             if (showHidden || !isHidden(e.name)) cursor.addEntry(folder.child(e.name), e)
         }
-        cursor.setNotificationUri(requireContext().contentResolver, DocumentsContract.buildChildDocumentsUri(authority, folder.id))
+        cursor.setNotificationUri(appContext.contentResolver, DocumentsContract.buildChildDocumentsUri(authority, folder.id))
         return cursor
     }
 
@@ -265,7 +268,7 @@ class ServerDocumentsProvider : DocumentsProvider() {
         val client = client(ref)
         val reader = RangeReader { offset -> client.openFrom(ref.path, offset) }
         val thread = HandlerThread("hearth-read").apply { start() }
-        val storage = requireContext().getSystemService(StorageManager::class.java)
+        val storage = appContext.getSystemService(StorageManager::class.java)
         return try {
             storage.openProxyFileDescriptor(
                 ParcelFileDescriptor.MODE_READ_ONLY,
@@ -300,7 +303,7 @@ class ServerDocumentsProvider : DocumentsProvider() {
         // connection would upload over it with only what the app added. Replacing it can go ahead regardless.
         val existing = if (truncate) runCatching { entry(ref) }.getOrNull() else entry(ref)
         if (existing?.isDir == true) throw FileNotFoundException("${ref.name} is a folder")
-        val file = File.createTempFile("upload", null, uploadDir(requireContext()).apply { mkdirs() })
+        val file = File.createTempFile("upload", null, uploadDir(appContext).apply { mkdirs() })
         try {
             // The app starts from the current contents.
             if (!truncate && existing != null && existing.size > 0) {
@@ -347,7 +350,7 @@ class ServerDocumentsProvider : DocumentsProvider() {
             val server = container.session.profile(ref.server)?.let { serverLabel(it.baseUrl) } ?: "the server"
             val kept = keepOnPhone(ref.name, file)
             val message = "Couldn't save ${ref.name} to $server: ${e.message}" + if (kept) ". A copy is in Downloads/Hearth." else ""
-            withContext(Dispatchers.Main) { Toast.makeText(requireContext(), message, Toast.LENGTH_LONG).show() }
+            withContext(Dispatchers.Main) { Toast.makeText(appContext, message, Toast.LENGTH_LONG).show() }
         } finally {
             file.delete()
         }
@@ -355,7 +358,7 @@ class ServerDocumentsProvider : DocumentsProvider() {
 
     /** Copies [file] into Downloads/Hearth on the phone. Returns whether that worked. */
     private fun keepOnPhone(name: String, file: File): Boolean = runCatching {
-        val resolver = requireContext().contentResolver
+        val resolver = appContext.contentResolver
         val values = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, name)
             put(MediaStore.Downloads.MIME_TYPE, mimeTypeOf(name))
@@ -375,7 +378,7 @@ class ServerDocumentsProvider : DocumentsProvider() {
         val ref = ref(documentId)
         val entry = entry(ref)
         if (entry.isDir || entry.size !in 1..THUMBNAIL_MAX_BYTES) throw FileNotFoundException("No thumbnail")
-        val dir = thumbnailDir(requireContext()).apply { mkdirs() }
+        val dir = thumbnailDir(appContext).apply { mkdirs() }
         val file = File(dir, sha1("${ref.id}|${entry.size}|${entry.modified}"))
         if (!file.exists()) {
             thumbnailSlots.acquire()
@@ -463,7 +466,7 @@ class ServerDocumentsProvider : DocumentsProvider() {
     /** Forgets what [folders] held and tells the Files app to show them again. */
     private fun changed(vararg folders: DocumentRef) {
         synchronized(listings) { folders.forEach { listings.remove(it.id) } }
-        val resolver = requireContext().contentResolver
+        val resolver = appContext.contentResolver
         for (f in folders) resolver.notifyChange(DocumentsContract.buildChildDocumentsUri(authority, f.id), null)
     }
 

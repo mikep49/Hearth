@@ -163,6 +163,7 @@ fun SettingsScreen(
     val alerts by viewModel.alerts.collectAsStateWithLifecycle()
     val showInFiles by viewModel.showInFiles.collectAsStateWithLifecycle()
     var confirm by remember { mutableStateOf<PowerAction?>(null) }
+    var confirmSignOut by remember { mutableStateOf(false) }
     LaunchedEffect(viewModel) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
 
     Column(
@@ -254,7 +255,7 @@ fun SettingsScreen(
         Section("Account") {
             ListGroup {
                 ListRow("Switch server", icon = Icons.Rounded.SwapHoriz, trailing = { Chevron() }, onClick = onOpenServers)
-                ListRow("Sign out", icon = Icons.AutoMirrored.Rounded.Logout, onClick = viewModel::signOut)
+                ListRow("Sign out", icon = Icons.AutoMirrored.Rounded.Logout, onClick = { confirmSignOut = true })
             }
         }
 
@@ -265,6 +266,10 @@ fun SettingsScreen(
             color = MaterialTheme.colorScheme.outline,
             textAlign = TextAlign.Center,
         )
+    }
+
+    if (confirmSignOut) {
+        SignOutDialog(serverLabel, onConfirm = { confirmSignOut = false; viewModel.signOut() }, onDismiss = { confirmSignOut = false })
     }
 
     confirm?.let { action ->
@@ -286,6 +291,23 @@ fun SettingsScreen(
             dismissButton = { TextButton(onClick = { confirm = null }) { Text("Cancel") } },
         )
     }
+}
+
+/** Signing out also removes logins that signing in again won't bring back, so it asks first. */
+@Composable
+private fun SignOutDialog(serverLabel: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Sign out of $serverLabel?") },
+        text = {
+            Text(
+                "The server stays in your list. Hearth forgets its saved terminal password, and signs you out of " +
+                    "every app opened in Hearth, on all your servers.",
+            )
+        },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("Sign out", color = MaterialTheme.colorScheme.error) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 /** The home screen widgets, each opening its own settings. Hidden while none is placed. */

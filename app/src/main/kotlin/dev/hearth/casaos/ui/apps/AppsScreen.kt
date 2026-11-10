@@ -273,6 +273,19 @@ fun AppsScreen(
                         }
                     }
                 }
+                // The list on screen is the last one that loaded; say so rather than let it pass for current.
+                state.error?.let { error ->
+                    item(key = "error", span = { GridItemSpan(maxLineSpan) }, contentType = "error") {
+                        ListRow(
+                            "Can't reach your server",
+                            Modifier.padding(top = 8.dp),
+                            subtitle = "$error · showing the last list",
+                            icon = Icons.Rounded.CloudOff,
+                            iconTint = MaterialTheme.colorScheme.error,
+                            shape = RoundedCornerShape(CardRadius),
+                        )
+                    }
+                }
                 item(key = "search", span = { GridItemSpan(maxLineSpan) }, contentType = "search") {
                     SearchField(query, { query = it }, "Search ${apps.size} apps", Modifier.padding(top = 8.dp))
                 }

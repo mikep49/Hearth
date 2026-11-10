@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Fingerprint
+import androidx.compose.material.icons.rounded.Public
+import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -46,6 +48,10 @@ fun SecuritySection(
     available: () -> Boolean,
     onEnabledChange: (Boolean) -> Unit,
     onLockAfterChange: (LockAfter) -> Unit,
+    terminalLocked: Boolean,
+    onTerminalLockedChange: (Boolean) -> Unit,
+    appsLocked: Boolean,
+    onAppsLockedChange: (Boolean) -> Unit,
     onError: (String) -> Unit,
 ) {
     val haptic = LocalHapticFeedback.current
@@ -58,12 +64,12 @@ fun SecuritySection(
     }
 
     // Turning it on or off asks first, so it's the owner (and the phone's lock works) either way.
-    fun toggle(on: Boolean) {
+    fun toggle(on: Boolean, change: (Boolean) -> Unit) {
         val a = activity ?: return
         a.confirmOwner(
             if (on) "Turn on lock" else "Turn off lock",
             "Confirm it's you",
-            onSuccess = { onEnabledChange(on) },
+            onSuccess = { change(on) },
             onError = { it?.let(onError) },
         )
     }
@@ -72,7 +78,7 @@ fun SecuritySection(
         SwitchRow(
             "Lock Hearth",
             checked = enabled,
-            onCheckedChange = ::toggle,
+            onCheckedChange = { toggle(it, onEnabledChange) },
             subtitle = if (canLock) {
                 // Said up front, since turning the lock on also turns that off.
                 if (showInFiles && !enabled) "Fingerprint, face or PIN. Turns off Show in Android Files" else "Fingerprint, face or PIN"
@@ -102,5 +108,25 @@ fun SecuritySection(
                 )
             }
         }
+    }
+
+    // Locks of their own for the places that use a saved login. They work with or without Lock Hearth.
+    ListGroup {
+        SwitchRow(
+            "Lock Terminal",
+            checked = terminalLocked,
+            onCheckedChange = { toggle(it, onTerminalLockedChange) },
+            subtitle = "Asks each time you open it",
+            icon = Icons.Rounded.Terminal,
+            enabled = canLock || terminalLocked,
+        )
+        SwitchRow(
+            "Lock apps",
+            checked = appsLocked,
+            onCheckedChange = { toggle(it, onAppsLockedChange) },
+            subtitle = "Asks before an app opens in Hearth",
+            icon = Icons.Rounded.Public,
+            enabled = canLock || appsLocked,
+        )
     }
 }

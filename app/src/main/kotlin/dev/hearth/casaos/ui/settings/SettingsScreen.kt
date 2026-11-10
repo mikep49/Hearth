@@ -18,6 +18,7 @@ import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.RestartAlt
+import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
@@ -80,6 +81,8 @@ class SettingsViewModel(
     private val themeStore: ThemeStore,
     private val prefs: PrefsStore,
     private val lock: AppLock,
+    private val terminalLock: AppLock,
+    private val appsLock: AppLock,
     widgetOptions: WidgetOptionsStore,
 ) : ViewModel() {
     private val _version = MutableStateFlow<String?>(null)
@@ -113,6 +116,22 @@ class SettingsViewModel(
             _messages.tryEmit("Turned off Show in Android Files")
         }
     }
+
+    val terminalLocked: StateFlow<Boolean> = terminalLock.enabled
+    val appsLocked: StateFlow<Boolean> = appsLock.enabled
+
+    fun setTerminalLocked(value: Boolean) = setPartLock(terminalLock, value)
+    fun setAppsLocked(value: Boolean) = setPartLock(appsLock, value)
+
+    private fun setPartLock(part: AppLock, value: Boolean) {
+        part.setEnabled(value)
+        // Settings is in front, so the part is closed: it asks from the next time it's opened.
+        if (value) part.lock()
+    }
+
+    val strictBrowser: StateFlow<Boolean> = prefs.strictBrowser
+
+    fun setStrictBrowser(value: Boolean) = prefs.setStrictBrowser(value)
 
     val showInFiles: StateFlow<Boolean> = prefs.showInFiles
 
@@ -154,17 +173,19 @@ fun SettingsScreen(
     onOpenServers: () -> Unit,
     loginsRemembered: Boolean,
     onOpenLogins: () -> Unit,
+    securityOpen: Boolean,
+    onOpenSecurity: () -> Unit,
 ) {
     val version by viewModel.version.collectAsStateWithLifecycle()
     val theme by viewModel.theme.collectAsStateWithLifecycle()
     val openAppsIn by viewModel.openAppsIn.collectAsStateWithLifecycle()
     val lockEnabled by viewModel.lockEnabled.collectAsStateWithLifecycle()
-    val lockAfter by viewModel.lockAfter.collectAsStateWithLifecycle()
     val alerts by viewModel.alerts.collectAsStateWithLifecycle()
     val showInFiles by viewModel.showInFiles.collectAsStateWithLifecycle()
     var confirm by remember { mutableStateOf<PowerAction?>(null) }
     var confirmSignOut by remember { mutableStateOf(false) }
-    LaunchedEffect(viewModel) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
+    // The Security & privacy page covers this one, and shows messages itself while it's open.
+    if (!securityOpen) LaunchedEffect(viewModel) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
 
     Column(
         Modifier.verticalScroll(rememberScrollState()).readableWidth().padding(horizontal = 20.dp, vertical = 12.dp),
@@ -227,15 +248,14 @@ fun SettingsScreen(
         Section("Alerts") { AlertsSection(alerts, viewModel::setAlerts, onError = viewModel::showError) }
 
         Section("Security") {
-            SecuritySection(
-                lockEnabled,
-                lockAfter,
-                showInFiles = showInFiles,
-                available = viewModel::lockAvailable,
-                onEnabledChange = viewModel::setLockEnabled,
-                onLockAfterChange = viewModel::setLockAfter,
-                onError = viewModel::showError,
-            )
+            ListGroup {
+                ListRow(
+                    "Security & privacy",
+                    icon = Icons.Rounded.Shield,
+                    trailing = { Chevron() },
+                    onClick = onOpenSecurity,
+                )
+            }
         }
 
         Section("Server") {

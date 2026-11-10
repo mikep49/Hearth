@@ -83,8 +83,10 @@ import dev.hearth.casaos.ui.dashboard.DashboardViewModel
 import dev.hearth.casaos.ui.files.FilesScreen
 import dev.hearth.casaos.ui.files.FilesViewModel
 import dev.hearth.casaos.ui.lock.LockGate
+import dev.hearth.casaos.ui.lock.PartLockGate
 import dev.hearth.casaos.ui.servers.ServerSheet
 import dev.hearth.casaos.ui.settings.SavedLoginsScreen
+import dev.hearth.casaos.ui.settings.SecurityScreen
 import dev.hearth.casaos.ui.settings.SettingsScreen
 import dev.hearth.casaos.ui.settings.SettingsViewModel
 import dev.hearth.casaos.ui.terminal.TerminalScreen
@@ -216,6 +218,7 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
     var logsAppName by rememberSaveable { mutableStateOf<String?>(null) }
     var storeOpen by rememberSaveable { mutableStateOf(false) }
     var loginsOpen by rememberSaveable { mutableStateOf(false) }
+    var securityOpen by rememberSaveable { mutableStateOf(false) }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         // Tablets, and phones on their side, get a rail down the side instead of the bar along the bottom.
@@ -223,6 +226,14 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
         fun select(i: Int) {
             if (tab != i) haptic.performHapticFeedback(HapticFeedbackType.SegmentTick)
             onTab(i)
+        }
+        val settingsFactory = viewModelFactory {
+            initializer {
+                SettingsViewModel(
+                    client, container.session, container.theme, container.prefs,
+                    container.lock, container.terminalLock, container.appsLock, container.widgetOptions,
+                )
+            }
         }
         Row(Modifier.fillMaxSize()) {
             if (rail) {
@@ -316,18 +327,19 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
                             val vm: TerminalViewModel = viewModel(key = "terminal$key", factory = viewModelFactory {
                                 initializer { TerminalViewModel(container.ssh, session, container.session.session) }
                             })
-                            TerminalScreen(vm)
+                            // The shell (in the view model) keeps running while the tab is locked or closed.
+                            PartLockGate(container.terminalLock, container.lock, "Terminal", Modifier.fillMaxSize()) { TerminalScreen(vm) }
                         }
                         Tab.Settings -> {
-                            val vm: SettingsViewModel = viewModel(key = "settings$key", factory = viewModelFactory {
-                                initializer { SettingsViewModel(client, container.session, container.theme, container.prefs, container.lock, container.widgetOptions) }
-                            })
+                            val vm: SettingsViewModel = viewModel(key = "settings$key", factory = settingsFactory)
                             val loginsRemembered by container.webLogins.remember.collectAsStateWithLifecycle()
                             SettingsScreen(
                                 vm, session.username, label, snackbar,
                                 onOpenServers = { serversOpen = true },
                                 loginsRemembered = loginsRemembered,
                                 onOpenLogins = { loginsOpen = true },
+                                securityOpen = securityOpen,
+                                onOpenSecurity = { securityOpen = true },
                             )
                         }
                     }
@@ -337,14 +349,11 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
 
         val url = webUrl
         if (url != null) {
-            WebAppScreen(
-                webApp.orEmpty(),
-                url,
-                container.webLogins,
-                onClose = { webUrl = null; webApp = null; webIcon = null },
-                Modifier.fillMaxSize(),
-                iconUrl = webIcon,
-            )
+            val close = { webUrl = null; webApp = null; webIcon = null }
+            val strict by container.prefs.strictBrowser.collectAsStateWithLifecycle()
+            PartLockGate(container.appsLock, container.lock, webApp.orEmpty().ifBlank { "This app" }, Modifier.fillMaxSize(), onBack = close) {
+                WebAppScreen(webApp.orEmpty(), url, container.webLogins, onClose = close, Modifier.fillMaxSize(), iconUrl = webIcon, strict = strict)
+            }
         }
 
         val settingsId = settingsAppId
@@ -369,6 +378,12 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
         }
 
         if (loginsOpen) SavedLoginsScreen(container.webLogins, onClose = { loginsOpen = false }, Modifier.fillMaxSize())
+
+        if (securityOpen) {
+            // The same view model as the Settings tab underneath.
+            val vm: SettingsViewModel = viewModel(key = "settings$key", factory = settingsFactory)
+            SecurityScreen(vm, onClose = { securityOpen = false }, Modifier.fillMaxSize())
+        }
 
         val versionId = versionAppId
         if (versionId != null) {

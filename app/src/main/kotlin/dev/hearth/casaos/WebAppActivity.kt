@@ -18,6 +18,7 @@ import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.hearth.casaos.ui.components.ClearOfCutout
 import dev.hearth.casaos.ui.lock.LockGate
+import dev.hearth.casaos.ui.lock.PartLockGate
 import dev.hearth.casaos.ui.theme.HearthTheme
 import dev.hearth.casaos.ui.theme.isDark
 import dev.hearth.casaos.ui.web.WebAppScreen
@@ -25,7 +26,7 @@ import dev.hearth.casaos.ui.web.WebAppScreen
 /**
  * An app's web UI on its own, opened from a home screen icon. Each address gets its own task, so it shows
  * up in Recents as a separate app, like an installed web app. It doesn't need a Hearth sign-in, but it is
- * behind Hearth's lock when that's on.
+ * behind Hearth's lock, and the lock for apps, when those are on.
  */
 class WebAppActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -51,7 +52,13 @@ class WebAppActivity : FragmentActivity() {
             HearthTheme(theme) {
                 ClearOfCutout {
                     LockGate(container.lock) {
-                        WebAppScreen(name, url, container.webLogins, onClose = ::finishAndRemoveTask, Modifier.fillMaxSize(), standalone = true)
+                        val strict by container.prefs.strictBrowser.collectAsStateWithLifecycle()
+                        PartLockGate(container.appsLock, container.lock, name, Modifier.fillMaxSize(), onBack = ::finishAndRemoveTask) {
+                            WebAppScreen(
+                                name, url, container.webLogins, onClose = ::finishAndRemoveTask, Modifier.fillMaxSize(),
+                                standalone = true, strict = strict,
+                            )
+                        }
                     }
                 }
             }

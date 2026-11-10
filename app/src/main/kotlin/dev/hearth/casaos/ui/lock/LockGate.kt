@@ -26,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -88,22 +89,62 @@ fun LockGate(lock: AppLock, content: @Composable () -> Unit) {
     Box(Modifier.fillMaxSize()) {
         // Hidden from screen readers too while locked.
         Box(Modifier.fillMaxSize().then(if (locked) Modifier.clearAndSetSemantics {} else Modifier)) { content() }
-        if (locked) LockScreen(lock)
+        if (locked) LockScreen(lock, "Hearth is locked", "Unlock Hearth")
     }
 }
 
+/**
+ * Draws [content] behind a lock of its own, for one part of Hearth: [content] isn't started until [lock] is
+ * unlocked, and the part locks again when it's closed. If it locks while open (after time away from Hearth),
+ * the content stays alive underneath, so a shell or a page isn't lost.
+ *
+ * [name] is what's locked ("Terminal", an app's name). [appLock] is the lock in front of all of Hearth:
+ * unlocking that while this part is in front unlocks it too, so nobody is asked twice in a row.
+ * [onBack] is what Back does while locked; null leaves it to whatever is underneath.
+ */
 @Composable
-private fun LockScreen(lock: AppLock) {
+fun PartLockGate(
+    lock: AppLock,
+    appLock: AppLock,
+    name: String,
+    modifier: Modifier = Modifier,
+    onBack: (() -> Unit)? = null,
+    content: @Composable () -> Unit,
+) {
+    val locked by lock.locked.collectAsStateWithLifecycle()
+    val activity = LocalActivity.current
+    var opened by remember { mutableStateOf(!locked) }
+    if (!locked) opened = true
+
+    // Closing the part locks it. Rotating recreates the screen, but the part is still open.
+    DisposableEffect(lock) {
+        onDispose { if (activity?.isChangingConfigurations != true) lock.lock() }
+    }
+
+    Box(modifier) {
+        if (opened) Box(Modifier.fillMaxSize().then(if (locked) Modifier.clearAndSetSemantics {} else Modifier)) { content() }
+        if (locked) LockScreen(lock, "$name is locked", "Unlock $name", appLock, onBack)
+    }
+}
+
+/**
+ * The page covering what [lock] guards. [behind] is Hearth's own lock when this one is for a part of Hearth:
+ * it asks first, and its answer counts here too.
+ */
+@Composable
+private fun LockScreen(lock: AppLock, heading: String, prompt: String, behind: AppLock? = null, onBack: (() -> Unit)? = null) {
     val activity = LocalActivity.current as? FragmentActivity
     val owner = LocalLifecycleOwner.current
     val keyboard = LocalSoftwareKeyboardController.current
     val focus = remember { FocusRequester() }
     var error by remember { mutableStateOf<String?>(null) }
+    val waiting = behind?.locked?.collectAsStateWithLifecycle()?.value ?: false
+    var waited by remember { mutableStateOf(waiting) }
 
     fun ask() {
         val a = activity ?: return
         error = null
-        a.confirmOwner("Unlock Hearth", null, onSuccess = lock::unlock, onError = { error = it })
+        a.confirmOwner(prompt, null, onSuccess = lock::unlock, onError = { error = it })
     }
 
     // Takes focus and the keyboard from whatever was being typed into (the terminal, a form).
@@ -112,14 +153,22 @@ private fun LockScreen(lock: AppLock) {
         runCatching { focus.requestFocus() }
     }
     // Asks once each time Hearth comes to the front locked. After a cancel, the button asks again.
-    LaunchedEffect(owner) {
+    LaunchedEffect(owner, waiting) {
+        if (waiting) {
+            waited = true
+            return@LaunchedEffect
+        }
+        if (waited) {
+            lock.unlock()
+            return@LaunchedEffect
+        }
         owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             owner.lifecycle.currentStateFlow.first { it.isAtLeast(Lifecycle.State.RESUMED) }
             ask()
             awaitCancellation()
         }
     }
-    BackHandler { activity?.moveTaskToBack(true) }
+    if (behind == null) BackHandler { activity?.moveTaskToBack(true) } else if (onBack != null) BackHandler(onBack = onBack)
 
     // A Surface takes every touch, so nothing underneath can be tapped.
     Surface(Modifier.fillMaxSize().focusRequester(focus).focusable(), color = MaterialTheme.colorScheme.background) {
@@ -134,7 +183,7 @@ private fun LockScreen(lock: AppLock) {
             ) {
                 Icon(Icons.Rounded.Lock, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
             }
-            Text("Hearth is locked", style = MaterialTheme.typography.headlineSmall)
+            Text(heading, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
             error?.let {
                 Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
             }

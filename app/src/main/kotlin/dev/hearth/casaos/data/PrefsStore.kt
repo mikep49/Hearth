@@ -89,7 +89,21 @@ class PrefsStore(context: Context) {
         _showInFiles.value = value
     }
 
+    private val _strictBrowser = MutableStateFlow(prefs.getBoolean(KEY_STRICT_BROWSER, false))
+
+    /**
+     * Whether apps opened in Hearth are kept from cookies set by other sites they embed, and from loading
+     * plain-HTTP parts into an HTTPS page. Off by default, since some apps rely on one or the other.
+     */
+    val strictBrowser: StateFlow<Boolean> = _strictBrowser.asStateFlow()
+
+    fun setStrictBrowser(value: Boolean) {
+        prefs.edit().putBoolean(KEY_STRICT_BROWSER, value).apply()
+        _strictBrowser.value = value
+    }
+
     private companion object {
+        const val KEY_STRICT_BROWSER = "strict_browser"
         const val KEY_SHOW_IN_FILES = "show_in_files"
         const val KEY_ALERTS = "alerts"
         const val KEY_ALERT_OFFLINE = "alert_offline"

@@ -38,6 +38,7 @@ Hearth runs on Android 10 or later, phones and tablets.
 - **App Store** (top of Apps) lists the apps your server's stores offer, with search, categories, screenshots and descriptions, and installs them.
 - **Create app** (long-press an app, or the button in the in-app browser's top bar) puts an app's web UI on your home screen with its icon. It opens full screen in its own window, like a native app.
 - **Saved logins** (Settings › Apps) lists the apps opened in Hearth that keep you signed in, with a button to sign out of each one or all of them. Hearth keeps the login an app saves (its cookies and site data), not your password. Each app's address and port gets its own WebView profile, so apps on one server don't share logins. Phones whose WebView is too old for profiles share one set for every app, which can only be removed all at once. Turn off **Remember logins** to be signed out of an app whenever you close it.
+- **Strict browsing** (Settings › Security & privacy, off by default) stops apps opened in Hearth from using cookies of other sites they embed, and from loading plain-HTTP images or media into an HTTPS page. An app that relies on either may not load fully with it on, so turning it on asks first. Apps opened over plain HTTP still load.
 
 ### Files
 
@@ -77,11 +78,13 @@ Hearth runs on Android 10 or later, phones and tablets.
 
 ### Lock
 
-- **Lock Hearth** in Settings uses the phone's own screen lock (fingerprint, face, PIN, pattern or password), so Hearth stores no PIN of its own. The switch is disabled if the phone has no screen lock.
+- **Lock Hearth** (Settings › Security & privacy) uses the phone's own screen lock (fingerprint, face, PIN, pattern or password), so Hearth stores no PIN of its own. The switch is disabled if the phone has no screen lock.
 - When the lock is on, Hearth starts locked. It locks again after you leave it, either right away, after 1 minute (the default) or after 5 minutes. Moving between screens or rotating the phone doesn't lock it.
 - Apps opened from home screen icons are behind the same lock. Hearth's screens are hidden in Recents while the lock is on (Android 13+).
 - The lock screen covers the app without closing it, so a terminal session or upload keeps running underneath.
-- Turning the lock on or off asks for your fingerprint or PIN first.
+- **Lock Terminal** and **Lock apps** are locks of their own, for the terminal and for apps opened in Hearth (home screen icons included). They work with or without Lock Hearth. Each asks when you open what it guards, and again after you close it or leave Hearth for a minute. A shell keeps running while the terminal is locked.
+- Unlocking Hearth while the terminal or an app is in front unlocks that too, so you aren't asked twice in a row.
+- Turning a lock on or off asks for your fingerprint or PIN first.
 
 ### Widget
 
@@ -134,6 +137,7 @@ CasaOS expects the raw JWT in the `Authorization` header (no `Bearer`). Endpoint
 - CasaOS has no TLS by default, so Hearth allows plain HTTP (`network_security_config.xml`), and your password crosses the network unencrypted. Stay on your home network, or put the server behind HTTPS or a VPN (Tailscale, WireGuard) for remote use.
 - SSH is encrypted end to end. On the first connection, Hearth shows the server's host key fingerprint for you to confirm. It uses the same `SHA256:` format as `ssh-keygen -lf`. If the key changes later, Hearth warns you before connecting.
 - A remembered SSH password is encrypted like the CasaOS tokens and wiped on sign-out. Signing out also closes any open shell.
+- Pages in the in-app browser can't read the phone's files or other apps' content (`file:` and `content:` addresses are off).
 - Logins saved by apps in the in-app browser stay in Hearth's private app storage, and Hearth turns off Android backups, so they never leave the phone.
 - Only Android itself can list the servers Hearth puts in the Files app (the provider requires `MANAGE_DOCUMENTS`). Other apps only get the files or folders you pick for them, and links to a folder can't reach outside it (paths with `.` or `..` are refused). The provider is disabled while **Show in Android Files** is off and whenever the app lock is on.
 - The auth token is only sent to the server you signed in to, never to other hosts such as icon CDNs. A unit test covers this.

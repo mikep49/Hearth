@@ -84,6 +84,25 @@ class AppLockTest {
         assertFalse(lock.locked.value)
     }
 
+    @Test fun lockingAPartAsksAgainNextTime() {
+        val lock = lock(MemoryLockStorage(enabled = true))
+        lock.unlock()
+        lock.lock()
+        assertTrue(lock.locked.value)
+    }
+
+    @Test fun lockingDoesNothingWhenOffOrWithoutAScreenLock() {
+        val off = lock(MemoryLockStorage(enabled = false))
+        off.lock()
+        assertFalse(off.locked.value)
+
+        val on = lock(MemoryLockStorage(enabled = true))
+        on.unlock()
+        secure = false
+        on.lock()
+        assertFalse(on.locked.value)
+    }
+
     @Test fun remembersTheChoice() {
         val storage = MemoryLockStorage()
         lock(storage).setLockAfter(LockAfter.FiveMinutes)

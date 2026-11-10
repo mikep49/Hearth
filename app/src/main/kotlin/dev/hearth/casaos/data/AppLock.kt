@@ -20,20 +20,23 @@ interface LockStorage {
     var lockAfter: String?
 }
 
-class PrefsLockStorage(context: Context) : LockStorage {
+/** [part] names the part of Hearth a lock is for ("terminal"); null is the lock in front of all of Hearth. */
+class PrefsLockStorage(context: Context, part: String? = null) : LockStorage {
     private val prefs = context.getSharedPreferences("lock", Context.MODE_PRIVATE)
+    private val prefix = part?.let { "${it}_" }.orEmpty()
     override var enabled: Boolean
-        get() = prefs.getBoolean("enabled", false)
-        set(value) = prefs.edit().putBoolean("enabled", value).apply()
+        get() = prefs.getBoolean("${prefix}enabled", false)
+        set(value) = prefs.edit().putBoolean("${prefix}enabled", value).apply()
     override var lockAfter: String?
-        get() = prefs.getString("lock_after", null)
-        set(value) = prefs.edit().putString("lock_after", value).apply()
+        get() = prefs.getString("${prefix}lock_after", null)
+        set(value) = prefs.edit().putString("${prefix}lock_after", value).apply()
 }
 
 /**
- * The optional lock in front of Hearth. When it's on, Hearth starts locked and locks again after being in
- * the background for [lockAfter]. Unlocking uses the phone's own screen lock (fingerprint, face, PIN,
- * pattern or password), so Hearth never stores a PIN itself.
+ * An optional lock in front of Hearth, or in front of one part of it (the terminal, apps opened in Hearth).
+ * When it's on, what it guards starts locked and locks again after Hearth has been in the background for
+ * [lockAfter]. A part also locks when it's closed, with [lock]. Unlocking uses the phone's own screen lock
+ * (fingerprint, face, PIN, pattern or password), so Hearth never stores a PIN itself.
  *
  * [canLock] says whether the phone has a screen lock. Without one there's nothing to unlock with, so Hearth
  * doesn't lock (removing the screen lock already takes the owner's PIN).
@@ -79,6 +82,12 @@ class AppLock(
         _locked.value = false
     }
 
+    /** Locks now, e.g. when the part this guards is closed. */
+    fun lock() {
+        leftAt = null
+        if (_enabled.value && canLock()) _locked.value = true
+    }
+
     /** Turning the lock on or off is only offered after the owner has confirmed, so it stays unlocked either way. */
     fun setEnabled(value: Boolean) {
         storage.enabled = value
@@ -92,9 +101,10 @@ class AppLock(
     }
 
     companion object {
-        fun create(context: Context): AppLock {
+        /** The lock for all of Hearth, or for one [part] of it. */
+        fun create(context: Context, part: String? = null): AppLock {
             val keyguard = context.getSystemService(KeyguardManager::class.java)
-            return AppLock(PrefsLockStorage(context), canLock = { keyguard.isDeviceSecure }, clock = SystemClock::elapsedRealtime)
+            return AppLock(PrefsLockStorage(context, part), canLock = { keyguard.isDeviceSecure }, clock = SystemClock::elapsedRealtime)
         }
     }
 }

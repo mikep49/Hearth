@@ -22,7 +22,7 @@ Sign in with your server's address (for example `192.168.1.20` or `casaos.local`
 | **Terminal** | An SSH shell with extra keys and a one-tap server update |
 | **Alerts** | Optional notifications when a server goes offline, storage is nearly full, an app stops or an update is out |
 | **Servers** | Save several servers and switch between them |
-| **Lock** | Optional fingerprint, face or PIN lock |
+| **Lock** | Optional fingerprint, face or PIN lock, for all of Hearth or just the terminal and apps |
 | **Widget** | Your server's stats on the home screen |
 | **Themes** | System, light or dark, pure black, and six accent colors |
 | **Tablets** | A side rail and wider layouts on big screens and in landscape |

@@ -72,7 +72,8 @@ import dev.hearth.casaos.ui.components.EmptyState
  * screen with [iconUrl] as its icon. A [standalone] app (opened from that icon) is just the page, like a
  * native app; the top bar is there when the app is opened through Hearth.
  *
- * Each app keeps its own logins, through [logins].
+ * Each app keeps its own logins, through [logins]. [strict] is the "Strict browsing" setting: no cookies for
+ * other sites an app embeds, and no plain-HTTP parts on an HTTPS page.
  */
 @SuppressLint("SetJavaScriptEnabled")
 @OptIn(ExperimentalMaterial3Api::class)
@@ -85,6 +86,7 @@ fun WebAppScreen(
     modifier: Modifier = Modifier,
     iconUrl: String? = null,
     standalone: Boolean = false,
+    strict: Boolean = false,
 ) {
     val context = LocalContext.current
     val activity = LocalActivity.current
@@ -177,9 +179,11 @@ fun WebAppScreen(
                         settings.loadWithOverviewMode = true
                         settings.builtInZoomControls = true
                         settings.displayZoomControls = false
-                        // Match Chrome: allow http assets on https pages where it's safe, and cookies for embedded frames.
-                        settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-                        CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                        // A page has no business reading the phone's files or other apps' content. Picking a
+                        // file to upload doesn't go through either.
+                        settings.allowFileAccess = false
+                        settings.allowContentAccess = false
+                        applyStrict(this, strict)
                         webViewClient = object : WebViewClient() {
                             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                                 val scheme = request.url.scheme?.lowercase()
@@ -239,6 +243,10 @@ fun WebAppScreen(
                         webView = this
                     }
                 },
+                // The setting can change while a home screen app is open in its own window.
+                update = { view ->
+                    if (view.tag != strict) applyStrict(view, strict)
+                },
                 onRelease = { view ->
                     if (webView === view) webView = null
                     view.stopLoading()
@@ -260,6 +268,17 @@ fun WebAppScreen(
             }
         }
     }
+}
+
+/**
+ * Not strict matches what the in-app browser always did: http images and media on https pages where WebView
+ * judges it safe, and cookies for sites embedded in frames. Strict allows neither.
+ */
+private fun applyStrict(view: WebView, strict: Boolean) {
+    view.settings.mixedContentMode =
+        if (strict) WebSettings.MIXED_CONTENT_NEVER_ALLOW else WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+    CookieManager.getInstance().setAcceptThirdPartyCookies(view, !strict)
+    view.tag = strict
 }
 
 private fun openExternally(context: Context, url: String) {

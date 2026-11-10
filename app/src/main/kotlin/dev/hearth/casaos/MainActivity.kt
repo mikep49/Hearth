@@ -86,6 +86,7 @@ import dev.hearth.casaos.ui.lock.LockGate
 import dev.hearth.casaos.ui.lock.PartLockGate
 import dev.hearth.casaos.ui.servers.ServerSheet
 import dev.hearth.casaos.ui.settings.SavedLoginsScreen
+import dev.hearth.casaos.ui.settings.NotificationsScreen
 import dev.hearth.casaos.ui.settings.SecurityScreen
 import dev.hearth.casaos.ui.settings.SettingsScreen
 import dev.hearth.casaos.ui.settings.SettingsViewModel
@@ -219,6 +220,7 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
     var storeOpen by rememberSaveable { mutableStateOf(false) }
     var loginsOpen by rememberSaveable { mutableStateOf(false) }
     var securityOpen by rememberSaveable { mutableStateOf(false) }
+    var notificationsOpen by rememberSaveable { mutableStateOf(false) }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         // Tablets, and phones on their side, get a rail down the side instead of the bar along the bottom.
@@ -338,7 +340,8 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
                                 onOpenServers = { serversOpen = true },
                                 loginsRemembered = loginsRemembered,
                                 onOpenLogins = { loginsOpen = true },
-                                securityOpen = securityOpen,
+                                pageOpen = securityOpen || notificationsOpen,
+                                onOpenNotifications = { notificationsOpen = true },
                                 onOpenSecurity = { securityOpen = true },
                             )
                         }
@@ -378,6 +381,12 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
         }
 
         if (loginsOpen) SavedLoginsScreen(container.webLogins, onClose = { loginsOpen = false }, Modifier.fillMaxSize())
+
+        if (notificationsOpen) {
+            // The same view model as the Settings tab underneath.
+            val vm: SettingsViewModel = viewModel(key = "settings$key", factory = settingsFactory)
+            NotificationsScreen(vm, onClose = { notificationsOpen = false }, Modifier.fillMaxSize())
+        }
 
         if (securityOpen) {
             // The same view model as the Settings tab underneath.

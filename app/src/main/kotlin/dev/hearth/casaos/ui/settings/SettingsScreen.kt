@@ -16,6 +16,7 @@ import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Key
+import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Shield
@@ -173,7 +174,8 @@ fun SettingsScreen(
     onOpenServers: () -> Unit,
     loginsRemembered: Boolean,
     onOpenLogins: () -> Unit,
-    securityOpen: Boolean,
+    pageOpen: Boolean,
+    onOpenNotifications: () -> Unit,
     onOpenSecurity: () -> Unit,
 ) {
     val version by viewModel.version.collectAsStateWithLifecycle()
@@ -184,8 +186,8 @@ fun SettingsScreen(
     val showInFiles by viewModel.showInFiles.collectAsStateWithLifecycle()
     var confirm by remember { mutableStateOf<PowerAction?>(null) }
     var confirmSignOut by remember { mutableStateOf(false) }
-    // The Security & privacy page covers this one, and shows messages itself while it's open.
-    if (!securityOpen) LaunchedEffect(viewModel) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
+    // The Notifications and Security & privacy pages cover this one, and show messages themselves while open.
+    if (!pageOpen) LaunchedEffect(viewModel) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
 
     Column(
         Modifier.verticalScroll(rememberScrollState()).readableWidth().padding(horizontal = 20.dp, vertical = 12.dp),
@@ -245,7 +247,17 @@ fun SettingsScreen(
             }
         }
 
-        Section("Alerts") { AlertsSection(alerts, viewModel::setAlerts, onError = viewModel::showError) }
+        Section("Notifications") {
+            ListGroup {
+                ListRow(
+                    "Notifications",
+                    subtitle = if (alerts.enabled) "Alerts are on" else "Off",
+                    icon = Icons.Rounded.Notifications,
+                    trailing = { Chevron() },
+                    onClick = onOpenNotifications,
+                )
+            }
+        }
 
         Section("Security") {
             ListGroup {

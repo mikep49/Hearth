@@ -5,7 +5,6 @@ import android.content.Context
 import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
-import android.webkit.MimeTypeMap
 
 /** Saves server files into the public Downloads/Hearth folder via MediaStore (no storage permission needed). */
 class FileDownloader(private val context: Context, private val client: CasaClient) {
@@ -13,11 +12,9 @@ class FileDownloader(private val context: Context, private val client: CasaClien
     /** Returns the saved file's Uri. Deletes the partial file if the transfer fails or is cancelled. */
     suspend fun save(entry: FileEntry, onProgress: (Long, Long) -> Unit): Uri {
         val resolver = context.contentResolver
-        val ext = entry.name.substringAfterLast('.', "").lowercase()
-        val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "application/octet-stream"
         val values = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, entry.name)
-            put(MediaStore.Downloads.MIME_TYPE, mime)
+            put(MediaStore.Downloads.MIME_TYPE, mimeTypeOf(entry.name))
             put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/Hearth")
             put(MediaStore.Downloads.IS_PENDING, 1)
         }

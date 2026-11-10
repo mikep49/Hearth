@@ -73,14 +73,14 @@ fun AlertsSection(settings: AlertSettings, onChange: (AlertSettings) -> Unit, on
                 "Alerts",
                 checked = settings.enabled,
                 onCheckedChange = ::toggle,
-                subtitle = "Get notified about your servers, even when Hearth is closed",
+                subtitle = "Notifications about your servers",
                 icon = Icons.Rounded.NotificationsActive,
             )
             if (settings.enabled) {
                 if (!allowed) {
                     ListRow(
                         "Notifications are off",
-                        subtitle = "Turn them on for Hearth so alerts can show",
+                        subtitle = "Alerts can't show",
                         icon = Icons.Rounded.NotificationsOff,
                         iconTint = MaterialTheme.colorScheme.error,
                         trailing = {
@@ -96,7 +96,7 @@ fun AlertsSection(settings: AlertSettings, onChange: (AlertSettings) -> Unit, on
                     "Server offline",
                     checked = settings.offline,
                     onCheckedChange = { onChange(settings.copy(offline = it)) },
-                    subtitle = "Can't be reached for about 15 minutes, including when your phone is off its network",
+                    subtitle = "Can't be reached for about 15 minutes",
                     icon = Icons.Rounded.CloudOff,
                 )
                 SwitchRow(
@@ -110,22 +110,21 @@ fun AlertsSection(settings: AlertSettings, onChange: (AlertSettings) -> Unit, on
                     "App stopped",
                     checked = settings.appStopped,
                     onCheckedChange = { onChange(settings.copy(appStopped = it)) },
-                    subtitle = "A running app stops or keeps restarting, and it wasn't stopped from Hearth",
+                    subtitle = "A running app stops or keeps restarting",
                     icon = Icons.Rounded.StopCircle,
                 )
                 SwitchRow(
                     "App updates",
                     checked = settings.updates,
                     onCheckedChange = { onChange(settings.copy(updates = it)) },
-                    subtitle = "The App Store has a new version of an installed app",
+                    subtitle = "An installed app has a new version",
                     icon = Icons.Rounded.SystemUpdateAlt,
                 )
             }
         }
         if (settings.enabled) {
             GroupFootnote(
-                "Hearth checks every server you're signed in to about every ${AlertSchedule.EVERY_MINUTES} minutes. " +
-                    "Android may check less often to save battery.",
+                "Checked about every ${AlertSchedule.EVERY_MINUTES} minutes. Android may check less often to save battery.",
             )
         }
     }

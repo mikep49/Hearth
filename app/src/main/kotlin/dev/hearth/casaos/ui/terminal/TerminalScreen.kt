@@ -295,7 +295,7 @@ private fun SignInForm(viewModel: TerminalViewModel, state: TerminalUiState) {
     ) {
         ScreenHeader("Terminal", subtitle = { HeaderSubtitle("Sign in over SSH") })
         Text(
-            "Open a shell on the server over SSH to run commands or update CasaOS. Sign in with a Linux account on the server, which may differ from your CasaOS login.",
+            "Use a Linux account on the server. It may differ from your CasaOS login.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -378,7 +378,7 @@ private fun SignInForm(viewModel: TerminalViewModel, state: TerminalUiState) {
         }
 
         Text(
-            "SSH encrypts the connection. Most CasaOS installs already run an SSH server. If connecting fails, install one on the server with: sudo apt install openssh-server",
+            "If connecting fails, the server may need an SSH server: sudo apt install openssh-server",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

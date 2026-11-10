@@ -137,10 +137,10 @@ private val WidgetItem.icon: ImageVector
 
 private val WidgetItem.description: String
     get() = when (this) {
-        WidgetItem.Status -> "Server name, online or offline, and when it last updated"
-        WidgetItem.Cpu -> "With the temperature when there's room"
-        WidgetItem.Memory -> "Used of total, when there's room"
-        WidgetItem.Storage -> "Used of total, when there's room"
+        WidgetItem.Status -> "Server name, status and last update"
+        WidgetItem.Cpu -> "With temperature, if it fits"
+        WidgetItem.Memory -> "Used of total, if it fits"
+        WidgetItem.Storage -> "Used of total, if it fits"
     }
 
 @Composable
@@ -191,10 +191,7 @@ private fun WidgetSettings(
                     }
                 }
             }
-            GroupFootnote(
-                "App follows Hearth's theme. Light, Dark and OLED keep Hearth's accent color. " +
-                    "Resize the widget on your home screen to see more or less: larger text needs a larger widget.",
-            )
+            GroupFootnote("App follows Hearth's theme. Larger text needs a larger widget.")
 
             // Nothing to pick between with one server (unless the widget was set to one that's gone).
             if (profiles.size > 1 || server != null) {

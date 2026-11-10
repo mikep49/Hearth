@@ -75,8 +75,8 @@ fun SecuritySection(
             onCheckedChange = ::toggle,
             subtitle = if (canLock) {
                 // Said up front, since turning the lock on also turns that off.
-                if (showInFiles && !enabled) "Fingerprint, face or your phone's PIN. Also turns off Show in Android Files" else "Fingerprint, face or your phone's PIN"
-            } else "Set up a screen lock on your phone first, in Android's Settings › Security",
+                if (showInFiles && !enabled) "Fingerprint, face or PIN. Turns off Show in Android Files" else "Fingerprint, face or PIN"
+            } else "Set up a screen lock on your phone first",
             icon = Icons.Rounded.Fingerprint,
             enabled = canLock || enabled,
         )
@@ -96,7 +96,7 @@ fun SecuritySection(
                     }
                 }
                 Text(
-                    "Hearth always starts locked, and so do apps opened from home screen icons. The widget still shows your server's stats.",
+                    "Hearth always starts locked. Widgets still show your stats.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

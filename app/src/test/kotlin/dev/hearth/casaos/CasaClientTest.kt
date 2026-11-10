@@ -339,6 +339,15 @@ class CasaClientTest {
         assertThrows(CasaException.Server::class.java) { client.openFrom("/DATA/gone.txt", 0) }
     }
 
+    @Test fun `a connection lost partway through a reply is a network error`() = runTest {
+        signedIn()
+        val cutShort = { MockResponse().setBody(utilOk).setSocketPolicy(okhttp3.mockwebserver.SocketPolicy.DISCONNECT_DURING_RESPONSE_BODY) }
+        server.enqueue(cutShort())
+        assertThrows(CasaException.Network::class.java) { runTestBlocking { client.utilization() } }
+        server.enqueue(cutShort())
+        assertThrows(CasaException.Network::class.java) { runTestBlocking { client.readStart("/DATA/a.txt", 1024) } }
+    }
+
     /** The value of a plain field in a multipart form body. */
     private fun formField(body: String, name: String): String? =
         Regex("name=\"$name\"\r\n(?:[^\r\n]+\r\n)*\r\n([^\r]*)\r\n").find(body)?.groupValues?.get(1)

@@ -88,6 +88,12 @@ fun FileIndex.without(paths: Collection<String>): FileIndex {
     return copy(entries = entries.filter { e -> e.path !in paths && prefixes.none { e.path.startsWith(it) } })
 }
 
+/** Leaves out entries inside a folder that's also in the list: copying, moving or deleting the folder covers them. */
+fun List<FileEntry>.withoutNested(): List<FileEntry> {
+    val folders = filter { it.isDir }.map { it.path.trimEnd('/') + "/" }
+    return filter { e -> folders.none { e.path.startsWith(it) } }
+}
+
 /** Follows a rename of [oldPath] to [newPath], including everything inside a renamed folder. */
 fun FileIndex.renamed(oldPath: String, newPath: String): FileIndex {
     val oldPrefix = oldPath.trimEnd('/') + "/"

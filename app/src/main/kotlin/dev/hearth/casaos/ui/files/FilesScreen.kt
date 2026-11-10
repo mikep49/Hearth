@@ -34,6 +34,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Android
 import androidx.compose.material.icons.rounded.Audiotrack
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.CreateNewFolder
 import androidx.compose.material.icons.rounded.Delete
@@ -93,6 +94,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -212,6 +214,7 @@ class FilesViewModel(
     val launches: SharedFlow<Launch> = _launches.asSharedFlow()
 
     private var loadJob: Job? = null
+    private var transferJob: Job? = null
 
     /** Everything on the server, for searching past the open folder. Built the first time the user searches. */
     private val _index = MutableStateFlow<FileIndex?>(null)
@@ -296,12 +299,13 @@ class FilesViewModel(
             return
         }
         _state.update { it.copy(transfer = Transfer(label)) }
-        viewModelScope.launch {
+        transferJob = viewModelScope.launch {
             try {
                 block { done, total ->
                     _state.update { s -> s.copy(transfer = s.transfer?.copy(progress = if (total > 0) done.toFloat() / total else null)) }
                 }
             } catch (e: CancellationException) {
+                _messages.tryEmit("Cancelled")
                 throw e
             } catch (e: Exception) {
                 // Storage can fail in several ways (disk full, MediaStore refusing the write, file removed
@@ -311,6 +315,11 @@ class FilesViewModel(
                 _state.update { it.copy(transfer = null) }
             }
         }
+    }
+
+    /** Stops the download, upload or "open with" under way. A partly downloaded file is removed from the phone. */
+    fun cancelTransfer() {
+        transferJob?.cancel()
     }
 
     fun download(entry: FileEntry) = transfer("Downloading ${entry.name}", "Download failed") { progress ->
@@ -370,7 +379,7 @@ class FilesViewModel(
         }
         val folder = dir.substringAfterLast('/')
         _state.update { it.copy(transfer = Transfer(uploadLabel(plan[0].second, 0, plan.size))) }
-        viewModelScope.launch {
+        transferJob = viewModelScope.launch {
             val failed = mutableListOf<String>()
             var lastError: String? = null
             try {
@@ -395,6 +404,9 @@ class FilesViewModel(
                         else -> "Uploaded $done of ${plan.size}. ${failed.first()} failed: ${lastError ?: "unknown error"}"
                     },
                 )
+            } catch (e: CancellationException) {
+                _messages.tryEmit("Upload cancelled")
+                throw e
             } finally {
                 _state.update { it.copy(transfer = null) }
                 indexStale = true
@@ -586,7 +598,7 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState) {
                         SearchField(query, { query = it }, "Search all files on the server", Modifier.padding(top = 8.dp))
                     }
                 }
-                state.transfer?.let { TransferBar(it, side) }
+                state.transfer?.let { TransferBar(it, side, onCancel = viewModel::cancelTransfer) }
                 state.clipboard?.let { clip ->
                     ClipboardBar(clip, side, onCancel = viewModel::clearClipboard, onPaste = viewModel::paste)
                 }
@@ -822,12 +834,16 @@ private fun locationOf(entry: FileEntry): String =
     parentOf(entry.path).removePrefix(ROOT).trim('/').ifEmpty { folderName(ROOT) }
 
 @Composable
-private fun TransferBar(t: Transfer, side: Dp) {
-    Column(Modifier.padding(horizontal = side, vertical = 6.dp)) {
-        Text(t.label, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        val p = t.progress
-        if (p != null) LinearProgressIndicator(progress = { p }, Modifier.fillMaxWidth().padding(top = 6.dp))
-        else LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 6.dp))
+private fun TransferBar(t: Transfer, side: Dp, onCancel: () -> Unit) {
+    // The button's own padding stands in for most of the gutter on its side.
+    Row(Modifier.padding(start = side, end = (side - 12.dp).coerceAtLeast(0.dp)), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f).padding(vertical = 6.dp)) {
+            Text(t.label, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            val p = t.progress
+            if (p != null) LinearProgressIndicator(progress = { p }, Modifier.fillMaxWidth().padding(top = 6.dp))
+            else LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 6.dp))
+        }
+        IconButton(onClick = onCancel) { Icon(Icons.Rounded.Close, "Cancel") }
     }
 }
 

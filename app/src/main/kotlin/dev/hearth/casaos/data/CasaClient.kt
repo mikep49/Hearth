@@ -1,6 +1,7 @@
 package dev.hearth.casaos.data
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -352,6 +353,7 @@ class CasaClient(
                 r.body.byteStream().use { input ->
                     val buf = ByteArray(64 * 1024)
                     while (true) {
+                        ensureActive() // reading blocks, so a cancelled download has to be noticed here
                         val n = input.read(buf)
                         if (n < 0) break
                         sink.write(buf, 0, n)

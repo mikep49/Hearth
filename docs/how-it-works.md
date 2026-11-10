@@ -69,7 +69,7 @@ Hearth runs on Android 10 or later, phones and tablets.
 
 ### Alerts
 
-- Off until you turn on **Alerts** in Settings. On Android 13 and later, turning them on asks for permission to show notifications. Each kind can be turned off on its own, there or in Android's notification settings.
+- Off until you turn on **Alerts** in Settings › Notifications. On Android 13 and later, turning them on asks for permission to show notifications. Each kind can be turned off on its own, there or in Android's notification settings.
 - Hearth checks every server you're signed in to about every 15 minutes, even when it's closed, as long as the phone has a network connection. Android may check less often to save battery.
 - **Server offline**: after two checks in a row fail, so one dropped request doesn't alert. That includes when your phone is off the server's network. When the server answers again, the alert changes to "back online" and goes away after an hour.
 - **Storage almost full**: when total storage or a drive's volume reaches 90%. It alerts again only after dropping below 85%. Each drive's volumes are read at most every 6 hours, since that makes CasaOS run `smartctl`, which can wake sleeping disks. The total is checked every time.

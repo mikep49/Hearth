@@ -23,7 +23,10 @@ import dev.hearth.casaos.data.ServerProfile
 import dev.hearth.casaos.data.SessionStore
 import dev.hearth.casaos.data.SshProfileStore
 import dev.hearth.casaos.data.WebLogins
+import dev.hearth.casaos.data.Transfers
 import dev.hearth.casaos.files.ServerDocumentsProvider
+import dev.hearth.casaos.files.TransferNotifications
+import dev.hearth.casaos.files.TransferService
 import dev.hearth.casaos.ui.theme.ThemeStore
 import dev.hearth.casaos.widget.PrefsWidgetStorage
 import dev.hearth.casaos.widget.ServerStatsWidgets
@@ -97,6 +100,13 @@ class AppContainer(private val app: Application) {
         WidgetTarget.of(widgetChoices.choices.value[widgetId], session.session.value, session.profiles.value).serverId
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    /** Downloads and uploads. They belong to the app, not a screen, so they outlive the screen that started them. */
+    val transfers = Transfers(
+        scope,
+        keepAlive = { TransferService.start(app) },
+        onOutcome = { TransferNotifications.result(app, it) },
+    )
 
     init {
         // The locks count time away from the whole app, so moving between its screens or rotating doesn't lock it.

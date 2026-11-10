@@ -61,6 +61,7 @@ import androidx.core.net.toUri
 import coil3.compose.AsyncImage
 import dev.hearth.casaos.data.FileEntry
 import dev.hearth.casaos.data.PreviewKind
+import dev.hearth.casaos.data.Transfer
 import dev.hearth.casaos.data.previewKind
 import dev.hearth.casaos.ui.components.formatBytes
 

@@ -100,13 +100,12 @@ fun SavedLoginsScreen(logins: WebLogins, onClose: () -> Unit, modifier: Modifier
                     "Remember logins",
                     checked = keep,
                     onCheckedChange = { on -> if (on) logins.setRemember(true) else turningOff = true },
-                    subtitle = if (keep) "Apps you open in Hearth keep you signed in" else "Apps sign you out when you close them",
+                    subtitle = if (keep) "Apps stay signed in" else "Apps sign you out when you close them",
                     icon = Icons.Rounded.Key,
                 )
             }
             GroupFootnote(
-                "Hearth keeps the login an app saves when you sign in to it, not your password. " +
-                    "Signing out of Hearth signs you out of every app too.",
+                "Hearth never stores your passwords. Signing out of Hearth signs you out of every app too.",
             )
 
             SectionHeader("Apps")
@@ -120,8 +119,7 @@ fun SavedLoginsScreen(logins: WebLogins, onClose: () -> Unit, modifier: Modifier
                     CircularProgressIndicator(Modifier.size(28.dp))
                 }
                 list.isEmpty() -> Notice(
-                    if (keep) "No saved logins. When you sign in to an app inside Hearth and it remembers you, it shows up here."
-                    else "No saved logins.",
+                    if (keep) "No saved logins. Apps you sign in to inside Hearth show up here." else "No saved logins.",
                 )
                 else -> ListGroup {
                     list.forEach { login ->

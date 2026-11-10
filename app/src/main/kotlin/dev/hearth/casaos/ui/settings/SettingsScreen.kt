@@ -203,7 +203,7 @@ fun SettingsScreen(
             ListGroup {
                 ListRow(
                     "Saved logins",
-                    subtitle = if (loginsRemembered) "Apps opened in Hearth that keep you signed in" else "Off: apps sign you out when you close them",
+                    subtitle = if (loginsRemembered) "Apps stay signed in" else "Off",
                     icon = Icons.Rounded.Key,
                     trailing = { Chevron() },
                     onClick = onOpenLogins,
@@ -217,8 +217,7 @@ fun SettingsScreen(
                     "Show in Android Files",
                     checked = showInFiles && !lockEnabled,
                     onCheckedChange = viewModel::setShowInFiles,
-                    subtitle = if (lockEnabled) "Turn off Lock Hearth to use this. The Files app can't ask for your fingerprint or PIN"
-                    else "Your servers appear in the Files app's side menu, and when other apps open or save files",
+                    subtitle = if (lockEnabled) "Not available while Lock Hearth is on" else "Browse your servers in the Files app",
                     icon = Icons.Rounded.FolderOpen,
                     enabled = !lockEnabled,
                 )

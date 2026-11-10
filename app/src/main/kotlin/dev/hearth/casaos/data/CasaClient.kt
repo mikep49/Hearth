@@ -176,7 +176,7 @@ class CasaClient(
         val req = request("v2", "app_management", "compose", id).header("Accept", "application/yaml").build()
         return withContext(Dispatchers.IO) {
             http.newCall(req).await().use { r ->
-                val text = r.body.string()
+                val text = readBody(r)
                 checkStatus(r.code, text)
                 text
             }
@@ -319,7 +319,7 @@ class CasaClient(
         val get = request("v2", "app_management", "apps", storeAppId, "compose").header("Accept", "application/yaml").build()
         val yaml = withContext(Dispatchers.IO) {
             http.newCall(get).await().use { r ->
-                val text = r.body.string()
+                val text = readBody(r)
                 checkStatus(r.code, text)
                 text
             }
@@ -354,7 +354,7 @@ class CasaClient(
                     val buf = ByteArray(64 * 1024)
                     while (true) {
                         ensureActive() // reading blocks, so a cancelled download has to be noticed here
-                        val n = input.read(buf)
+                        val n = reading { input.read(buf) }
                         if (n < 0) break
                         sink.write(buf, 0, n)
                         written += n
@@ -388,7 +388,7 @@ class CasaClient(
                 val buf = ByteArray(64 * 1024)
                 r.body.byteStream().use { input ->
                     while (out.size() < maxBytes) {
-                        val n = input.read(buf, 0, minOf(buf.size, maxBytes - out.size()))
+                        val n = reading { input.read(buf, 0, minOf(buf.size, maxBytes - out.size())) }
                         if (n < 0) break
                         out.write(buf, 0, n)
                     }
@@ -456,11 +456,23 @@ class CasaClient(
     /** Runs the call and returns the envelope's `data`. */
     private suspend fun execute(client: OkHttpClient, req: Request): JsonElement? = withContext(Dispatchers.IO) {
         client.newCall(req).await().use { r ->
-            val text = r.body.string()
+            val text = readBody(r)
             checkStatus(r.code, text)
             unwrap(text)
         }
     }
+
+    /**
+     * The connection can still drop after the headers arrive. Callers only expect a [CasaException], so
+     * anything else from reading the body would end the app instead of showing a message.
+     */
+    private inline fun <T> reading(block: () -> T): T = try {
+        block()
+    } catch (e: IOException) {
+        throw CasaException.Network(friendly(e), e)
+    }
+
+    private fun readBody(r: Response): String = reading { r.body.string() }
 
     private fun checkStatus(code: Int, body: String?) {
         if (code in 200..299) return

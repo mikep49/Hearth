@@ -8,6 +8,7 @@ import dev.hearth.casaos.data.renamed
 import dev.hearth.casaos.data.searchFiles
 import dev.hearth.casaos.data.walkFolders
 import dev.hearth.casaos.data.without
+import dev.hearth.casaos.data.withoutNested
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -67,5 +68,10 @@ class FileSearchTest {
     @Test fun `a sibling with a similar name survives a delete`() {
         val index = FileIndex("/DATA", listOf(dir("/DATA/Media"), dir("/DATA/Media2"), file("/DATA/Media/a")), 1, done = true)
         assertEquals(listOf("/DATA/Media2"), index.without(listOf("/DATA/Media")).entries.map { it.path })
+    }
+
+    @Test fun `a selection drops items inside a folder that is selected too`() {
+        val picked = listOf(dir("/DATA/Media"), file("/DATA/Media/cover.jpg"), dir("/DATA/Media/Movies"), file("/DATA/Media.txt"), file("/DATA/notes.txt"))
+        assertEquals(listOf("/DATA/Media", "/DATA/Media.txt", "/DATA/notes.txt"), picked.withoutNested().map { it.path })
     }
 }

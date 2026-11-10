@@ -15,10 +15,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -33,6 +35,8 @@ import androidx.compose.material.icons.automirrored.rounded.Sort
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Android
 import androidx.compose.material.icons.rounded.Audiotrack
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
@@ -47,6 +51,7 @@ import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.PhotoLibrary
+import androidx.compose.material.icons.rounded.SelectAll
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material3.AlertDialog
@@ -88,6 +93,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
@@ -122,6 +129,7 @@ import dev.hearth.casaos.data.searchFiles
 import dev.hearth.casaos.data.uniqueName
 import dev.hearth.casaos.data.walkFolders
 import dev.hearth.casaos.data.without
+import dev.hearth.casaos.data.withoutNested
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.FolderOpen
@@ -456,12 +464,15 @@ class FilesViewModel(
 
     fun delete(entries: List<FileEntry>) {
         if (entries.isEmpty()) return
-        val dir = parentOf(entries[0].path)
         viewModelScope.launch {
             if (change("Couldn't delete") { client.delete(entries.map { it.path }) }) {
                 patchIndex { it.without(entries.map { e -> e.path }) }
                 _messages.emit(if (entries.size == 1) "Deleted ${entries[0].name}" else "Deleted ${plural(entries.size, "item")}")
-                reloadIfShowing(dir)
+                // Search results can come from any folder, including ones above the open folder.
+                val here = _state.value.path
+                val gone = entries.firstOrNull { here == it.path || here.startsWith(it.path.trimEnd('/') + "/") }
+                if (gone != null) open(parentOf(gone.path))
+                else if (entries.any { parentOf(it.path) == here }) reload()
             }
         }
     }
@@ -475,7 +486,11 @@ class FilesViewModel(
         val clip = _state.value.clipboard ?: return
         val dest = _state.value.path
         val problem = when {
-            clip.entries.any { parentOf(it.path) == dest } -> if (clip.move) "That's already in this folder" else "Open a different folder to copy into"
+            clip.entries.any { parentOf(it.path) == dest } -> when {
+                !clip.move -> "Open a different folder to copy into"
+                clip.entries.size == 1 -> "That's already in this folder"
+                else -> "Those are already in this folder"
+            }
             clip.entries.any { it.isDir && (dest == it.path || dest.startsWith(it.path.trimEnd('/') + "/")) } -> "A folder can't go inside itself"
             else -> null
         }
@@ -523,7 +538,7 @@ const val TEXT_PREVIEW_BYTES = 256 * 1024
 private sealed interface FileDialog {
     data object NewFolder : FileDialog
     data class Rename(val entry: FileEntry) : FileDialog
-    data class Delete(val entry: FileEntry) : FileDialog
+    data class Delete(val entries: List<FileEntry>) : FileDialog
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -542,6 +557,21 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState) {
     val q = query.trim()
     val searching = q.isNotEmpty()
     LaunchedEffect(searching) { if (searching) viewModel.ensureIndex() }
+    // Items ticked for copying, moving or deleting together, by path. Opening another folder starts over.
+    var selected by remember(state.path) { mutableStateOf(emptyMap<String, FileEntry>()) }
+    val selecting = selected.isNotEmpty()
+    val shown = remember(state.listing, q, sort) {
+        val arranged = state.listing?.entries.orEmpty().arranged(sort)
+        if (q.isEmpty()) arranged else arranged.filter { it.name.contains(q, true) }
+    }
+    // After a refresh, forget ticked items that are no longer in the folder.
+    LaunchedEffect(state.listing) {
+        val listing = state.listing ?: return@LaunchedEffect
+        val paths = listing.entries.mapTo(HashSet()) { it.path }
+        if (selected.keys.any { parentOf(it) == listing.path && it !in paths }) {
+            selected = selected.filterKeys { parentOf(it) != listing.path || it in paths }
+        }
+    }
     // Matches outside the open folder. Filtering a big index takes a moment, so it runs off the main thread.
     val elsewhere by produceState(SearchHits(emptyList(), 0), index, q, state.path, sort.showHidden) {
         val entries = index?.entries.orEmpty()
@@ -557,6 +587,7 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState) {
     BackHandler(enabled = state.canGoUp) { viewModel.up() }
     // Registered later, so it wins: back clears a search before going up a folder.
     BackHandler(enabled = query.isNotEmpty()) { query = "" }
+    BackHandler(enabled = selecting) { selected = emptyMap() }
     LaunchedEffect(viewModel) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
     LaunchedEffect(viewModel) {
         viewModel.launches.collect { l ->
@@ -578,7 +609,15 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState) {
         }
     }
 
+    fun toggle(entry: FileEntry) {
+        selected = if (entry.path in selected) selected - entry.path else selected + (entry.path to entry)
+    }
+
+    /** What a bulk action works on: a folder already covers ticked items inside it. */
+    fun takeSelection(): List<FileEntry> = selected.values.toList().withoutNested().also { selected = emptyMap() }
+
     fun openEntry(entry: FileEntry) {
+        if (selecting) return toggle(entry)
         haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
         when {
             entry.isDir -> viewModel.open(entry.path)
@@ -591,8 +630,19 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState) {
         ReadableGutter(min = 20.dp) { side ->
             Column(Modifier.fillMaxSize()) {
                 Column(Modifier.padding(start = side, end = side, top = 12.dp, bottom = 8.dp)) {
-                    ScreenHeader("Files", subtitle = { Breadcrumbs(state.path, onNavigate = viewModel::open) }) {
-                        SortButton(sort, onSortBy = viewModel::sortBy, onShowHidden = viewModel::setShowHidden)
+                    ScreenHeader(
+                        if (selecting) "${selected.size} selected" else "Files",
+                        subtitle = { Breadcrumbs(state.path, onNavigate = viewModel::open) },
+                    ) {
+                        if (selecting) {
+                            IconButton(onClick = {
+                                val visible = if (searching) shown + elsewhere.entries else shown
+                                selected = selected + visible.associateBy { it.path }
+                            }) { Icon(Icons.Rounded.SelectAll, "Select all") }
+                            IconButton(onClick = { selected = emptyMap() }) { Icon(Icons.Rounded.Close, "Clear selection") }
+                        } else {
+                            SortButton(sort, onSortBy = viewModel::sortBy, onShowHidden = viewModel::setShowHidden)
+                        }
                     }
                     if (state.listing != null || query.isNotEmpty()) {
                         SearchField(query, { query = it }, "Search all files on the server", Modifier.padding(top = 8.dp))
@@ -625,23 +675,20 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState) {
                                 TextButton(onClick = { viewModel.setShowHidden(true) }) { Text("Show hidden files") }
                             }
                         else -> {
-                            val shown = remember(listing, q, sort) {
-                                val arranged = listing.entries.arranged(sort)
-                                if (q.isEmpty()) arranged else arranged.filter { it.name.contains(q, true) }
-                            }
                             val onAction: (FileEntry, FileAction) -> Unit = { entry, action ->
                                 when (action) {
+                                    FileAction.Select -> toggle(entry)
                                     FileAction.OpenWith -> viewModel.openWith(entry, share = false)
                                     FileAction.Share -> viewModel.openWith(entry, share = true)
                                     FileAction.Download -> viewModel.download(entry)
                                     FileAction.Rename -> dialog = FileDialog.Rename(entry)
                                     FileAction.Copy -> viewModel.cut(listOf(entry), move = false)
                                     FileAction.Move -> viewModel.cut(listOf(entry), move = true)
-                                    FileAction.Delete -> dialog = FileDialog.Delete(entry)
+                                    FileAction.Delete -> dialog = FileDialog.Delete(listOf(entry))
                                 }
                             }
                             LazyColumn(
-                                // Room at the bottom so the last row isn't under the + button.
+                                // Room at the bottom so the last row isn't under the + button or the selection's actions.
                                 contentPadding = PaddingValues(start = side, end = side, top = 8.dp, bottom = 96.dp),
                                 verticalArrangement = Arrangement.spacedBy(GroupGap),
                             ) {
@@ -654,6 +701,9 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState) {
                                         groupShape(i, shown.size),
                                         onClick = { openEntry(entry) },
                                         onAction = { onAction(entry, it) },
+                                        selecting = selecting,
+                                        selected = entry.path in selected,
+                                        onSelect = { toggle(entry) },
                                     )
                                 }
                                 if (searching) {
@@ -668,6 +718,9 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState) {
                                             location = locationOf(entry),
                                             onClick = { openEntry(entry) },
                                             onAction = { onAction(entry, it) },
+                                            selecting = selecting,
+                                            selected = entry.path in selected,
+                                            onSelect = { toggle(entry) },
                                         )
                                     }
                                 }
@@ -678,7 +731,14 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState) {
             }
         }
 
-        Box(Modifier.align(Alignment.BottomEnd).padding(20.dp)) {
+        if (selecting) {
+            SelectionActions(
+                onCopy = { viewModel.cut(takeSelection(), move = false) },
+                onMove = { viewModel.cut(takeSelection(), move = true) },
+                onDelete = { dialog = FileDialog.Delete(selected.values.toList().withoutNested()) },
+                modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 12.dp, vertical = 20.dp),
+            )
+        } else Box(Modifier.align(Alignment.BottomEnd).padding(20.dp)) {
             FloatingActionButton(onClick = { addMenu = true }) { Icon(Icons.Rounded.Add, "Upload or create a folder") }
             DropdownMenu(expanded = addMenu, onDismissRequest = { addMenu = false }) {
                 DropdownMenuItem(
@@ -722,15 +782,14 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState) {
         )
         is FileDialog.Delete -> AlertDialog(
             onDismissRequest = { dialog = null },
-            title = { Text("Delete ${d.entry.name}?") },
-            text = {
-                Text(
-                    if (d.entry.isDir) "The folder and everything in it are deleted from the server. This can't be undone."
-                    else "The file is deleted from the server. This can't be undone.",
-                )
-            },
+            title = { Text("Delete ${d.entries.singleOrNull()?.name ?: plural(d.entries.size, "item")}?") },
+            text = { Text(deleteWarning(d.entries)) },
             confirmButton = {
-                TextButton(onClick = { viewModel.delete(listOf(d.entry)); dialog = null }) {
+                TextButton(onClick = {
+                    viewModel.delete(d.entries)
+                    selected = emptyMap()
+                    dialog = null
+                }) {
                     Text("Delete", color = MaterialTheme.colorScheme.error)
                 }
             },
@@ -753,6 +812,19 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState) {
             onClose = { previewPath = null },
         )
     }
+}
+
+/** What deleting [entries] does, spelled out before the user confirms. */
+private fun deleteWarning(entries: List<FileEntry>): String {
+    val folders = entries.count { it.isDir }
+    val files = entries.size - folders
+    val what = when {
+        entries.size == 1 -> if (folders == 1) "The folder and everything in it are" else "The file is"
+        folders == 0 -> "${plural(files, "file")} are"
+        files == 0 -> "${plural(folders, "folder")} and everything in them are"
+        else -> "${plural(files, "file")} and ${plural(folders, "folder")}, with everything in ${if (folders == 1) "it" else "them"}, are"
+    }
+    return "$what deleted from the server. This can't be undone."
 }
 
 /** Picks the folder order (tap the current one again to reverse it) and whether hidden files show. */
@@ -867,6 +939,32 @@ private fun ClipboardBar(clip: Clipboard, side: Dp, onCancel: () -> Unit, onPast
     }
 }
 
+/** What can be done with the ticked items, floating over the bottom of the list where the + button usually is. */
+@Composable
+private fun SelectionActions(onCopy: () -> Unit, onMove: () -> Unit, onDelete: () -> Unit, modifier: Modifier = Modifier) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        shape = RoundedCornerShape(28.dp),
+        shadowElevation = 6.dp,
+        modifier = modifier,
+    ) {
+        Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            SelectionAction("Copy", Icons.Rounded.ContentCopy, onCopy)
+            SelectionAction("Move", Icons.AutoMirrored.Rounded.DriveFileMove, onMove)
+            SelectionAction("Delete", Icons.Rounded.Delete, onDelete, tint = MaterialTheme.colorScheme.error)
+        }
+    }
+}
+
+@Composable
+private fun SelectionAction(label: String, icon: ImageVector, onClick: () -> Unit, tint: Color = MaterialTheme.colorScheme.onSurface) {
+    TextButton(onClick = onClick) {
+        Icon(icon, null, Modifier.size(18.dp), tint = tint)
+        Spacer(Modifier.width(8.dp))
+        Text(label, color = tint)
+    }
+}
+
 @Composable
 private fun Breadcrumbs(path: String, onNavigate: (String) -> Unit) {
     val segments = path.trim('/').split('/').filter { it.isNotEmpty() }
@@ -888,6 +986,7 @@ private fun Breadcrumbs(path: String, onNavigate: (String) -> Unit) {
 }
 
 private enum class FileAction(val label: String, val icon: ImageVector, val filesOnly: Boolean = false) {
+    Select("Select", Icons.Rounded.CheckCircle),
     OpenWith("Open with…", Icons.AutoMirrored.Rounded.OpenInNew, filesOnly = true),
     Share("Share", Icons.Rounded.Share, filesOnly = true),
     Download("Download", Icons.Rounded.Download, filesOnly = true),
@@ -897,19 +996,38 @@ private enum class FileAction(val label: String, val icon: ImageVector, val file
     Delete("Delete", Icons.Rounded.Delete),
 }
 
-/** Tap opens; long-press or the ⋮ button shows the item's actions. */
+/**
+ * Tap opens and the ⋮ button shows the item's actions; long-press ticks it, to act on several items together.
+ * While [selecting], a checkbox stands in for ⋮ and [onClick] is expected to tick the row instead of opening it.
+ */
 @Composable
-private fun FileRow(entry: FileEntry, shape: Shape, onClick: () -> Unit, onAction: (FileAction) -> Unit, location: String? = null) {
+private fun FileRow(
+    entry: FileEntry,
+    shape: Shape,
+    onClick: () -> Unit,
+    onAction: (FileAction) -> Unit,
+    selecting: Boolean,
+    selected: Boolean,
+    onSelect: () -> Unit,
+    location: String? = null,
+) {
     var menu by remember { mutableStateOf(false) }
     val haptic = LocalHapticFeedback.current
     Box {
-        HearthCard(Modifier.fillMaxWidth(), shape = shape, onClick = onClick, onLongClick = {
-            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            menu = true
-        }) {
+        HearthCard(
+            Modifier.fillMaxWidth().then(if (selecting) Modifier.semantics { this.selected = selected } else Modifier),
+            shape = shape,
+            onClick = onClick,
+            onLongClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                onSelect()
+            },
+        ) {
             Row(Modifier.padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 // Folders carry the accent; files get a neutral tile so folders are easy to pick out.
-                if (entry.isDir) {
+                if (selected) {
+                    IconTile(Icons.Rounded.Check, tint = MaterialTheme.colorScheme.onPrimary, container = MaterialTheme.colorScheme.primary)
+                } else if (entry.isDir) {
                     IconTile(iconFor(entry))
                 } else {
                     IconTile(
@@ -936,7 +1054,12 @@ private fun FileRow(entry: FileEntry, shape: Shape, onClick: () -> Unit, onActio
                         Text(meta, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "Actions for ${entry.name}") }
+                if (selecting) {
+                    // The same size as the ⋮ button, so rows don't shift when selecting starts.
+                    Box(Modifier.size(48.dp), Alignment.Center) { Checkbox(checked = selected, onCheckedChange = null) }
+                } else {
+                    IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "Actions for ${entry.name}") }
+                }
             }
         }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, offset = DpOffset(14.dp, 0.dp)) {

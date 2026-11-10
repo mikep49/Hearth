@@ -5,6 +5,10 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Alerts. Asked for only when they're turned on in Settings. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Keep a download or upload going while Hearth is in the background or the phone sleeps. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application
         android:name=".HearthApp"
@@ -33,6 +37,12 @@
             android:documentLaunchMode="intoExisting"
             android:autoRemoveFromRecents="true"
             android:windowSoftInputMode="adjustResize|stateHidden" />
+
+        <!-- Runs only while a download or upload is under way. -->
+        <service
+            android:name=".files.TransferService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

@@ -47,6 +47,7 @@ Hearth runs on Android 10 or later, phones and tablets.
 - Each item's ⋮ menu has **Select**, **Open with…**, **Share**, **Download**, **Rename**, **Copy to…**, **Move to…** and **Delete**. Downloads go to `Downloads/Hearth` and don't need storage permission. To copy or move, browse to the destination and tap **Paste here**.
 - To work on several items at once, long-press one (or pick **Select** in its menu), then tap the others. **Select all** is at the top, and **Copy**, **Move** and **Delete** are at the bottom. It works in search results too, so you can gather items from different folders. Back or ✕ clears the selection.
 - **+** uploads photos, videos or any files from the phone, and makes new folders. If an uploaded file's name is already taken, you choose to skip it, keep both or replace it.
+- Downloads and uploads keep going when you leave Hearth or the phone sleeps, and ✕ on the progress bar cancels one. If notifications are allowed, a notification shows the progress with a **Cancel** button, and another says how the transfer ended if Hearth wasn't on screen. Android 15 and later stop a transfer that has run in the background for six hours.
 - **Search** covers the whole server. CasaOS has no search API, so the first search walks the folders under `/DATA` in the background, and later searches filter that list as you type. Results from the open folder come first, then everywhere else. The walk stops at 100,000 items and shows the best 300 matches. Pull to refresh rescans.
 
 ### Android Files
@@ -180,9 +181,11 @@ app/src/main/kotlin/dev/hearth/casaos/
            SessionStore + SecretBox (saved servers, Keystore encryption),
            Ssh + SshProfileStore (SSH sessions and saved SSH logins), AppUsage (docker stats over SSH),
            ServerFinder (finding servers on the Wi-Fi), FileSearch, FileSort, FileDownloader,
-           AppLogs, AppLock, Alerts (what each background check should notify about)
+           AppLogs, AppLock, Alerts (what each background check should notify about),
+           Transfers (runs one download or upload at a time for the whole app)
   alerts/  the background check (WorkManager), its schedule and notifications
-  files/   ServerDocumentsProvider: servers in Android's Files app (ServerDocuments holds its testable parts)
+  files/   ServerDocumentsProvider: servers in Android's Files app (ServerDocuments holds its testable parts),
+           TransferService: keeps Hearth alive during a transfer and shows its notification
   widget/  the home screen widget (Glance), its settings screen and saved readings
   ui/      theme, components, and one package per screen (screen + ViewModel together)
 ```

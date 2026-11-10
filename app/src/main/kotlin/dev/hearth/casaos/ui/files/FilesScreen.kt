@@ -118,6 +118,9 @@ import dev.hearth.casaos.data.PickedFile
 import dev.hearth.casaos.data.PrefsStore
 import dev.hearth.casaos.data.SearchHits
 import dev.hearth.casaos.data.SortBy
+import dev.hearth.casaos.data.Transfer
+import dev.hearth.casaos.data.TransferProgress
+import dev.hearth.casaos.data.Transfers
 import dev.hearth.casaos.data.arranged
 import dev.hearth.casaos.data.isHidden
 import dev.hearth.casaos.data.isHiddenPath
@@ -167,9 +170,6 @@ import java.time.format.FormatStyle
 
 private const val ROOT = "/DATA"
 
-/** A download, upload or "open with" in progress. Only one runs at a time. */
-data class Transfer(val label: String, /** 0..1, or null when the total size is unknown. */ val progress: Float? = null)
-
 /** Items cut or copied, waiting for the user to pick where they go. */
 data class Clipboard(val entries: List<FileEntry>, val move: Boolean)
 
@@ -211,6 +211,7 @@ class FilesViewModel(
     private val downloader: FileDownloader,
     private val phoneFiles: PhoneFiles,
     private val prefs: PrefsStore,
+    private val transfers: Transfers,
 ) : ViewModel() {
     private val _state = MutableStateFlow(FilesState())
     val state: StateFlow<FilesState> = _state.asStateFlow()
@@ -222,7 +223,6 @@ class FilesViewModel(
     val launches: SharedFlow<Launch> = _launches.asSharedFlow()
 
     private var loadJob: Job? = null
-    private var transferJob: Job? = null
 
     /** Everything on the server, for searching past the open folder. Built the first time the user searches. */
     private val _index = MutableStateFlow<FileIndex?>(null)
@@ -233,7 +233,10 @@ class FilesViewModel(
 
     val sort: StateFlow<FileSort> = prefs.fileSort
 
-    init { open(ROOT) }
+    init {
+        open(ROOT)
+        viewModelScope.launch { transfers.current.collect { t -> _state.update { it.copy(transfer = t) } } }
+    }
 
     fun sortBy(by: SortBy) = prefs.setFileSort(sort.value.pick(by))
 
@@ -300,52 +303,40 @@ class FilesViewModel(
 
     // region transfers
 
-    /** Runs one transfer, reporting progress and turning failures into a message. */
-    private fun transfer(label: String, failure: String, block: suspend (onProgress: (Long, Long) -> Unit) -> Unit) {
-        if (_state.value.transfer != null) {
-            _messages.tryEmit("Wait for the current transfer to finish")
-            return
-        }
-        _state.update { it.copy(transfer = Transfer(label)) }
-        transferJob = viewModelScope.launch {
-            try {
-                block { done, total ->
-                    _state.update { s -> s.copy(transfer = s.transfer?.copy(progress = if (total > 0) done.toFloat() / total else null)) }
-                }
-            } catch (e: CancellationException) {
-                _messages.tryEmit("Cancelled")
-                throw e
-            } catch (e: Exception) {
-                // Storage can fail in several ways (disk full, MediaStore refusing the write, file removed
-                // mid-transfer): show a message instead of crashing the app.
-                _messages.emit("$failure: ${e.message ?: "storage error"}")
-            } finally {
-                _state.update { it.copy(transfer = null) }
-            }
-        }
+    /**
+     * Runs one transfer, which keeps going if this screen is closed or Hearth goes to the background.
+     * [block] returns what to tell the user once it's done, if anything.
+     */
+    private fun transfer(
+        label: String,
+        failure: String,
+        cancelled: String = "Cancelled",
+        block: suspend (TransferProgress) -> String?,
+    ) {
+        val started = transfers.start(label, failure, cancelled, onMessage = { _messages.tryEmit(it) }, work = block)
+        if (!started) _messages.tryEmit("Wait for the current transfer to finish")
     }
 
     /** Stops the download, upload or "open with" under way. A partly downloaded file is removed from the phone. */
-    fun cancelTransfer() {
-        transferJob?.cancel()
-    }
+    fun cancelTransfer() = transfers.cancel()
 
     fun download(entry: FileEntry) = transfer("Downloading ${entry.name}", "Download failed") { progress ->
-        downloader.save(entry, progress)
-        _messages.emit("Saved ${entry.name} to Downloads/Hearth")
+        downloader.save(entry, progress::update)
+        "Saved ${entry.name} to Downloads/Hearth"
     }
 
     /** Fetches the file and hands it to another app to open ([share] false) or to share. */
     fun openWith(entry: FileEntry, share: Boolean) =
         transfer("Getting ${entry.name}", if (share) "Couldn't share" else "Couldn't open") { progress ->
-            val uri = phoneFiles.fetchForSharing(entry, progress)
+            val uri = phoneFiles.fetchForSharing(entry, progress::update)
             _launches.emit(Launch(uri, mimeTypeOf(entry.name), entry.name, share))
+            null
         }
 
     /** Starts uploading [uris] into the open folder, first asking what to do if some names are taken. */
     fun upload(uris: List<Uri>) {
         if (uris.isEmpty()) return
-        if (_state.value.transfer != null) {
+        if (transfers.current.value != null) {
             _messages.tryEmit("Wait for the current transfer to finish")
             return
         }
@@ -386,17 +377,14 @@ class FilesViewModel(
             return
         }
         val folder = dir.substringAfterLast('/')
-        _state.update { it.copy(transfer = Transfer(uploadLabel(plan[0].second, 0, plan.size))) }
-        transferJob = viewModelScope.launch {
+        transfer(uploadLabel(plan[0].second, 0, plan.size), "Upload failed", cancelled = "Upload cancelled") { progress ->
             val failed = mutableListOf<String>()
             var lastError: String? = null
             try {
                 plan.forEachIndexed { i, (file, name) ->
-                    _state.update { it.copy(transfer = Transfer(uploadLabel(name, i, plan.size))) }
+                    progress.label(uploadLabel(name, i, plan.size))
                     try {
-                        phoneFiles.upload(file, dir, name) { done, total ->
-                            _state.update { s -> s.copy(transfer = s.transfer?.copy(progress = if (total > 0) done.toFloat() / total else null)) }
-                        }
+                        phoneFiles.upload(file, dir, name, progress::update)
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
@@ -404,21 +392,15 @@ class FilesViewModel(
                         lastError = e.message
                     }
                 }
-                val done = plan.size - failed.size
-                _messages.emit(
-                    when {
-                        failed.isEmpty() -> "Uploaded ${plural(done, "file")} to $folder"
-                        done == 0 -> "Upload failed: ${lastError ?: "unknown error"}"
-                        else -> "Uploaded $done of ${plan.size}. ${failed.first()} failed: ${lastError ?: "unknown error"}"
-                    },
-                )
-            } catch (e: CancellationException) {
-                _messages.tryEmit("Upload cancelled")
-                throw e
             } finally {
-                _state.update { it.copy(transfer = null) }
                 indexStale = true
                 reloadIfShowing(dir)
+            }
+            val done = plan.size - failed.size
+            when {
+                failed.isEmpty() -> "Uploaded ${plural(done, "file")} to $folder"
+                done == 0 -> "Upload failed: ${lastError ?: "unknown error"}"
+                else -> "Uploaded $done of ${plan.size}. ${failed.first()} failed: ${lastError ?: "unknown error"}"
             }
         }
     }

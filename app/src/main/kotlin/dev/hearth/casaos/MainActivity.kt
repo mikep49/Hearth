@@ -319,7 +319,7 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
                         }
                         Tab.Files -> {
                             val vm: FilesViewModel = viewModel(key = "files$key", factory = viewModelFactory {
-                                initializer { FilesViewModel(client, container.downloader(client), container.phoneFiles(client), container.prefs) }
+                                initializer { FilesViewModel(client, container.downloader(client), container.phoneFiles(client), container.prefs, container.transfers) }
                             })
                             FilesScreen(vm, snackbar)
                         }

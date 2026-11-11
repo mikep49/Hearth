@@ -17,6 +17,7 @@ import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Shield
@@ -175,6 +176,7 @@ fun SettingsScreen(
     loginsRemembered: Boolean,
     onOpenLogins: () -> Unit,
     pageOpen: Boolean,
+    onOpenAppearance: () -> Unit,
     onOpenNotifications: () -> Unit,
     onOpenSecurity: () -> Unit,
 ) {
@@ -186,7 +188,7 @@ fun SettingsScreen(
     val showInFiles by viewModel.showInFiles.collectAsStateWithLifecycle()
     var confirm by remember { mutableStateOf<PowerAction?>(null) }
     var confirmSignOut by remember { mutableStateOf(false) }
-    // The Notifications and Security & privacy pages cover this one, and show messages themselves while open.
+    // The Appearance, Notifications and Security & privacy pages cover this one; the last two show messages themselves while open.
     if (!pageOpen) LaunchedEffect(viewModel) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
 
     Column(
@@ -217,7 +219,17 @@ fun SettingsScreen(
             )
         }
 
-        Section("Appearance") { AppearanceSection(theme, viewModel::setTheme) }
+        Section("Appearance") {
+            ListGroup {
+                ListRow(
+                    "Appearance",
+                    subtitle = theme.summary,
+                    icon = Icons.Rounded.Palette,
+                    trailing = { Chevron() },
+                    onClick = onOpenAppearance,
+                )
+            }
+        }
 
         WidgetsSection(viewModel)
 

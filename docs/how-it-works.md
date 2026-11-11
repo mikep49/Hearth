@@ -97,15 +97,17 @@ Hearth runs on Android 10 or later, phones and tablets.
 
 ### Themes
 
+- Everything about the look is on one page, Settings › Appearance.
 - System, Light or Dark.
 - Six accents: Ember, Ocean, Forest, Violet, Rose, and Dynamic, which uses your wallpaper colors on Android 12+.
 - A pure black mode for OLED screens.
+- Two styles, with the same colors either way. **Android** follows Material, as on a Pixel: a tab bar across the bottom, and lists whose rows sit a little apart. **One UI** follows Samsung's phones: the tabs float in a pill, each list joins into one card with thin lines between its rows, and switches are plain with a white thumb.
 - The choice is remembered and survives sign-out.
 - Text uses [Google Sans Flex](https://github.com/googlefonts/googlesans-flex), shipped with the app under the SIL Open Font License 1.1 ([`fonts/GoogleSansFlex-OFL.txt`](../fonts/GoogleSansFlex-OFL.txt)). Monospace text and the widget use the phone's fonts.
 
 ### Tablets and landscape
 
-- On screens 600dp wide or more (tablets, and phones turned on their side) the tabs move from the bottom bar to a rail down the side.
+- On screens 600dp wide or more (tablets, and phones turned on their side) the tabs move from the bottom bar to a rail down the side. In the One UI style the pill moves there instead, standing on its end.
 - From 840dp, Home puts the Apps card in a second column beside the server's stats.
 - Apps and the App Store show two or three cards per row when there's room. Files, Settings and the forms stay in a centred column no wider than 720dp. Logs, the terminal and web pages use the full width.
 - Content keeps clear of a camera cutout at the side of the screen.

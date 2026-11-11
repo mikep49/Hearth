@@ -28,8 +28,17 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
+import dev.hearth.casaos.ui.theme.LocalUiStyle
+import dev.hearth.casaos.ui.theme.UiStyle
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -140,8 +149,17 @@ val CardRadius = 24.dp
 /** Corner radius where two rows of a grouped list meet. */
 private val InnerRadius = 6.dp
 
-/** The gap between rows of a grouped list. */
-val GroupGap = 2.dp
+/** The line between rows of a grouped list in One UI, and how far it stops short of the card's sides. */
+private val Hairline = 1.dp
+private val HairlineInset = 20.dp
+
+/** True in the One UI style, where the rows of a grouped list join into one card with lines between them. */
+private val joinedRows: Boolean
+    @Composable @ReadOnlyComposable get() = LocalUiStyle.current == UiStyle.OneUi
+
+/** The gap between rows of a grouped list in a lazy list: 2dp on Android, none in One UI, where rows touch. */
+val GroupGap: Dp
+    @Composable @ReadOnlyComposable get() = if (joinedRows) 0.dp else 2.dp
 
 /** Padding inside a card that shows a block of content (charts, forms, choices). */
 val CardPadding = 20.dp
@@ -149,12 +167,39 @@ val CardPadding = 20.dp
 /**
  * The shape of row [index] of [count] in a grouped list: round outer corners at the ends, tight ones
  * where rows meet, like Android's own Settings. Used where rows can't share a parent, as in lazy lists.
+ * In One UI the rows meet squarely, and a [HearthCard] or [ListRow] given this shape draws the line above itself.
  */
+@Composable
+@ReadOnlyComposable
 fun groupShape(index: Int, count: Int): Shape {
+    if (joinedRows) return JoinedShape(first = index == 0, last = index == count - 1)
     val top = if (index == 0) CardRadius else InnerRadius
     val bottom = if (index == count - 1) CardRadius else InnerRadius
     return RoundedCornerShape(top, top, bottom, bottom)
 }
+
+/** A row of a One UI group in a lazy list. It also tells the row whether there is a row above to draw a line against. */
+private data class JoinedShape(val first: Boolean, val last: Boolean) : Shape {
+    private val shape = RoundedCornerShape(
+        topStart = if (first) CardRadius else 0.dp,
+        topEnd = if (first) CardRadius else 0.dp,
+        bottomEnd = if (last) CardRadius else 0.dp,
+        bottomStart = if (last) CardRadius else 0.dp,
+    )
+
+    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline =
+        shape.createOutline(size, layoutDirection, density)
+}
+
+/** The line along the top of a row that has [shape] and a row above it. It's drawn over the row, so it goes inside the row's background. */
+private fun Modifier.joinedRowLine(shape: Shape, color: Color): Modifier =
+    if (shape is JoinedShape && !shape.first) {
+        drawWithContent {
+            drawContent()
+            val y = Hairline.toPx() / 2
+            drawLine(color, Offset(HairlineInset.toPx(), y), Offset(size.width - HairlineInset.toPx(), y), Hairline.toPx())
+        }
+    } else this
 
 /** How many columns `GridCells.Adaptive(min)` makes in [width] with [spacing] between them. */
 fun adaptiveColumns(width: Dp, min: Dp, spacing: Dp): Int = max(1, ((width + spacing) / (min + spacing)).toInt())
@@ -169,37 +214,53 @@ fun HearthCard(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val color = MaterialTheme.colorScheme.surfaceContainer
+    val line = Modifier.joinedRowLine(shape, MaterialTheme.colorScheme.outlineVariant)
     if (onLongClick != null) {
         // Surface's own onClick has no long press. Clicking inside it keeps the ripple within the rounded corners.
         Surface(modifier = modifier, shape = shape, color = color) {
-            Column(Modifier.combinedClickable(onClick = onClick ?: {}, onLongClick = onLongClick), content = content)
+            Column(line.combinedClickable(onClick = onClick ?: {}, onLongClick = onLongClick), content = content)
         }
     } else if (onClick != null) {
         Surface(onClick = onClick, modifier = modifier, shape = shape, color = color) {
-            Column(content = content)
+            Column(line, content = content)
         }
     } else {
         Surface(modifier = modifier, shape = shape, color = color) {
-            Column(content = content)
+            Column(line, content = content)
         }
     }
 }
 
 /**
- * Rows grouped into one rounded block, 2dp apart. Each child is one row: use [ListRow], or a [HearthCard]
- * with [GroupRowShape] for anything else. Clipping the column rounds the outer corners of the first and last rows.
+ * Rows grouped into one rounded block: 2dp apart on Android, joined with a line between them in One UI.
+ * Each child is one row: use [ListRow], or a [HearthCard] with [GroupRowShape] for anything else.
+ * Clipping the column rounds the outer corners of the first and last rows.
  */
 @Composable
 fun ListGroup(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    val joined = joinedRows
+    val card = MaterialTheme.colorScheme.surfaceContainer
+    val line = MaterialTheme.colorScheme.outlineVariant
+    // The lines aren't drawn one by one: the rows sit a hairline apart on a card-colored block with a
+    // strip of the line color down its middle, which shows through the gaps.
+    val lines = if (joined) {
+        Modifier.drawBehind {
+            drawRect(card)
+            drawRect(line, Offset(HairlineInset.toPx(), 0f), Size(size.width - HairlineInset.toPx() * 2, size.height))
+        }
+    } else Modifier
     Column(
-        modifier.fillMaxWidth().clip(RoundedCornerShape(CardRadius)),
-        verticalArrangement = Arrangement.spacedBy(GroupGap),
+        modifier.fillMaxWidth().clip(RoundedCornerShape(CardRadius)).then(lines),
+        verticalArrangement = Arrangement.spacedBy(if (joined) Hairline else GroupGap),
         content = content,
     )
 }
 
 /** The shape of a row inside a [ListGroup]; the group rounds the outer corners. */
-val GroupRowShape: Shape = RoundedCornerShape(InnerRadius)
+val GroupRowShape: Shape
+    @Composable @ReadOnlyComposable get() = if (joinedRows) RectangleShape else SegmentShape
+
+private val SegmentShape: Shape = RoundedCornerShape(InnerRadius)
 
 /** An icon on a tinted rounded tile, leading a row. */
 @Composable
@@ -245,7 +306,7 @@ fun ListRow(
     }
     Surface(modifier.fillMaxWidth(), shape = shape, color = MaterialTheme.colorScheme.surfaceContainer) {
         Row(
-            click.heightIn(min = 64.dp).padding(start = 16.dp, end = if (trailing != null) 12.dp else 16.dp, top = 12.dp, bottom = 12.dp),
+            Modifier.joinedRowLine(shape, MaterialTheme.colorScheme.outlineVariant).then(click).heightIn(min = 64.dp).padding(start = 16.dp, end = if (trailing != null) 12.dp else 16.dp, top = 12.dp, bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             when {
@@ -277,7 +338,41 @@ fun SwitchRow(
     ListRow(
         title, modifier, subtitle = subtitle, icon = icon, enabled = enabled,
         toggle = checked to onCheckedChange,
-        trailing = { Switch(checked = checked, onCheckedChange = null, enabled = enabled) },
+        trailing = { HearthSwitch(checked = checked, onCheckedChange = null, enabled = enabled) },
+    )
+}
+
+/**
+ * The app's switch: Material's on Android. One UI's is plainer, with a white thumb that stays one size
+ * and a track with no outline.
+ */
+@Composable
+fun HearthSwitch(checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    if (LocalUiStyle.current != UiStyle.OneUi) {
+        Switch(checked = checked, onCheckedChange = onCheckedChange, modifier = modifier, enabled = enabled)
+        return
+    }
+    val on = MaterialTheme.colorScheme.primary
+    val off = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
+    Switch(
+        checked = checked,
+        onCheckedChange = onCheckedChange,
+        modifier = modifier,
+        // Material shrinks the thumb when off unless it holds something, so it holds nothing.
+        thumbContent = {},
+        enabled = enabled,
+        colors = SwitchDefaults.colors(
+            checkedThumbColor = Color.White,
+            checkedTrackColor = on,
+            uncheckedThumbColor = Color.White,
+            uncheckedTrackColor = off,
+            uncheckedBorderColor = Color.Transparent,
+            disabledCheckedThumbColor = Color.White.copy(alpha = 0.6f),
+            disabledCheckedTrackColor = on.copy(alpha = 0.38f),
+            disabledUncheckedThumbColor = Color.White.copy(alpha = 0.6f),
+            disabledUncheckedTrackColor = off.copy(alpha = 0.12f),
+            disabledUncheckedBorderColor = Color.Transparent,
+        ),
     )
 }
 
@@ -483,7 +578,7 @@ fun SectionHeader(text: String, modifier: Modifier = Modifier) {
         text,
         modifier = modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 2.dp),
         style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.primary,
+        color = MaterialTheme.colorScheme.onSurface,
     )
 }
 

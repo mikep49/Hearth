@@ -63,7 +63,6 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -110,6 +109,7 @@ import dev.hearth.casaos.ui.components.AppIcon
 import dev.hearth.casaos.ui.components.EmptyState
 import dev.hearth.casaos.ui.components.CardPadding
 import dev.hearth.casaos.ui.components.HearthCard
+import dev.hearth.casaos.ui.components.HearthSwitch
 import dev.hearth.casaos.ui.components.IconTile
 import dev.hearth.casaos.ui.components.SectionHeader
 import kotlinx.coroutines.Dispatchers
@@ -609,7 +609,7 @@ private fun ResourcesSection(s: ServiceSettings, editing: Boolean, enabled: Bool
                     Text("Privileged", style = MaterialTheme.typography.bodyLarge)
                     Hint("Gives the container full access to the server. Only turn on if the app needs it.")
                 }
-                Switch(checked = s.privileged, onCheckedChange = { onChange(s.copy(privileged = it)) }, enabled = enabled)
+                HearthSwitch(checked = s.privileged, onCheckedChange = { onChange(s.copy(privileged = it)) }, enabled = enabled)
             }
             CodeField(
                 s.memoryMb, { onChange(s.copy(memoryMb = it.filter(Char::isDigit))) }, "Memory limit",

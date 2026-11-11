@@ -11,7 +11,7 @@ Hearth is a native app for CasaOS home servers. Check your server, manage your a
 <li><b>Servers:</b> save several servers and switch between them, or let Hearth find them on your Wi-Fi</li>
 <li><b>Lock:</b> optional fingerprint, face or PIN lock</li>
 <li><b>Widget:</b> your server's stats on the home screen</li>
-<li><b>Themes:</b> system, light or dark, pure black, and six accent colors</li>
+<li><b>Themes:</b> system, light or dark, pure black, six accent colors, and an Android or One UI style</li>
 <li><b>Tablets:</b> a side rail and wider layouts on big screens and in landscape</li>
 </ul>
 

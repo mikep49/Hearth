@@ -7,8 +7,24 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.Crossfade
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import dev.hearth.casaos.ui.components.PillTab
+import dev.hearth.casaos.ui.components.PillTabs
+import dev.hearth.casaos.ui.settings.AppearanceScreen
+import dev.hearth.casaos.ui.theme.LocalUiStyle
+import dev.hearth.casaos.ui.theme.UiStyle
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -221,10 +237,14 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
     var loginsOpen by rememberSaveable { mutableStateOf(false) }
     var securityOpen by rememberSaveable { mutableStateOf(false) }
     var notificationsOpen by rememberSaveable { mutableStateOf(false) }
+    var appearanceOpen by rememberSaveable { mutableStateOf(false) }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         // Tablets, and phones on their side, get a rail down the side instead of the bar along the bottom.
         val rail = maxWidth >= RailWidth
+        // One UI swaps the bar and the rail for a floating pill.
+        val oneUi = LocalUiStyle.current == UiStyle.OneUi
+        val pillTabs = remember { Tab.entries.map { PillTab(it.label, it.icon, it.selectedIcon) } }
         fun select(i: Int) {
             if (tab != i) haptic.performHapticFeedback(HapticFeedbackType.SegmentTick)
             onTab(i)
@@ -238,7 +258,16 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
             }
         }
         Row(Modifier.fillMaxSize()) {
-            if (rail) {
+            if (rail && oneUi) {
+                // The pill stands on its end, clear of the edge and the system bars.
+                Box(
+                    Modifier
+                        .fillMaxHeight()
+                        .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Start + WindowInsetsSides.Vertical))
+                        .padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+                    contentAlignment = Alignment.Center,
+                ) { PillTabs(pillTabs, tab, ::select, vertical = true) }
+            } else if (rail) {
                 NavigationRail(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Spacer(Modifier.weight(1f))
                     Tab.entries.forEachIndexed { i, t ->
@@ -261,7 +290,9 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
                 bottomBar = {
                     // The terminal needs every row it can get while typing.
                     val hide = rail || Tab.entries[tab] == Tab.Terminal && WindowInsets.isImeVisible
-                    if (!hide) NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+                    if (!hide && oneUi) {
+                        FloatingTabBar(pillTabs, tab, ::select)
+                    } else if (!hide) NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
                         Tab.entries.forEachIndexed { i, t ->
                             NavigationBarItem(
                                 selected = tab == i,
@@ -340,7 +371,8 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
                                 onOpenServers = { serversOpen = true },
                                 loginsRemembered = loginsRemembered,
                                 onOpenLogins = { loginsOpen = true },
-                                pageOpen = securityOpen || notificationsOpen,
+                                pageOpen = securityOpen || notificationsOpen || appearanceOpen,
+                                onOpenAppearance = { appearanceOpen = true },
                                 onOpenNotifications = { notificationsOpen = true },
                                 onOpenSecurity = { securityOpen = true },
                             )
@@ -381,6 +413,12 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
         }
 
         if (loginsOpen) SavedLoginsScreen(container.webLogins, onClose = { loginsOpen = false }, Modifier.fillMaxSize())
+
+        if (appearanceOpen) {
+            // The same view model as the Settings tab underneath.
+            val vm: SettingsViewModel = viewModel(key = "settings$key", factory = settingsFactory)
+            AppearanceScreen(vm, onClose = { appearanceOpen = false }, Modifier.fillMaxSize())
+        }
 
         if (notificationsOpen) {
             // The same view model as the Settings tab underneath.
@@ -442,6 +480,34 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
             onRemove = { container.session.remove(it.id) },
             onDismiss = { serversOpen = false },
         )
+    }
+}
+
+/**
+ * One UI's tab bar: the pill, floating clear of the bottom edge. The page fades out just above it, so
+ * lists seem to slip away under the pill rather than stop at a line.
+ */
+@Composable
+private fun FloatingTabBar(tabs: List<PillTab>, selected: Int, onSelect: (Int) -> Unit) {
+    val background = MaterialTheme.colorScheme.background
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .drawBehind {
+                val fade = 12.dp.toPx()
+                drawRect(
+                    Brush.verticalGradient(listOf(background.copy(alpha = 0f), background), startY = -fade, endY = 0f),
+                    topLeft = Offset(0f, -fade),
+                    size = Size(size.width, fade),
+                )
+                drawRect(background)
+            }
+            .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
+            .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        // Capped so the tabs don't drift apart on a wide phone.
+        PillTabs(tabs, selected, onSelect, Modifier.widthIn(max = 440.dp).fillMaxWidth())
     }
 }
 

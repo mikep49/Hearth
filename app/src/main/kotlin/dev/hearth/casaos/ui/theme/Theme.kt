@@ -54,6 +54,15 @@ data class Accent(val primary: Color, val onPrimary: Color, val container: Color
 
 enum class ThemeMode(val label: String) { System("System"), Light("Light"), Dark("Dark") }
 
+/**
+ * How the app is put together, whatever its colors: [Android] follows Material as on a Pixel, [OneUi]
+ * follows Samsung's One UI, with a floating pill for the tabs, lists joined into one card and plain switches.
+ */
+enum class UiStyle(val label: String) { Android("Android"), OneUi("One UI") }
+
+/** The style in use. Components read it to pick their look. */
+val LocalUiStyle = staticCompositionLocalOf { UiStyle.Android }
+
 enum class Palette(val label: String, val dark: Accent, val light: Accent) {
     Ember(
         "Ember",
@@ -97,6 +106,7 @@ data class ThemeSettings(
     val palette: Palette = Palette.Ember,
     /** True black surfaces in dark mode, for OLED screens. */
     val pureBlack: Boolean = false,
+    val style: UiStyle = UiStyle.Android,
 )
 
 @Composable
@@ -250,7 +260,7 @@ fun HearthTheme(settings: ThemeSettings = ThemeSettings(), content: @Composable 
     val scheme = hearthColorScheme(LocalContext.current, settings, dark)
     val hearth = hearthColors(scheme, dark)
 
-    CompositionLocalProvider(LocalHearthColors provides hearth) {
+    CompositionLocalProvider(LocalHearthColors provides hearth, LocalUiStyle provides settings.style) {
         MaterialTheme(colorScheme = scheme, typography = HearthTypography, shapes = HearthShapes, content = content)
     }
 }

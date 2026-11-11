@@ -17,6 +17,7 @@ class ThemeStore(context: Context) {
             .putString(KEY_MODE, settings.mode.name)
             .putString(KEY_PALETTE, settings.palette.name)
             .putBoolean(KEY_BLACK, settings.pureBlack)
+            .putString(KEY_STYLE, settings.style.name)
             .apply()
         _settings.value = settings
     }
@@ -25,7 +26,8 @@ class ThemeStore(context: Context) {
         val mode = enumOrNull<ThemeMode>(prefs.getString(KEY_MODE, null)) ?: ThemeMode.System
         // A palette saved on a newer Android (e.g. Wallpaper) may be unavailable after a restore elsewhere.
         val palette = enumOrNull<Palette>(prefs.getString(KEY_PALETTE, null))?.takeIf { it in Palette.available } ?: Palette.Ember
-        return ThemeSettings(mode, palette, prefs.getBoolean(KEY_BLACK, false))
+        val style = enumOrNull<UiStyle>(prefs.getString(KEY_STYLE, null)) ?: UiStyle.Android
+        return ThemeSettings(mode, palette, prefs.getBoolean(KEY_BLACK, false), style)
     }
 
     private inline fun <reified T : Enum<T>> enumOrNull(name: String?): T? =
@@ -35,5 +37,6 @@ class ThemeStore(context: Context) {
         const val KEY_MODE = "mode"
         const val KEY_PALETTE = "palette"
         const val KEY_BLACK = "pure_black"
+        const val KEY_STYLE = "style"
     }
 }

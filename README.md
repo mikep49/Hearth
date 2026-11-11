@@ -24,7 +24,7 @@ Sign in with your server's address (for example `192.168.1.20` or `casaos.local`
 | **Servers** | Save several servers and switch between them |
 | **Lock** | Optional fingerprint, face or PIN lock, for all of Hearth or just the terminal and apps |
 | **Widget** | Your server's stats on the home screen |
-| **Themes** | System, light or dark, pure black, and six accent colors |
+| **Themes** | System, light or dark, pure black, six accent colors, and an Android or One UI style |
 | **Tablets** | A side rail and wider layouts on big screens and in landscape |
 
 ![More screens](docs/screenshots/more.png)

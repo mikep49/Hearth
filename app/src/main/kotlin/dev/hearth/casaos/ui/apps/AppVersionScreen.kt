@@ -635,29 +635,27 @@ private fun TagItem(row: TagRow, first: Boolean, last: Boolean, enabled: Boolean
     val now = remember { System.currentTimeMillis() }
     // Round outer corners only at the ends of the list, like the other grouped lists.
     val shape = groupShape(if (first) 0 else 1, if (last) (if (first) 1 else 2) else 3)
-    Surface(shape = shape, color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth().padding(top = if (first) 0.dp else GroupGap)) {
-        Column {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable(enabled = enabled, onClickLabel = "Switch to ${row.tag.name}", onClick = onClick)
-                    .heightIn(min = 64.dp)
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(row.tag.name, style = MaterialTheme.typography.bodyLarge, fontFamily = FontFamily.Monospace, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    val details = listOfNotNull(
-                        row.tag.updatedAt?.let { DateUtils.getRelativeTimeSpanString(it.toEpochMilli(), now, DateUtils.MINUTE_IN_MILLIS).toString() },
-                        row.tag.sizeBytes?.let(::formatBytes),
-                    )
-                    if (details.isNotEmpty()) {
-                        Text(details.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+    HearthCard(Modifier.fillMaxWidth().padding(top = if (first) 0.dp else GroupGap), shape = shape) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable(enabled = enabled, onClickLabel = "Switch to ${row.tag.name}", onClick = onClick)
+                .heightIn(min = 64.dp)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(row.tag.name, style = MaterialTheme.typography.bodyLarge, fontFamily = FontFamily.Monospace, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                val details = listOfNotNull(
+                    row.tag.updatedAt?.let { DateUtils.getRelativeTimeSpanString(it.toEpochMilli(), now, DateUtils.MINUTE_IN_MILLIS).toString() },
+                    row.tag.sizeBytes?.let(::formatBytes),
+                )
+                if (details.isNotEmpty()) {
+                    Text(details.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                if (row.store) Badge("App Store", MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
-                if (row.current) Badge("Current", MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.onPrimary)
             }
+            if (row.store) Badge("App Store", MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
+            if (row.current) Badge("Current", MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.onPrimary)
         }
     }
 }

@@ -1,6 +1,7 @@
 package dev.hearth.casaos
 
 import android.app.Application
+import android.widget.Toast
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
@@ -14,16 +15,20 @@ import dev.hearth.casaos.alerts.PrefsAlertStorage
 import dev.hearth.casaos.data.AlertStore
 import dev.hearth.casaos.data.AppLock
 import dev.hearth.casaos.data.CasaClient
+import dev.hearth.casaos.data.DocumentRef
 import dev.hearth.casaos.data.FileDownloader
 import dev.hearth.casaos.data.ImageRegistry
 import dev.hearth.casaos.data.LanServerFinder
 import dev.hearth.casaos.data.PhoneFiles
 import dev.hearth.casaos.data.PrefsStore
+import dev.hearth.casaos.data.SavedUploads
 import dev.hearth.casaos.data.ServerProfile
 import dev.hearth.casaos.data.SessionStore
 import dev.hearth.casaos.data.SshProfileStore
 import dev.hearth.casaos.data.WebLogins
 import dev.hearth.casaos.data.Transfers
+import dev.hearth.casaos.data.serverLabel
+import dev.hearth.casaos.files.SaveUploadWorker
 import dev.hearth.casaos.files.ServerDocumentsProvider
 import dev.hearth.casaos.files.TransferNotifications
 import dev.hearth.casaos.files.TransferService
@@ -45,6 +50,7 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 class AppContainer(private val app: Application) {
@@ -108,6 +114,18 @@ class AppContainer(private val app: Application) {
         onOutcome = { TransferNotifications.result(app, it) },
     )
 
+    /** What other apps save through Android Files, kept on the phone until the server has it. */
+    val saves = SavedUploads(
+        // Not in the cache, which Android empties when the phone runs low on space.
+        dir = File(app.filesDir, "documents/uploads"),
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+        send = { ref, file -> file.inputStream().use { clientFor(ref.server).upload(ref.parent().path, ref.name, file.length(), it) } },
+        keepOnPhone = { name, file -> SaveUploadWorker.keepOnPhone(app, name, file) },
+        onUploaded = { ServerDocumentsProvider.uploaded(it) },
+        onFailed = ::saveFailed,
+        keepAlive = { SaveUploadWorker.schedule(app) },
+    )
+
     init {
         // The locks count time away from the whole app, so moving between its screens or rotating doesn't lock it.
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
@@ -137,6 +155,12 @@ class AppContainer(private val app: Application) {
             combine(prefs.showInFiles, lock.enabled) { show, locked -> show && !locked }
                 .distinctUntilChanged()
                 .collect { ServerDocumentsProvider.setShown(app, it) }
+        }
+        // Saves from other apps that hadn't reached the server when Android last ended Hearth.
+        scope.launch(Dispatchers.IO) {
+            // Earlier versions kept these in the cache with no note of where they went, so those can't be uploaded.
+            runCatching { File(app.cacheDir, "documents/uploads").deleteRecursively() }
+            saves.resume()
         }
         // With logins not remembered, an app that was open when Android ended Hearth is signed out now.
         scope.launch { webLogins.clearLeftovers() }
@@ -171,6 +195,13 @@ class AppContainer(private val app: Application) {
         webLogins.forgetAll()
         // Widgets showing that server say it's signed out.
         scope.launch(Dispatchers.Default) { ServerStatsWidgets.redraw(app) }
+    }
+
+    /** The app that saved [ref] has already been told it worked, so this is the only word the user gets. */
+    private fun saveFailed(ref: DocumentRef, reason: String, onPhone: Boolean) {
+        val server = session.profile(ref.server)?.let { serverLabel(it.baseUrl) } ?: "the server"
+        val next = if (onPhone) "A copy is in Downloads/Hearth." else "Hearth is keeping it and will try again."
+        scope.launch { Toast.makeText(app, "Couldn't save ${ref.name} to $server: $reason. $next", Toast.LENGTH_LONG).show() }
     }
 
     /** Called when Hearth goes to the background, so the widgets you're about to see are current. */

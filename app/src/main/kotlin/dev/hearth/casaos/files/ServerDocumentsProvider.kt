@@ -1,7 +1,6 @@
 package dev.hearth.casaos.files
 
 import android.content.ComponentName
-import android.content.ContentValues
 import android.content.Context
 import android.content.pm.PackageManager
 import android.content.res.AssetFileDescriptor
@@ -14,7 +13,6 @@ import android.graphics.Point
 import android.media.ExifInterface
 import android.os.Bundle
 import android.os.CancellationSignal
-import android.os.Environment
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.OperationCanceledException
@@ -25,12 +23,10 @@ import android.provider.DocumentsContract
 import android.provider.DocumentsContract.Document
 import android.provider.DocumentsContract.Root
 import android.provider.DocumentsProvider
-import android.provider.MediaStore
 import android.system.ErrnoException
 import android.system.OsConstants
 import android.util.Log
 import android.webkit.MimeTypeMap
-import android.widget.Toast
 import dev.hearth.casaos.AppContainer
 import dev.hearth.casaos.HearthApp
 import dev.hearth.casaos.R
@@ -53,7 +49,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.FileNotFoundException
@@ -70,8 +65,8 @@ import kotlin.coroutines.cancellation.CancellationException
  * by [setShown].
  *
  * Android calls in on its own threads, so server calls block here. Reading streams the file in ranges, so a
- * video starts playing without downloading it first. Writing goes to a temporary file that's uploaded when
- * the app closes it.
+ * video starts playing without downloading it first. Writing goes to a file on the phone that's uploaded when
+ * the app closes it, see [dev.hearth.casaos.data.SavedUploads].
  */
 class ServerDocumentsProvider : DocumentsProvider() {
 
@@ -99,8 +94,7 @@ class ServerDocumentsProvider : DocumentsProvider() {
     private val closeHandler by lazy { Handler(HandlerThread("hearth-files-close").apply { start() }.looper) }
 
     override fun onCreate(): Boolean {
-        // Left over from writes Android cut short when it ended Hearth. Those uploads can't finish now.
-        runCatching { uploadDir(appContext).deleteRecursively() }
+        running = this
         return true
     }
 
@@ -295,7 +289,7 @@ class ServerDocumentsProvider : DocumentsProvider() {
         }
     }
 
-    /** A temporary file the app writes to, uploaded when the app closes it. */
+    /** A file on the phone the app writes to, uploaded when the app closes it. */
     private fun openForWriting(ref: DocumentRef, mode: String, signal: CancellationSignal?): ParcelFileDescriptor {
         val flags = ParcelFileDescriptor.parseMode(mode)
         val truncate = flags and ParcelFileDescriptor.MODE_TRUNCATE != 0
@@ -303,76 +297,23 @@ class ServerDocumentsProvider : DocumentsProvider() {
         // connection would upload over it with only what the app added. Replacing it can go ahead regardless.
         val existing = if (truncate) runCatching { entry(ref) }.getOrNull() else entry(ref)
         if (existing?.isDir == true) throw FileNotFoundException("${ref.name} is a folder")
-        val file = File.createTempFile("upload", null, uploadDir(appContext).apply { mkdirs() })
+        val saves = container.saves
+        val file = saves.newFile()
         try {
             // The app starts from the current contents.
             if (!truncate && existing != null && existing.size > 0) {
                 blocking(signal) { file.outputStream().use { client(ref).download(ref.path, it) } }
             }
+            saves.opened(file, ref, replaces = truncate)
+            return ParcelFileDescriptor.open(file, flags, closeHandler) { error ->
+                if (error != null) Log.w(TAG, "The app writing ${ref.name} failed, so it isn't uploaded", error)
+                saves.closed(file, failed = error != null)
+            }
         } catch (t: Throwable) {
-            file.delete()
+            saves.closed(file, failed = true)
             throw t
         }
-        val before = file.lastModified() to file.length()
-        return ParcelFileDescriptor.open(file, flags, closeHandler) { error ->
-            when {
-                error != null -> {
-                    Log.w(TAG, "The app writing ${ref.name} failed, so it isn't uploaded", error)
-                    file.delete()
-                }
-                !truncate && before == (file.lastModified() to file.length()) -> file.delete() // nothing changed
-                else -> scope.launch { upload(ref, file) }
-            }
-        }
     }
-
-    /**
-     * Uploads what an app saved, trying a few times. If the server still won't take it, the app already thinks
-     * it's saved, so it goes to Downloads on the phone rather than being lost, and a message says so.
-     */
-    private suspend fun upload(ref: DocumentRef, file: File) {
-        val folder = ref.parent()
-        try {
-            var tries = 0
-            while (true) {
-                try {
-                    file.inputStream().use { client(ref).upload(folder.path, ref.name, file.length(), it) }
-                    break
-                } catch (e: CasaException) {
-                    if (++tries >= UPLOAD_TRIES || e is CasaException.Unauthorized) throw e
-                    delay(2_000L * tries)
-                }
-            }
-            pending.remove(ref.id)
-            changed(folder)
-        } catch (e: CasaException) {
-            Log.w(TAG, "Uploading ${ref.name} failed", e)
-            val server = container.session.profile(ref.server)?.let { serverLabel(it.baseUrl) } ?: "the server"
-            val kept = keepOnPhone(ref.name, file)
-            val message = "Couldn't save ${ref.name} to $server: ${e.message}" + if (kept) ". A copy is in Downloads/Hearth." else ""
-            withContext(Dispatchers.Main) { Toast.makeText(appContext, message, Toast.LENGTH_LONG).show() }
-        } finally {
-            file.delete()
-        }
-    }
-
-    /** Copies [file] into Downloads/Hearth on the phone. Returns whether that worked. */
-    private fun keepOnPhone(name: String, file: File): Boolean = runCatching {
-        val resolver = appContext.contentResolver
-        val values = ContentValues().apply {
-            put(MediaStore.Downloads.DISPLAY_NAME, name)
-            put(MediaStore.Downloads.MIME_TYPE, mimeTypeOf(name))
-            put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/Hearth")
-        }
-        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return false
-        val out = resolver.openOutputStream(uri)
-        if (out == null) {
-            resolver.delete(uri, null, null)
-            return false
-        }
-        out.use { o -> file.inputStream().use { it.copyTo(o) } }
-        true
-    }.getOrDefault(false)
 
     override fun openDocumentThumbnail(documentId: String, sizeHint: Point, signal: CancellationSignal?): AssetFileDescriptor {
         val ref = ref(documentId)
@@ -517,7 +458,6 @@ class ServerDocumentsProvider : DocumentsProvider() {
         private const val TAG = "HearthFiles"
         private const val THUMBNAIL_MAX_BYTES = 20L * 1024 * 1024
         private const val THUMBNAILS_KEPT = 300
-        private const val UPLOAD_TRIES = 3
 
         private val ROOT_COLUMNS = arrayOf(
             Root.COLUMN_ROOT_ID, Root.COLUMN_DOCUMENT_ID, Root.COLUMN_TITLE, Root.COLUMN_SUMMARY, Root.COLUMN_ICON, Root.COLUMN_FLAGS,
@@ -527,7 +467,19 @@ class ServerDocumentsProvider : DocumentsProvider() {
             Document.COLUMN_SIZE, Document.COLUMN_LAST_MODIFIED, Document.COLUMN_FLAGS,
         )
 
+        /** The provider Android made for this process, whose folder listings need telling about uploads. */
+        @Volatile
+        private var running: ServerDocumentsProvider? = null
+
         fun authority(context: Context) = "${context.packageName}.documents"
+
+        /** A save of [ref] reached the server: its folder is listed afresh, by the Files app too if it's showing it. */
+        fun uploaded(ref: DocumentRef) {
+            running?.run {
+                pending.remove(ref.id)
+                changed(ref.parent())
+            }
+        }
 
         /**
          * Puts Hearth in the Files app, or takes it out. Turning the provider itself on and off means Android
@@ -556,7 +508,6 @@ class ServerDocumentsProvider : DocumentsProvider() {
         }
 
         private fun thumbnailDir(context: Context) = File(context.cacheDir, "documents/thumbnails")
-        private fun uploadDir(context: Context) = File(context.cacheDir, "documents/uploads")
 
         private fun sha1(text: String): String =
             MessageDigest.getInstance("SHA-1").digest(text.toByteArray()).joinToString("") { "%02x".format(it) }

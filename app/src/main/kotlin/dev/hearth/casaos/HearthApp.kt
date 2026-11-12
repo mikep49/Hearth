@@ -53,6 +53,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
 
 class AppContainer(private val app: Application) {
     val session = SessionStore(app)
@@ -228,9 +229,22 @@ class HearthApp : Application(), SingletonImageLoader.Factory {
     lateinit var container: AppContainer
         private set
 
+    private val containerReady = CountDownLatch(1)
+
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
+        containerReady.countDown()
+    }
+
+    /**
+     * [container], waiting for it if Hearth is still starting. Android lets other apps call a content provider
+     * as soon as the provider exists, which is before [onCreate] has finished, so those calls (on their own
+     * threads) can get here first. Not for the main thread, which is the one that makes the container.
+     */
+    fun awaitContainer(): AppContainer {
+        containerReady.await()
+        return container
     }
 
     override fun newImageLoader(context: PlatformContext): ImageLoader =

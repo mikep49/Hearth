@@ -73,8 +73,9 @@ class ServerDocumentsProvider : DocumentsProvider() {
     /** ContentProvider.requireContext() only exists from Android 11, and Hearth runs on Android 10. */
     private val appContext: Context get() = checkNotNull(context) { "The provider isn't attached yet" }
 
-    // Providers start before the Application, so the container is looked up on each call, not here.
-    private val container: AppContainer get() = (appContext.applicationContext as HearthApp).container
+    // Providers start before the Application, so the container is looked up on each call, not here. A call from
+    // another app can arrive while Hearth is still starting, so it waits for the container to be made.
+    private val container: AppContainer get() = (appContext.applicationContext as HearthApp).awaitContainer()
     private val authority: String get() = authority(appContext)
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

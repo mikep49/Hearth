@@ -26,12 +26,17 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableIntState
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -74,22 +79,36 @@ fun FragmentActivity.confirmOwner(title: String, subtitle: String?, onSuccess: (
     BiometricPrompt(this, ContextCompat.getMainExecutor(this), callback).authenticate(info)
 }
 
+/**
+ * How many parts with a lock of their own that's turned on are on screen, counted by each [PartLockGate] for the
+ * [LockGate] around it. Only [LockGate] tells Android whether to keep the screen out of Recents, so the two
+ * can't undo each other.
+ */
+private val LocalGuardedPartsShown = compositionLocalOf<MutableIntState> { error("PartLockGate must be inside LockGate") }
+
 /** Draws [content], covered by a lock screen while [lock] is locked. The content stays alive underneath. */
 @Composable
 fun LockGate(lock: AppLock, content: @Composable () -> Unit) {
     val locked by lock.locked.collectAsStateWithLifecycle()
     val enabled by lock.enabled.collectAsStateWithLifecycle()
     val activity = LocalActivity.current
+    val guardedPartsShown = remember { mutableIntStateOf(0) }
 
-    // Keeps Hearth's screens out of the Recents thumbnail while the lock is on.
-    LaunchedEffect(enabled, activity) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) activity?.setRecentsScreenshotEnabled(!enabled)
+    // Keeps Hearth's screens out of the Recents thumbnail while the lock is on, or while what's on screen is a
+    // part with a lock of its own (Android 13+). Read when this runs, not when it was composed: a part that
+    // came on screen in the same pass (after rotating, or an app opened from its icon) has counted itself by then.
+    LaunchedEffect(activity) {
+        snapshotFlow { enabled || guardedPartsShown.intValue > 0 }.collect { hide ->
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) activity?.setRecentsScreenshotEnabled(!hide)
+        }
     }
 
-    Box(Modifier.fillMaxSize()) {
-        // Hidden from screen readers too while locked.
-        Box(Modifier.fillMaxSize().then(if (locked) Modifier.clearAndSetSemantics {} else Modifier)) { content() }
-        if (locked) LockScreen(lock, "Hearth is locked", "Unlock Hearth")
+    CompositionLocalProvider(LocalGuardedPartsShown provides guardedPartsShown) {
+        Box(Modifier.fillMaxSize()) {
+            // Hidden from screen readers too while locked.
+            Box(Modifier.fillMaxSize().then(if (locked) Modifier.clearAndSetSemantics {} else Modifier)) { content() }
+            if (locked) LockScreen(lock, "Hearth is locked", "Unlock Hearth")
+        }
     }
 }
 
@@ -117,15 +136,12 @@ fun PartLockGate(
     var opened by remember { mutableStateOf(!locked) }
     if (!locked) opened = true
 
-    // While this part is on screen, it's what Recents would show: keep it out, as Lock Hearth does (Android 13+).
-    // Leaving it hands the choice back to Lock Hearth.
-    DisposableEffect(enabled, activity) {
-        if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) activity?.setRecentsScreenshotEnabled(false)
-        onDispose {
-            if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                activity?.setRecentsScreenshotEnabled(!appLock.enabled.value)
-            }
-        }
+    // While this part is on screen, it's what Recents would show: the LockGate around it keeps it out, as it
+    // does for Lock Hearth (Android 13+). Leaving the part hands the choice back to Lock Hearth.
+    val guardedPartsShown = LocalGuardedPartsShown.current
+    DisposableEffect(enabled, guardedPartsShown) {
+        if (enabled) guardedPartsShown.intValue++
+        onDispose { if (enabled) guardedPartsShown.intValue-- }
     }
 
     // Closing the part locks it. Rotating recreates the screen, but the part is still open.

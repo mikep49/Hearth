@@ -70,7 +70,8 @@ object SshKeys {
         try {
             val out = ByteArrayOutputStream()
             pair.writeOpenSSHv1PrivateKey(out, null)
-            return SshKey(out.toString(Charsets.UTF_8), passphrase = null, publicKey = publicKeyLine(pair.publicKeyBlob, comment))
+            // Not out.toString(charset), which Android only has from 13.
+            return SshKey(out.toByteArray().toString(Charsets.UTF_8), passphrase = null, publicKey = publicKeyLine(pair.publicKeyBlob, comment))
         } finally {
             pair.dispose()
         }

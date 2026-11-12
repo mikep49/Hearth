@@ -8,6 +8,7 @@ import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.nio.file.Files
 
 /** A file picked on the phone for upload. */
 data class PickedFile(val uri: Uri, val name: String, val size: Long)
@@ -54,18 +55,18 @@ class PhoneFiles(private val context: Context, private val client: CasaClient) {
 
     /**
      * Downloads [entry] into Hearth's cache and returns a link other apps may read, for "Open with" and "Share".
-     * Copies from earlier sessions are cleared first, so the cache doesn't grow with every file opened.
+     * Each download gets its own copy; only copies older than 24 hours are cleared.
      */
     suspend fun fetchForSharing(entry: FileEntry, onProgress: (Long, Long) -> Unit): Uri {
         val target = withContext(Dispatchers.IO) {
-            openDir.mkdirs()
-            openDir.listFiles()?.forEach { it.deleteRecursively() }
-            File(openDir, entry.name.replace('/', '_'))
+            createSharedFile(openDir, entry.name)
         }
         try {
             withContext(Dispatchers.IO) { target.outputStream() }.use { client.download(entry.path, it, onProgress) }
+            // Start retention when the download finishes, including for slow downloads.
+            withContext(Dispatchers.IO) { target.setLastModified(System.currentTimeMillis()) }
         } catch (t: Throwable) {
-            runCatching { target.delete() }
+            runCatching { target.parentFile?.deleteRecursively() }
             throw t
         }
         return FileProvider.getUriForFile(context, "${context.packageName}.files", target)
@@ -77,6 +78,23 @@ class PhoneFiles(private val context: Context, private val client: CasaClient) {
             runCatching { File(context.cacheDir, "open").deleteRecursively() }
         }
     }
+}
+
+private const val SHARED_FILE_RETENTION_MILLIS = 24 * 60 * 60 * 1000L
+
+/** Keeps recent copies (including shared logs) and isolates downloads with the same name. */
+internal fun createSharedFile(directory: File, name: String, now: Long = System.currentTimeMillis()): File {
+    directory.mkdirs()
+    val cutoff = now - SHARED_FILE_RETENTION_MILLIS
+    fun prune(file: File) {
+        val expired = file.lastModified() < cutoff
+        file.listFiles()?.forEach(::prune)
+        // delete() only removes empty directories, so an old folder can't remove a recent copy inside it.
+        if (file != directory && expired) file.delete()
+    }
+    prune(directory)
+    val copyDir = Files.createTempDirectory(directory.toPath(), "share-").toFile()
+    return File(copyDir, name.replace('/', '_'))
 }
 
 fun mimeTypeOf(name: String): String =

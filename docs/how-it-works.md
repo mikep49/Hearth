@@ -17,14 +17,14 @@ Hearth runs on Android 10 or later, phones and tablets.
 - Sign in with the server address and your CasaOS login. Tokens are encrypted with an Android Keystore key and refreshed automatically.
 - The sign-in page looks for CasaOS servers on your Wi-Fi when it opens, or when you tap **Find servers on this network**. It tries `casaos.local` and every address on the phone's subnet (at most 254) on port 80. Tap a result to fill in the address. If it finds exactly one and you haven't typed anything, it fills it in for you.
 - You can save more than one server. Each one keeps its own encrypted login. Switch servers from the server name on Home or from Settings, where you can also add and remove servers. A signed-out server opens the sign-in form already filled in.
-- **Sign out** ends the current login but keeps the server in your list. It also forgets that server's SSH password, its widget reading and every login saved in the in-app browser.
+- **Sign out** ends the current login but keeps the server in your list. It also forgets that server's SSH password and key, its widget reading and every login saved in the in-app browser.
 
 ### Home
 
 - Live CPU, memory and storage gauges, CPU history and network throughput. They update every 2.5 s, and only while the screen is visible.
 - The dot beside the server name is green while the server answers and red when it can't be reached. Tap the name to switch servers.
 - The **Storage** card lists each drive: its model, type (HDD, SSD or USB), size and temperature, whether its SMART self-check passes, and how full each of its volumes is. It refreshes every minute, since CasaOS checks every drive to answer. CasaOS reports a drive it can't check (for example when `smartctl` isn't installed) as passing, so "Healthy" means no failure was reported. USB drives and the system drive have no health badge. On servers without this information, Home shows the storage total instead.
-- The **Apps** card shows CPU and memory per app, busiest first, sorted by CPU or memory. CasaOS only reports whole-server totals, so this card reads `docker stats` over SSH. It needs you to sign in once on the Terminal tab with **Remember password** on. If your account isn't in the `docker` group, it runs the command with `sudo`. While the card is collapsed, Hearth doesn't poll it and closes its SSH connection.
+- The **Apps** card shows CPU and memory per app, busiest first, sorted by CPU or memory. CasaOS only reports whole-server totals, so this card reads `docker stats` over SSH. It needs you to sign in once on the Terminal tab, with an SSH key or with **Remember password** on. If your account isn't in the `docker` group, it runs the command with `sudo`. With a key there's no password to give `sudo`, so that only works if `sudo` doesn't ask for one; otherwise add your account to the `docker` group. While the card is collapsed, Hearth doesn't poll it and closes its SSH connection.
 
 ### Apps
 
@@ -63,9 +63,15 @@ Hearth runs on Android 10 or later, phones and tablets.
 ### Terminal
 
 - A shell on the server over SSH. Most CasaOS installs already run an SSH server. If connecting fails, install one on the server with `sudo apt install openssh-server`.
-- The terminal has color, scrollback (drag), pinch-to-zoom text, paste and a row of extra keys (Ctrl, Alt, Esc, Tab, arrows…).
-- **Update server** runs `sudo apt update && sudo apt upgrade -y` in one tap.
-- The session keeps running while you switch tabs.
+- Sign in with a **password** or an **SSH key**, which also works on servers that don't take passwords. **Create a key** makes an Ed25519 key on the phone: copy its public key and add it as a line of `~/.ssh/authorized_keys` on the server. **Import a key** takes a private key you already use, pasted or picked as a file, in the formats OpenSSH and PuTTY write (Ed25519, ECDSA or RSA), with its passphrase if it has one. Each server keeps its own key.
+- The terminal has color and scrollback. Drag or fling to scroll back, and tap the arrow to jump to the latest output. In full-screen programs such as `less`, `nano` or `htop`, scrolling goes to the program instead.
+- **Copy:** touch and hold a word to select it, then drag the handles to select more (holding one at the top or bottom edge scrolls). The menu that appears has **Copy**, **Paste** and **Select all**. **Copy all output** in the ⋮ menu copies the whole session, up to the newest 300,000 characters.
+- **Paste:** the button at the top, or touch and hold an empty spot. With a keyboard attached, Ctrl+Shift+C and Ctrl+Shift+V copy and paste.
+- Two rows of extra keys (Esc, Tab, Ctrl, Alt, arrows, Home, End, Page up and down, and `/ - | ~`). Ctrl and Alt apply to the next key. Arrows and the page keys repeat while held.
+- Pinch to change the text size, or use **Bigger text** and **Smaller text** in the ⋮ menu. The size is remembered.
+- While the keyboard is open, the title shrinks to one line to leave more room for the terminal.
+- **Update server** (⋮ menu) runs `sudo apt update && sudo apt upgrade -y`.
+- The session keeps running while you switch tabs. **Disconnect** is in the ⋮ menu.
 
 ### Alerts
 
@@ -133,13 +139,14 @@ CasaOS expects the raw JWT in the `Authorization` header (no `Bearer`). Endpoint
 
 **Image versions:** CasaOS can't list an image's versions, so the phone asks the image's registry directly. It uses Docker Hub's API (`hub.docker.com/v2/repositories/…/tags`), or the standard registry API (`/v2/<name>/tags/list`, with an anonymous token) for ghcr.io, lscr.io, quay.io and others. Only public images can be listed, and the CasaOS login is never sent to a registry.
 
-**Terminal:** Hearth doesn't use CasaOS's web terminal (`/v1/sys/wsssh`), because that sends the SSH password in the URL over plain HTTP. It connects straight to the server's SSH port with [JSch](https://github.com/mwiede/jsch) and draws the terminal with Termux's [terminal-emulator](https://github.com/termux/termux-app/tree/master/terminal-emulator) library.
+**Terminal:** Hearth doesn't use CasaOS's web terminal (`/v1/sys/wsssh`), because that sends the SSH password in the URL over plain HTTP. It connects straight to the server's SSH port with [JSch](https://github.com/mwiede/jsch) (with [Bouncy Castle](https://www.bouncycastle.org/) for Ed25519 keys, which Android lacks before 13) and draws the terminal with Termux's [terminal-emulator](https://github.com/termux/termux-app/tree/master/terminal-emulator) library.
 
 ## Security
 
 - CasaOS has no TLS by default, so Hearth allows plain HTTP (`network_security_config.xml`), and your password crosses the network unencrypted. Stay on your home network, or put the server behind HTTPS or a VPN (Tailscale, WireGuard) for remote use.
 - SSH is encrypted end to end. On the first connection, Hearth shows the server's host key fingerprint for you to confirm. It uses the same `SHA256:` format as `ssh-keygen -lf`. If the key changes later, Hearth warns you before connecting.
-- A remembered SSH password is encrypted like the CasaOS tokens and wiped on sign-out. Signing out also closes any open shell.
+- A remembered SSH password and a saved SSH key (with its passphrase) are encrypted like the CasaOS tokens and wiped on sign-out. A key made on the phone never leaves it: only its public half can be copied. Signing out also closes any open shell.
+- Programs on the server can't read or change the phone's clipboard. Text only moves when you copy or paste it.
 - Pages in the in-app browser can't read the phone's files or other apps' content (`file:` and `content:` addresses are off).
 - Logins saved by apps in the in-app browser stay in Hearth's private app storage, and Hearth turns off Android backups, so they never leave the phone.
 - Only Android itself can list the servers Hearth puts in the Files app (the provider requires `MANAGE_DOCUMENTS`). Other apps only get the files or folders you pick for them, and links to a folder can't reach outside it (paths with `.` or `..` are refused). The provider is disabled while **Show in Android Files** is off and whenever the app lock is on.
@@ -181,7 +188,7 @@ app/src/main/kotlin/dev/hearth/casaos/
            AppSettings + ComposeYaml (app settings <-> compose YAML),
            ImageRegistry (an image's versions from Docker Hub / ghcr.io / other registries),
            SessionStore + SecretBox (saved servers, Keystore encryption),
-           Ssh + SshProfileStore (SSH sessions and saved SSH logins), AppUsage (docker stats over SSH),
+           Ssh + SshKeys + SshProfileStore (SSH sessions, keys and saved SSH logins), AppUsage (docker stats over SSH),
            ServerFinder (finding servers on the Wi-Fi), FileSearch, FileSort, FileDownloader,
            AppLogs, AppLock, Alerts (what each background check should notify about),
            Transfers (runs one download or upload at a time for the whole app)
@@ -192,4 +199,4 @@ app/src/main/kotlin/dev/hearth/casaos/
   ui/      theme, components, and one package per screen (screen + ViewModel together)
 ```
 
-Unit tests are in `app/src/test/kotlin/dev/hearth/casaos/`. They cover the parsers, the API client (against a mock HTTP server), the SSH shell (against an in-process SSH server), alerts, search, sorting, the app lock and more.
+Unit tests are in `app/src/test/kotlin/dev/hearth/casaos/`. They cover the parsers, the API client (against a mock HTTP server), the SSH shell and keys (against an in-process SSH server), text selection in the terminal, alerts, search, sorting, the app lock and more.

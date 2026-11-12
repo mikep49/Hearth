@@ -6,6 +6,8 @@ import dev.hearth.casaos.data.AppUsageSource
 import dev.hearth.casaos.data.ContainerUsage
 import dev.hearth.casaos.data.HostKeyStore
 import dev.hearth.casaos.data.InstalledApp
+import dev.hearth.casaos.data.SshKey
+import dev.hearth.casaos.data.SshKeys
 import dev.hearth.casaos.data.SshProfile
 import dev.hearth.casaos.data.UsageUnavailable
 import dev.hearth.casaos.data.groupUsage
@@ -16,6 +18,9 @@ import dev.hearth.casaos.ui.dashboard.failed
 import dev.hearth.casaos.ui.dashboard.formatPercent
 import dev.hearth.casaos.ui.dashboard.serverCpuShare
 import kotlinx.coroutines.runBlocking
+import org.apache.sshd.common.config.keys.AuthorizedKeyEntry
+import org.apache.sshd.common.config.keys.KeyUtils
+import org.apache.sshd.common.config.keys.PublicKeyEntryResolver
 import org.apache.sshd.server.Environment
 import org.apache.sshd.server.ExitCallback
 import org.apache.sshd.server.SshServer
@@ -115,11 +120,19 @@ class AppUsageSourceTest {
     /** Whether the SSH user can talk to Docker without sudo. */
     @Volatile private var inDockerGroup = true
 
+    /** Whether sudo lets the SSH user through without asking for a password. */
+    @Volatile private var passwordlessSudo = false
+
+    /** The one key the server takes. */
+    private val key = SshKeys.generate()
+
     @Before fun start() {
         server = SshServer.setUpDefaultServer().apply {
             port = 0
             keyPairProvider = SimpleGeneratorHostKeyProvider()
             setPasswordAuthenticator { user, password, _ -> user == "casa" && password == "secret" }
+            val known = AuthorizedKeyEntry.parseAuthorizedKeyEntry(key.publicKey).resolvePublicKey(null, PublicKeyEntryResolver.FAILING)
+            setPublickeyAuthenticator { user, offered, _ -> user == "casa" && KeyUtils.compareKeys(known, offered) }
             setCommandFactory { _, command -> commands += command; FakeDocker(command) }
             start()
         }
@@ -176,6 +189,41 @@ class AppUsageSourceTest {
         assertTrue(e.needsSignIn)
     }
 
+    private fun keyProfile(key: SshKey = this.key, useKey: Boolean = true) = profile(password = null).copy(key = key, useKey = useKey)
+
+    @Test fun `a saved key works in place of a password`() = runBlocking {
+        trust()
+        val s = source { keyProfile() }
+        assertEquals(1, s.sample().size)
+        s.close()
+    }
+
+    @Test fun `a saved key is only used when it is the chosen way to sign in`() {
+        val e = expect<UsageUnavailable> { runBlocking { source { keyProfile(useKey = false) }.sample() } }
+        assertTrue(e.needsSignIn)
+        assertTrue("nothing was run", commands.isEmpty())
+    }
+
+    @Test fun `a key the server doesn't take asks the user to sign in again`() {
+        trust()
+        val e = expect<UsageUnavailable> { runBlocking { source { keyProfile(SshKeys.generate()) }.sample() } }
+        assertTrue(e.needsSignIn)
+        assertTrue("SSH key" in e.message.orEmpty())
+    }
+
+    @Test fun `with a key, sudo is only tried where it asks for no password`() = runBlocking {
+        trust()
+        inDockerGroup = false
+        val s = source { keyProfile() }
+        val e = expect<UsageUnavailable> { runBlocking { s.sample() } }
+        assertTrue("says how to fix it", "docker group" in e.message.orEmpty())
+        assertTrue(commands.last().startsWith("sudo -n docker ps"))
+
+        passwordlessSudo = true
+        assertEquals(1, s.sample().size)
+        s.close()
+    }
+
     private inline fun <reified T : Throwable> expect(block: () -> Unit): T {
         try {
             block()
@@ -195,7 +243,7 @@ class AppUsageSourceTest {
         }
     }
 
-    /** Answers `docker ps` / `docker stats` like a server with one app, and `sudo -S` when given the password. */
+    /** Answers `docker ps` / `docker stats` like a server with one app, `sudo -S` when given the password, and `sudo -n` if allowed. */
     private inner class FakeDocker(private val command: String) : Command {
         private lateinit var input: InputStream
         private lateinit var output: OutputStream
@@ -210,11 +258,15 @@ class AppUsageSourceTest {
         override fun start(channel: ChannelSession, env: Environment) {
             thread(isDaemon = true) {
                 val sudo = command.startsWith("sudo -S -p '' ")
-                val docker = command.removePrefix("sudo -S -p '' ")
+                val quietSudo = command.startsWith("sudo -n ")
+                val docker = command.removePrefix("sudo -S -p '' ").removePrefix("sudo -n ")
                 if (sudo && input.bufferedReader().readLine() != "secret") {
                     error.write("Sorry, try again.\n".toByteArray()); error.flush(); exit.onExit(1); return@thread
                 }
-                if (!sudo && !inDockerGroup) {
+                if (quietSudo && !passwordlessSudo) {
+                    error.write("sudo: a password is required\n".toByteArray()); error.flush(); exit.onExit(1); return@thread
+                }
+                if (!sudo && !quietSudo && !inDockerGroup) {
                     error.write("permission denied while trying to connect to the Docker daemon socket\n".toByteArray())
                     error.flush(); exit.onExit(1); return@thread
                 }

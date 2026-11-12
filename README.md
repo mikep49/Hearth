@@ -19,7 +19,7 @@ Sign in with your server's address (for example `192.168.1.20` or `casaos.local`
 | **App Store** | Browse and install apps from your server's stores |
 | **Files** | Browse, preview, upload, download, share and search everything on the server |
 | **Android Files** | Optional: your servers in the Files app's side menu, and in other apps' file pickers |
-| **Terminal** | An SSH shell with extra keys and a one-tap server update |
+| **Terminal** | An SSH shell with password or key sign-in, copy and paste, extra keys and a one-tap server update |
 | **Alerts** | Optional notifications when a server goes offline, storage is nearly full, an app stops or an update is out |
 | **Servers** | Save several servers and switch between them |
 | **Lock** | Optional fingerprint, face or PIN lock, for all of Hearth or just the terminal and apps |

@@ -90,6 +90,7 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
     implementation(libs.jsch)
+    implementation(libs.bouncycastle) // Ed25519 SSH keys
     implementation(libs.termux.terminal.emulator)
     implementation(libs.snakeyaml.engine) // reads and writes the compose YAML behind an app's settings
     implementation(libs.glance.appwidget) // home screen widgets

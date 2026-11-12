@@ -6,7 +6,7 @@ Hearth is a native app for CasaOS home servers. Check your server, manage your a
 <li><b>Apps:</b> start, stop, restart and update apps, change their settings or version, and read their logs live</li>
 <li><b>App Store:</b> browse and install apps from your server's stores</li>
 <li><b>Files:</b> browse, preview, upload, download, share and search everything on the server</li>
-<li><b>Terminal:</b> an SSH shell with extra keys and a one-tap server update</li>
+<li><b>Terminal:</b> an SSH shell with password or key sign-in, copy and paste, extra keys and a one-tap server update</li>
 <li><b>Alerts:</b> optional notifications when a server goes offline, storage is nearly full, an app stops or an update is out</li>
 <li><b>Servers:</b> save several servers and switch between them, or let Hearth find them on your Wi-Fi</li>
 <li><b>Lock:</b> optional fingerprint, face or PIN lock</li>

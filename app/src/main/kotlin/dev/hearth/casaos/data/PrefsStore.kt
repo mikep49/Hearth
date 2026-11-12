@@ -102,18 +102,25 @@ class PrefsStore(context: Context) {
         _strictBrowser.value = value
     }
 
-    private companion object {
-        const val KEY_STRICT_BROWSER = "strict_browser"
-        const val KEY_SHOW_IN_FILES = "show_in_files"
-        const val KEY_ALERTS = "alerts"
-        const val KEY_ALERT_OFFLINE = "alert_offline"
-        const val KEY_ALERT_STORAGE = "alert_storage"
-        const val KEY_ALERT_APP_STOPPED = "alert_app_stopped"
-        const val KEY_ALERT_UPDATES = "alert_updates"
-        const val KEY_OPEN_IN = "open_apps_in"
-        const val KEY_APPS_COLLAPSED = "apps_card_collapsed"
-        const val KEY_SORT_BY = "file_sort_by"
-        const val KEY_SORT_DESC = "file_sort_descending"
-        const val KEY_SHOW_HIDDEN = "file_show_hidden"
+    /** The terminal's text size in sp, as last set by pinching or from its menu. Read once when a terminal opens. */
+    var terminalFontSp: Float
+        get() = prefs.getFloat(KEY_TERMINAL_FONT, DEFAULT_TERMINAL_FONT_SP)
+        set(value) = prefs.edit().putFloat(KEY_TERMINAL_FONT, value).apply()
+
+    companion object {
+        const val DEFAULT_TERMINAL_FONT_SP = 12f
+        private const val KEY_TERMINAL_FONT = "terminal_font_sp"
+        private const val KEY_STRICT_BROWSER = "strict_browser"
+        private const val KEY_SHOW_IN_FILES = "show_in_files"
+        private const val KEY_ALERTS = "alerts"
+        private const val KEY_ALERT_OFFLINE = "alert_offline"
+        private const val KEY_ALERT_STORAGE = "alert_storage"
+        private const val KEY_ALERT_APP_STOPPED = "alert_app_stopped"
+        private const val KEY_ALERT_UPDATES = "alert_updates"
+        private const val KEY_OPEN_IN = "open_apps_in"
+        private const val KEY_APPS_COLLAPSED = "apps_card_collapsed"
+        private const val KEY_SORT_BY = "file_sort_by"
+        private const val KEY_SORT_DESC = "file_sort_descending"
+        private const val KEY_SHOW_HIDDEN = "file_show_hidden"
     }
 }

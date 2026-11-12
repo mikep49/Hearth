@@ -344,7 +344,7 @@ private fun SignOutDialog(serverLabel: String, onConfirm: () -> Unit, onDismiss:
         title = { Text("Sign out of $serverLabel?") },
         text = {
             Text(
-                "The server stays in your list. Hearth forgets its saved terminal password, and signs you out of " +
+                "The server stays in your list. Hearth forgets its saved terminal password and SSH key, and signs you out of " +
                     "every app opened in Hearth, on all your servers.",
             )
         },

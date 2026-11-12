@@ -358,7 +358,7 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
                         }
                         Tab.Terminal -> {
                             val vm: TerminalViewModel = viewModel(key = "terminal$key", factory = viewModelFactory {
-                                initializer { TerminalViewModel(container.ssh, session, container.session.session) }
+                                initializer { TerminalViewModel(container.ssh, container.prefs, session, container.session.session) }
                             })
                             // The shell (in the view model) keeps running while the tab is locked or closed.
                             PartLockGate(container.terminalLock, container.lock, "Terminal", Modifier.fillMaxSize()) { TerminalScreen(vm) }

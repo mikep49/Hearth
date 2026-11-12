@@ -30,21 +30,33 @@ data class HostKeyInfo(val id: String, val type: String, val fingerprint: String
     companion object {
         fun of(id: String, key: ByteArray) = HostKeyInfo(
             id = id,
-            type = keyType(key),
-            // Same format as `ssh-keygen -lf`, so the user can compare it with what the server prints.
-            fingerprint = "SHA256:" + Base64.getEncoder().withoutPadding().encodeToString(MessageDigest.getInstance("SHA-256").digest(key)),
+            type = publicKeyType(key),
+            fingerprint = publicKeyFingerprint(key),
             keyBase64 = Base64.getEncoder().encodeToString(key),
         )
-
-        /** The key blob starts with its algorithm name as an SSH string (uint32 length + bytes). */
-        private fun keyType(key: ByteArray): String {
-            if (key.size < 4) return "unknown"
-            val len = ((key[0].toInt() and 0xff) shl 24) or ((key[1].toInt() and 0xff) shl 16) or
-                ((key[2].toInt() and 0xff) shl 8) or (key[3].toInt() and 0xff)
-            if (len <= 0 || len > key.size - 4 || len > 64) return "unknown"
-            return String(key, 4, len, Charsets.US_ASCII)
-        }
     }
+}
+
+/** A public key's fingerprint as `ssh-keygen -lf` prints it, so the user can compare the two. */
+internal fun publicKeyFingerprint(key: ByteArray): String =
+    "SHA256:" + Base64.getEncoder().withoutPadding().encodeToString(MessageDigest.getInstance("SHA-256").digest(key))
+
+/** A public key blob starts with its algorithm name as an SSH string (uint32 length + bytes). */
+internal fun publicKeyType(key: ByteArray): String {
+    if (key.size < 4) return "unknown"
+    val len = ((key[0].toInt() and 0xff) shl 24) or ((key[1].toInt() and 0xff) shl 16) or
+        ((key[2].toInt() and 0xff) shl 8) or (key[3].toInt() and 0xff)
+    if (len <= 0 || len > key.size - 4 || len > 64) return "unknown"
+    return String(key, 4, len, Charsets.US_ASCII)
+}
+
+/** How the user proves who they are to the SSH server. */
+sealed interface SshAuth {
+    data class Password(val password: String) : SshAuth {
+        override fun toString() = "Password" // never the password itself, if this is ever logged
+    }
+
+    data class Key(val key: SshKey) : SshAuth
 }
 
 sealed class SshException(message: String, cause: Throwable? = null) : Exception(message, cause) {
@@ -53,7 +65,7 @@ sealed class SshException(message: String, cause: Throwable? = null) : Exception
 
     /** The server's key differs from the one trusted before: either it was reinstalled or someone is intercepting. */
     class HostKeyChanged(val key: HostKeyInfo) : SshException("The server's identity has changed")
-    class Auth : SshException("Wrong username or password, or the server doesn't allow password sign-in")
+    class Auth(message: String) : SshException(message)
     class Network(message: String, cause: Throwable? = null) : SshException(message, cause)
 }
 
@@ -121,18 +133,18 @@ class SshShell private constructor(private val session: Session, private val cha
 
     companion object {
         /**
-         * Signs in with a password and opens a shell. Throws [SshException]: [SshException.UnknownHost] and
+         * Signs in and opens a shell. Throws [SshException]: [SshException.UnknownHost] and
          * [SshException.HostKeyChanged] carry the presented key so the caller can ask the user and retry.
          */
         suspend fun open(
             host: String,
             port: Int,
             username: String,
-            password: String,
+            auth: SshAuth,
             hostKeys: HostKeyStore,
             columns: Int,
             rows: Int,
-        ): SshShell = connectSession(host, port, username, password, hostKeys) { session ->
+        ): SshShell = connectSession(host, port, username, auth, hostKeys) { session ->
             val channel = session.openChannel("shell") as ChannelShell
             channel.setPtyType("xterm-256color", columns, rows, 0, 0)
             val shell = SshShell(session, channel)
@@ -188,9 +200,9 @@ class SshRunner private constructor(private val session: Session) : Closeable {
     override fun close() = session.disconnect()
 
     companion object {
-        /** Signs in with a password. Throws [SshException] like [SshShell.open]. */
-        suspend fun open(host: String, port: Int, username: String, password: String, hostKeys: HostKeyStore): SshRunner =
-            connectSession(host, port, username, password, hostKeys) { SshRunner(it) }
+        /** Signs in. Throws [SshException] like [SshShell.open]. */
+        suspend fun open(host: String, port: Int, username: String, auth: SshAuth, hostKeys: HostKeyStore): SshRunner =
+            connectSession(host, port, username, auth, hostKeys) { SshRunner(it) }
     }
 }
 
@@ -201,20 +213,33 @@ private suspend fun <T> connectSession(
     host: String,
     port: Int,
     username: String,
-    password: String,
+    auth: SshAuth,
     hostKeys: HostKeyStore,
     setUp: (Session) -> T,
 ): T = withContext(Dispatchers.IO) {
     val keys = TofuHostKeys(hostKeyId(host, port), hostKeys)
     val jsch = JSch().apply { hostKeyRepository = keys }
+    if (auth is SshAuth.Key) {
+        try {
+            jsch.addIdentity("hearth", auth.key.privateKey.toByteArray(), null, auth.key.passphrase?.toByteArray())
+        } catch (e: JSchException) {
+            throw SshException.Auth("Hearth couldn't read the saved SSH key. Remove it and add it again.")
+        }
+    }
     val session = try {
         jsch.getSession(username, host, port)
     } catch (e: JSchException) {
         throw SshException.Network(e.message ?: "Invalid address", e)
     }
-    session.setPassword(password)
     session.setConfig("StrictHostKeyChecking", "yes")
-    session.setConfig("PreferredAuthentications", "password,keyboard-interactive")
+    when (auth) {
+        is SshAuth.Password -> {
+            session.setPassword(auth.password)
+            session.setConfig("PreferredAuthentications", "password,keyboard-interactive")
+        }
+        // Only the key: falling back to asking for a password would hide that the key was refused.
+        is SshAuth.Key -> session.setConfig("PreferredAuthentications", "publickey")
+    }
     session.serverAliveInterval = 30_000 // keeps NAT/Wi-Fi idle timeouts from silently dropping the connection
     // JSch's connect blocks and ignores interruption, so cancelling the caller has to close the socket.
     val cancel = currentCoroutineContext().job.invokeOnCompletion { if (it != null) session.disconnect() }
@@ -223,18 +248,25 @@ private suspend fun <T> connectSession(
         setUp(session)
     } catch (e: Throwable) {
         session.disconnect()
-        throw if (e is JSchException) mapError(e, keys) else e
+        throw if (e is JSchException) mapError(e, keys, auth) else e
     } finally {
         cancel.dispose()
     }
 }
 
-private fun mapError(e: JSchException, keys: TofuHostKeys): SshException {
+private fun mapError(e: JSchException, keys: TofuHostKeys, auth: SshAuth): SshException {
     val presented = keys.presented
     if (presented != null && keys.lastResult == HostKeyRepository.NOT_INCLUDED) return SshException.UnknownHost(presented)
     if (presented != null && keys.lastResult == HostKeyRepository.CHANGED) return SshException.HostKeyChanged(presented)
     val msg = e.message.orEmpty()
-    if (msg.startsWith("Auth")) return SshException.Auth()
+    if (msg.startsWith("Auth") || msg.startsWith("USERAUTH")) {
+        return SshException.Auth(
+            when (auth) {
+                is SshAuth.Password -> "Wrong username or password. If the server only takes keys, sign in with an SSH key instead."
+                is SshAuth.Key -> "The server didn't accept this key. Check the username, and that the key's public half is in ~/.ssh/authorized_keys on the server."
+            },
+        )
+    }
     return SshException.Network(
         when (e.cause) {
             is java.net.UnknownHostException -> "Couldn't find that server on the network"

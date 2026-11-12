@@ -10,8 +10,10 @@
 
 # JSch instantiates its ciphers, key exchanges and MACs by class name from its config.
 -keep class com.jcraft.jsch.** { *; }
-# Optional JSch integrations (Bouncy Castle, JNA, logging backends) that the app does not ship.
+# Optional JSch integrations (JNA, logging backends) that the app does not ship.
 -dontwarn com.jcraft.jsch.**
+# Bouncy Castle is shipped for Ed25519 keys; JSch reaches it through the classes kept above. The rest of it
+# refers to desktop Java classes Android lacks.
 -dontwarn org.bouncycastle.**
 -dontwarn com.sun.jna.**
 -dontwarn org.apache.logging.log4j.**

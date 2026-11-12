@@ -1,0 +1,8 @@
+• Terminal: select and copy text, and sign in with an SSH key
+• Files: select several items to copy, move or delete together
+• Downloads and uploads keep running in the background
+• New Appearance page, with an Android or One UI style
+• New Security & privacy page, with locks for just the Terminal or apps
+• Alerts move to a new Notifications page
+• Files saved through Android Files are kept until they're uploaded
+• Fixed crashes on Android 10 and on weak connections

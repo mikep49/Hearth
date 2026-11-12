@@ -57,6 +57,7 @@ Hearth runs on Android 10 or later, phones and tablets.
 - Opening a file doesn't download it first. Hearth reads just the parts the other app asks for (HTTP range requests), so a video can start playing and a zip can be opened without fetching the whole file.
 - Copying or moving within one server happens on the server, like **Paste here** in Hearth. Between two servers, the Files app copies through the phone.
 - A file another app saves to the server is written to the phone first and uploaded when the app closes it. Hearth tries the upload three times. If it still fails, the file is saved to `Downloads/Hearth` on the phone instead, and a message says so.
+- A save stays on the phone until it's on the server or in `Downloads/Hearth`. If Android ends Hearth before the upload is done, Android starts it again in the background to finish, when it next runs background work with a network connection (often some minutes later), and opening Hearth finishes it right away. If Hearth was ended while the other app was still writing, the next time Hearth runs it uploads what was written, once the file has gone two minutes without changing.
 - **The app lock and the Files app don't mix**, since the Files app can't ask for your fingerprint or PIN. Turning on **Lock Hearth** turns off Show in Android Files, and the switch stays unavailable while the lock is on. Turning the lock off later doesn't turn it back on.
 - Signing out of a server removes it from the Files app. Turning the switch off removes Hearth entirely, and links other apps saved to server files stop working.
 
@@ -191,9 +192,11 @@ app/src/main/kotlin/dev/hearth/casaos/
            Ssh + SshKeys + SshProfileStore (SSH sessions, keys and saved SSH logins), AppUsage (docker stats over SSH),
            ServerFinder (finding servers on the Wi-Fi), FileSearch, FileSort, FileDownloader,
            AppLogs, AppLock, Alerts (what each background check should notify about),
-           Transfers (runs one download or upload at a time for the whole app)
+           Transfers (runs one download or upload at a time for the whole app),
+           SavedUploads (keeps what other apps save through Android Files until it's uploaded)
   alerts/  the background check (WorkManager), its schedule and notifications
   files/   ServerDocumentsProvider: servers in Android's Files app (ServerDocuments holds its testable parts),
+           SaveUploadWorker: has Android restart Hearth to finish uploading those saves (WorkManager),
            TransferService: keeps Hearth alive during a transfer and shows its notification
   widget/  the home screen widget (Glance), its settings screen and saved readings
   ui/      theme, components, and one package per screen (screen + ViewModel together)

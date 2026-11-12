@@ -1,6 +1,7 @@
 package dev.hearth.casaos
 
 import dev.hearth.casaos.data.createSharedFile
+import dev.hearth.casaos.data.pruneSharedFiles
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -52,6 +53,23 @@ class PhoneFilesTest {
         assertFalse(oldCopy.parentFile!!.exists())
         assertFalse(legacyCopy.exists())
         assertEquals("keep", boundaryCopy.readText())
+    }
+
+    @Test fun `pruning on its own removes expired copies and keeps recent ones`() {
+        val directory = temporaryFolder.newFolder("open")
+        val now = System.currentTimeMillis()
+        val oldCopy = createSharedFile(directory, "old.mp4", now).apply {
+            writeText("old")
+            assertTrue(setLastModified(now - day - 1))
+        }
+        assertTrue(oldCopy.parentFile!!.setLastModified(now - day - 1))
+        val recentCopy = createSharedFile(directory, "recent.mp4", now).apply { writeText("recent") }
+
+        pruneSharedFiles(directory, now)
+
+        assertFalse(oldCopy.parentFile!!.exists())
+        assertEquals("recent", recentCopy.readText())
+        assertTrue(directory.exists())
     }
 
     @Test fun `an old logs folder does not cause recent shared logs to be deleted`() {

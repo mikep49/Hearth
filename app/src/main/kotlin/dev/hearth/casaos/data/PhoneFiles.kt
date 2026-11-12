@@ -77,14 +77,18 @@ class PhoneFiles(private val context: Context, private val client: CasaClient) {
         fun clearCache(context: Context) {
             runCatching { File(context.cacheDir, "open").deleteRecursively() }
         }
+
+        /** Removes copies older than 24 hours. Called when Hearth starts, so they go even if nothing else is opened. */
+        fun pruneCache(context: Context) {
+            runCatching { pruneSharedFiles(File(context.cacheDir, "open")) }
+        }
     }
 }
 
 private const val SHARED_FILE_RETENTION_MILLIS = 24 * 60 * 60 * 1000L
 
-/** Keeps recent copies (including shared logs) and isolates downloads with the same name. */
-internal fun createSharedFile(directory: File, name: String, now: Long = System.currentTimeMillis()): File {
-    directory.mkdirs()
+/** Deletes copies in [directory] older than 24 hours, keeping recent ones (including shared logs). */
+internal fun pruneSharedFiles(directory: File, now: Long = System.currentTimeMillis()) {
     val cutoff = now - SHARED_FILE_RETENTION_MILLIS
     fun prune(file: File) {
         val expired = file.lastModified() < cutoff
@@ -93,6 +97,12 @@ internal fun createSharedFile(directory: File, name: String, now: Long = System.
         if (file != directory && expired) file.delete()
     }
     prune(directory)
+}
+
+/** Keeps recent copies (including shared logs) and isolates downloads with the same name. */
+internal fun createSharedFile(directory: File, name: String, now: Long = System.currentTimeMillis()): File {
+    directory.mkdirs()
+    pruneSharedFiles(directory, now)
     val copyDir = Files.createTempDirectory(directory.toPath(), "share-").toFile()
     return File(copyDir, name.replace('/', '_'))
 }

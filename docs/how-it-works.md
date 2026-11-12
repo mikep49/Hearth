@@ -48,6 +48,7 @@ Hearth runs on Android 10 or later, phones and tablets.
 - To work on several items at once, long-press one (or pick **Select** in its menu), then tap the others. **Select all** is at the top, and **Copy**, **Move** and **Delete** are at the bottom. It works in search results too, so you can gather items from different folders. Back or ✕ clears the selection.
 - **+** uploads photos, videos or any files from the phone, and makes new folders. If an uploaded file's name is already taken, you choose to skip it, keep both or replace it.
 - Downloads and uploads keep going when you leave Hearth or the phone sleeps, and ✕ on the progress bar cancels one. If notifications are allowed, a notification shows the progress with a **Cancel** button, and another says how the transfer ended if Hearth wasn't on screen. Android 15 and later stop a transfer that has run in the background for six hours.
+- **Open with…** and **Share** download a copy to the phone first. If that finishes while you're away from Hearth or on another tab, the app picker opens when you're back on Files (after unlocking, if Hearth locked meanwhile). Copies are deleted after 24 hours.
 - **Search** covers the whole server. CasaOS has no search API, so the first search walks the folders under `/DATA` in the background, and later searches filter that list as you type. Results from the open folder come first, then everywhere else. The walk stops at 100,000 items and shows the best 300 matches. Pull to refresh rescans.
 
 ### Android Files
@@ -90,7 +91,7 @@ Hearth runs on Android 10 or later, phones and tablets.
 - When the lock is on, Hearth starts locked. It locks again after you leave it, either right away, after 1 minute (the default) or after 5 minutes. Moving between screens or rotating the phone doesn't lock it.
 - Apps opened from home screen icons are behind the same lock. Hearth's screens are hidden in Recents while the lock is on (Android 13+).
 - The lock screen covers the app without closing it, so a terminal session or upload keeps running underneath.
-- **Lock Terminal** and **Lock apps** are locks of their own, for the terminal and for apps opened in Hearth (home screen icons included). They work with or without Lock Hearth. Each asks when you open what it guards, and again after you close it or leave Hearth for a minute. A shell keeps running while the terminal is locked.
+- **Lock Terminal** and **Lock apps** are locks of their own, for the terminal and for apps opened in Hearth (home screen icons included). They work with or without Lock Hearth. Each asks when you open what it guards, and again after you close it or leave Hearth for a minute. A shell keeps running while the terminal is locked. While either lock is on, the terminal or app it guards is hidden in Recents (Android 13+).
 - Unlocking Hearth while the terminal or an app is in front unlocks that too, so you aren't asked twice in a row.
 - Turning a lock on or off asks for your fingerprint or PIN first.
 

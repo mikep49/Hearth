@@ -103,6 +103,8 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
@@ -213,6 +215,8 @@ class FilesViewModel(
     private val phoneFiles: PhoneFiles,
     private val prefs: PrefsStore,
     private val transfers: Transfers,
+    /** Whether Hearth is on screen, rather than in the background. */
+    private val inFront: () -> Boolean,
 ) : ViewModel() {
     private val _state = MutableStateFlow(FilesState())
     val state: StateFlow<FilesState> = _state.asStateFlow()
@@ -220,8 +224,18 @@ class FilesViewModel(
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val messages: SharedFlow<String> = _messages.asSharedFlow()
 
-    private val _launches = MutableSharedFlow<Launch>(extraBufferCapacity = 1)
-    val launches: SharedFlow<Launch> = _launches.asSharedFlow()
+    /**
+     * A file fetched for "Open with" or "Share", waiting for the screen to hand it on. Held until then, since
+     * the fetch can finish while Hearth is in the background or another tab is open, where Android won't let
+     * Hearth open the app picker.
+     */
+    private val _launch = MutableStateFlow<Launch?>(null)
+    val launch: StateFlow<Launch?> = _launch.asStateFlow()
+
+    /** The screen handed [launch] on. */
+    fun launched() {
+        _launch.value = null
+    }
 
     private var loadJob: Job? = null
 
@@ -331,8 +345,10 @@ class FilesViewModel(
     fun openWith(entry: FileEntry, share: Boolean) =
         transfer("Getting ${entry.name}", if (share) "Couldn't share" else "Couldn't open") { progress ->
             val uri = phoneFiles.fetchForSharing(entry, progress::update)
-            _launches.emit(Launch(uri, mimeTypeOf(entry.name), entry.name, share))
-            null
+            _launch.value = Launch(uri, mimeTypeOf(entry.name), entry.name, share)
+            // On screen, the app picker opening says it all. In the background, the notification says it's
+            // ready, and the picker opens when Hearth is back.
+            if (inFront()) null else "${entry.name} is ready to ${if (share) "share" else "open"}"
         }
 
     /** Starts uploading [uris] into the open folder, first asking what to do if some names are taken. */
@@ -527,7 +543,7 @@ private sealed interface FileDialog {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState) {
+fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState, locked: Boolean) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val index by viewModel.index.collectAsStateWithLifecycle()
     val sort by viewModel.sort.collectAsStateWithLifecycle()
@@ -573,24 +589,30 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState) {
     BackHandler(enabled = query.isNotEmpty()) { query = "" }
     BackHandler(enabled = selecting) { selected = emptyMap() }
     LaunchedEffect(viewModel) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
-    LaunchedEffect(viewModel) {
-        viewModel.launches.collect { l ->
-            val target = if (l.share) {
-                Intent(Intent.ACTION_SEND).setType(l.mime).putExtra(Intent.EXTRA_STREAM, l.uri)
-            } else {
-                Intent(Intent.ACTION_VIEW).setDataAndType(l.uri, l.mime)
-            }
-            // Through the chooser, the grant only reaches the picked app if the link is in the intent's clip data.
-            target.clipData = ClipData.newRawUri(l.name, l.uri)
-            target.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            val chooser = Intent.createChooser(target, if (l.share) "Share ${l.name}" else "Open ${l.name} with")
-                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            try {
-                context.startActivity(chooser)
-            } catch (_: ActivityNotFoundException) {
-                snackbar.showSnackbar("No app on this phone can open ${l.name}")
-            }
+    // Only while Hearth is in front and unlocked: Android ignores the picker from the background, and over the
+    // lock screen it would let the file out without the fingerprint or PIN.
+    val pendingLaunch by viewModel.launch.collectAsStateWithLifecycle(minActiveState = Lifecycle.State.RESUMED)
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(pendingLaunch, locked) {
+        val l = pendingLaunch ?: return@LaunchedEffect
+        if (locked) return@LaunchedEffect
+        val target = if (l.share) {
+            Intent(Intent.ACTION_SEND).setType(l.mime).putExtra(Intent.EXTRA_STREAM, l.uri)
+        } else {
+            Intent(Intent.ACTION_VIEW).setDataAndType(l.uri, l.mime)
         }
+        // Through the chooser, the grant only reaches the picked app if the link is in the intent's clip data.
+        target.clipData = ClipData.newRawUri(l.name, l.uri)
+        target.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        val chooser = Intent.createChooser(target, if (l.share) "Share ${l.name}" else "Open ${l.name} with")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        try {
+            context.startActivity(chooser)
+        } catch (_: ActivityNotFoundException) {
+            // Not in this effect, which clearing the launch below restarts.
+            scope.launch { snackbar.showSnackbar("No app on this phone can open ${l.name}") }
+        }
+        viewModel.launched()
     }
 
     fun toggle(entry: FileEntry) {

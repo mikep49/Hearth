@@ -112,9 +112,21 @@ fun PartLockGate(
     content: @Composable () -> Unit,
 ) {
     val locked by lock.locked.collectAsStateWithLifecycle()
+    val enabled by lock.enabled.collectAsStateWithLifecycle()
     val activity = LocalActivity.current
     var opened by remember { mutableStateOf(!locked) }
     if (!locked) opened = true
+
+    // While this part is on screen, it's what Recents would show: keep it out, as Lock Hearth does (Android 13+).
+    // Leaving it hands the choice back to Lock Hearth.
+    DisposableEffect(enabled, activity) {
+        if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) activity?.setRecentsScreenshotEnabled(false)
+        onDispose {
+            if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                activity?.setRecentsScreenshotEnabled(!appLock.enabled.value)
+            }
+        }
+    }
 
     // Closing the part locks it. Rotating recreates the screen, but the part is still open.
     DisposableEffect(lock) {

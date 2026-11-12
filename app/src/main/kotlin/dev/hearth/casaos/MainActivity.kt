@@ -352,9 +352,15 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
                         }
                         Tab.Files -> {
                             val vm: FilesViewModel = viewModel(key = "files$key", factory = viewModelFactory {
-                                initializer { FilesViewModel(client, container.downloader(client), container.phoneFiles(client), container.prefs, container.transfers) }
+                                initializer {
+                                    FilesViewModel(
+                                        client, container.downloader(client), container.phoneFiles(client), container.prefs,
+                                        container.transfers, inFront = container::inFront,
+                                    )
+                                }
                             })
-                            FilesScreen(vm, snackbar)
+                            val locked by container.lock.locked.collectAsStateWithLifecycle()
+                            FilesScreen(vm, snackbar, locked = locked)
                         }
                         Tab.Terminal -> {
                             val vm: TerminalViewModel = viewModel(key = "terminal$key", factory = viewModelFactory {

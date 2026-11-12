@@ -11,6 +11,7 @@ coroutines = "1.11.0"
 coil = "3.6.3"
 junit = "4.13.2"
 jsch = "2.28.8"
+bouncycastle = "1.86"
 termux = "0.118.3"
 sshd = "2.19.0"
 snakeyamlEngine = "2.9"
@@ -38,6 +39,8 @@ kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutine
 coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil" }
 coil-network-okhttp = { module = "io.coil-kt.coil3:coil-network-okhttp", version.ref = "coil" }
 jsch = { module = "com.github.mwiede:jsch", version.ref = "jsch" }
+# JSch signs with Ed25519 keys through Bouncy Castle on Android, which has no Ed25519 of its own before 13.
+bouncycastle = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
 snakeyaml-engine = { module = "org.snakeyaml:snakeyaml-engine", version.ref = "snakeyamlEngine" }
 termux-terminal-emulator = { module = "com.github.termux.termux-app:terminal-emulator", version.ref = "termux" }
 # Biometric 1.1.0 brings fragment 1.2.5; the newer one handles activity results and state properly.

@@ -1,12 +1,19 @@
 package dev.hearth.casaos
 
 import dev.hearth.casaos.data.HostKeyInfo
+import com.jcraft.jsch.JSch
+import com.jcraft.jsch.KeyPair
 import dev.hearth.casaos.data.HostKeyStore
+import dev.hearth.casaos.data.SshAuth
 import dev.hearth.casaos.data.SshException
+import dev.hearth.casaos.data.SshKeyException
+import dev.hearth.casaos.data.SshKeys
 import dev.hearth.casaos.data.SshShell
 import dev.hearth.casaos.data.hostKeyId
 import kotlinx.coroutines.runBlocking
+import org.apache.sshd.common.config.keys.AuthorizedKeyEntry
 import org.apache.sshd.common.config.keys.KeyUtils
+import org.apache.sshd.common.config.keys.PublicKeyEntryResolver
 import org.apache.sshd.server.Environment
 import org.apache.sshd.server.ExitCallback
 import org.apache.sshd.server.SshServer
@@ -20,10 +27,13 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
+import org.junit.BeforeClass
 import org.junit.Test
+import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.ServerSocket
+import java.security.PublicKey
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 
@@ -34,11 +44,15 @@ class SshShellTest {
     private val host = "127.0.0.1"
     private val id get() = hostKeyId(host, server.port)
 
+    /** The server's `authorized_keys`: one public key per line. */
+    private val authorized = mutableListOf<String>()
+
     @Before fun start() {
         server = SshServer.setUpDefaultServer().apply {
             port = 0
             keyPairProvider = SimpleGeneratorHostKeyProvider() // in memory, fresh per test
             setPasswordAuthenticator { user, password, _ -> user == "casa" && password == "secret" }
+            setPublickeyAuthenticator { user, key, _ -> user == "casa" && authorized.any { KeyUtils.compareKeys(publicKey(it), key) } }
             shellFactory = ShellFactory { UppercaseShell() }
             start()
         }
@@ -46,9 +60,14 @@ class SshShellTest {
 
     @After fun stop() = server.stop(true)
 
-    private fun open(password: String = "secret") = runBlocking {
-        SshShell.open(host, server.port, "casa", password, keys, columns = 100, rows = 30)
+    private fun open(password: String = "secret") = open(SshAuth.Password(password))
+
+    private fun open(auth: SshAuth) = runBlocking {
+        SshShell.open(host, server.port, "casa", auth, keys, columns = 100, rows = 30)
     }
+
+    private fun publicKey(line: String): PublicKey =
+        AuthorizedKeyEntry.parseAuthorizedKeyEntry(line).resolvePublicKey(null, PublicKeyEntryResolver.FAILING)
 
     @Test fun `first connection asks to verify the fingerprint ssh-keygen would show`() {
         val e = expect<SshException.UnknownHost> { open() }
@@ -77,6 +96,78 @@ class SshShellTest {
         expect<SshException.Auth> { open(password = "nope") }
     }
 
+    @Test fun `a key made on the phone signs in once the server knows it`() {
+        trustServer()
+        val key = SshKeys.generate()
+        assertEquals("ssh-ed25519", key.type)
+        assertTrue(key.publicKey.endsWith(" hearth"))
+        assertEquals("what ssh-keygen -lf shows for it", KeyUtils.getFingerPrint(publicKey(key.publicKey)), key.fingerprint)
+
+        val refused = expect<SshException.Auth> { open(SshAuth.Key(key)) }
+        assertTrue("says where the key has to go", "authorized_keys" in refused.message.orEmpty())
+
+        authorized += key.publicKey
+        open(SshAuth.Key(key)).use { shell ->
+            assertEquals("ready TERM=xterm-256color 100x30\r\n", readUntil(shell, "\n"))
+        }
+    }
+
+    @Test fun `an imported key signs in, with its passphrase if it is locked`() {
+        trustServer()
+        for (type in listOf(KeyPair.ED25519, KeyPair.RSA, KeyPair.ECDSA)) {
+            for (passphrase in listOf(null, "open sesame")) {
+                val key = SshKeys.read(keyFile(type, passphrase), passphrase)
+                assertEquals(passphrase, key.passphrase)
+                authorized.clear()
+                authorized += key.publicKey
+                open(SshAuth.Key(key)).close()
+            }
+        }
+    }
+
+    @Test fun `a locked key asks for its passphrase and refuses a wrong one`() {
+        val text = keyFile(KeyPair.ED25519, "open sesame")
+        expect<SshKeyException.NeedsPassphrase> { SshKeys.read(text, null) }
+        expect<SshKeyException.NeedsPassphrase> { SshKeys.read(text, "") }
+        expect<SshKeyException.WrongPassphrase> { SshKeys.read(text, "open says me") }
+        // Windows line endings and stray space around a pasted key don't matter.
+        val key = SshKeys.read("  " + text.replace("\n", "\r\n") + "\n\n", "open sesame")
+        assertEquals("ssh-ed25519", key.type)
+    }
+
+    @Test fun `a passphrase typed for a key without one is not kept`() {
+        assertNull(SshKeys.read(keyFile(KeyPair.ED25519, null), "not needed").passphrase)
+    }
+
+    @Test fun `only private keys are taken`() {
+        val key = SshKeys.generate()
+        val public = expect<SshKeyException.NotAKey> { SshKeys.read(key.publicKey, null) }
+        assertTrue("explains the mix-up", "public key" in public.message.orEmpty())
+        expect<SshKeyException.NotAKey> { SshKeys.read("hello", null) }
+        expect<SshKeyException.NotAKey> { SshKeys.read("", null) }
+        expect<SshKeyException.NotAKey> { SshKeys.read("x".repeat(SshKeys.MAX_KEY_CHARS + 1), null) }
+    }
+
+    @Test fun `a key never prints its private half`() {
+        val key = SshKeys.generate()
+        val body = key.privateKey.lines()[1]
+        assertTrue(body !in key.toString())
+        assertTrue(body !in SshAuth.Key(key).toString())
+        assertTrue("secret" !in SshAuth.Password("secret").toString())
+    }
+
+    /** A private key file as `ssh-keygen` writes it. */
+    private fun keyFile(type: Int, passphrase: String?): String {
+        val pair = when (type) {
+            KeyPair.RSA -> KeyPair.genKeyPair(JSch(), type, 2048)
+            KeyPair.ECDSA -> KeyPair.genKeyPair(JSch(), type, 256)
+            else -> KeyPair.genKeyPair(JSch(), type)
+        }
+        val out = ByteArrayOutputStream()
+        pair.writeOpenSSHv1PrivateKey(out, passphrase?.toByteArray())
+        return out.toString(Charsets.UTF_8)
+    }
+
     @Test fun `a different key than the trusted one is refused`() {
         keys.trust(id, HostKeyInfo.of(id, byteArrayOf(0, 0, 0, 7) + "ssh-rsa".toByteArray() + ByteArray(32)).keyBase64)
         expect<SshException.HostKeyChanged> { open() }
@@ -85,7 +176,7 @@ class SshShellTest {
     @Test fun `nothing listening is a network error`() {
         val freePort = ServerSocket(0).use { it.localPort }
         expect<SshException.Network> {
-            runBlocking { SshShell.open(host, freePort, "casa", "secret", keys, 80, 24) }
+            runBlocking { SshShell.open(host, freePort, "casa", SshAuth.Password("secret"), keys, 80, 24) }
         }
     }
 
@@ -131,6 +222,18 @@ class SshShellTest {
         override fun hostKey(id: String) = map[id]
         override fun trust(id: String, keyBase64: String) {
             map[id] = keyBase64
+        }
+    }
+
+    companion object {
+        /**
+         * On Android, JSch does Ed25519 and X25519 through Bouncy Castle, since it takes the phone for Java 8.
+         * On the JDK that runs these tests it would use the JDK's own, so point it at the classes the app uses.
+         */
+        @BeforeClass @JvmStatic fun useTheAppsCrypto() {
+            JSch.setConfig("ssh-ed25519", "com.jcraft.jsch.bc.SignatureEd25519")
+            JSch.setConfig("keypairgen.eddsa", "com.jcraft.jsch.bc.KeyPairGenEdDSA")
+            JSch.setConfig("xdh", "com.jcraft.jsch.bc.XDH")
         }
     }
 

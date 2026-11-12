@@ -157,8 +157,8 @@ class AppContainer(private val app: Application) {
     private fun forget(ended: List<ServerProfile>, now: List<ServerProfile>) {
         for (profile in ended) {
             val host = profile.baseUrl.toHttpUrlOrNull()?.host
-            // Two accounts on one server share its SSH details; keep the password while the other is signed in.
-            if (host != null && now.none { it.signedIn && it.baseUrl.toHttpUrlOrNull()?.host == host }) ssh.forgetPassword(host)
+            // Two accounts on one server share its SSH details; keep its password and key while the other is signed in.
+            if (host != null && now.none { it.signedIn && it.baseUrl.toHttpUrlOrNull()?.host == host }) ssh.forgetSecrets(host)
             widgetStats.clear(profile.id)
             alerts.clear(profile.id)
             AlertNotifications.cancelAll(app, profile.id)

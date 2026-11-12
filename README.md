@@ -1,12 +1,25 @@
-# Hearth
+<p align="center">
+  <img src="docs/logo.svg" width="112" height="112" alt="Hearth logo">
+</p>
 
-A native Android app for [CasaOS](https://casaos.io). Check your server, manage your apps, browse your files and open a terminal, all from your phone.
+<h1 align="center">Hearth</h1>
 
-![Hearth on a phone](docs/screenshots/tour.png)
+<p align="center">
+  A native Android app for <a href="https://casaos.io">CasaOS</a>.<br>
+  Check your server, manage your apps, browse your files and open a terminal, all from your phone.
+</p>
+
+<p align="center">
+  <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/mikep49/Hearth"><img src="https://raw.githubusercontent.com/ImranR98/Obtainium/main/assets/graphics/badge_obtainium.png" height="64" alt="Get it on Obtainium"></a>
+</p>
+
+![Home, Apps, Files and Terminal in Hearth](docs/screenshots/tour.png)
 
 ## Install
 
-Download the latest APK from [Releases](../../releases) and open it on your phone. Hearth needs Android 10 or later.
+Download the latest APK from [Releases](../../releases/latest) and open it on your phone. Hearth needs Android 10 or later.
+
+To get updates as they come out, add Hearth to [Obtainium](https://obtainium.imranr.dev): tap the badge above on your phone, or add `https://github.com/mikep49/Hearth` in Obtainium yourself.
 
 Sign in with your server's address (for example `192.168.1.20` or `casaos.local`) and the same login you use for the CasaOS dashboard. Hearth can also find CasaOS servers on your Wi-Fi for you.
 
@@ -27,11 +40,7 @@ Sign in with your server's address (for example `192.168.1.20` or `casaos.local`
 | **Themes** | System, light or dark, pure black, six accent colors, and an Android or One UI style |
 | **Tablets** | A side rail and wider layouts on big screens and in landscape |
 
-![More screens](docs/screenshots/more.png)
-
-![Themes](docs/screenshots/themes.png)
-
-![Hearth on a tablet](docs/screenshots/tablet.png)
+![The Appearance page, the Android style, a light theme and a pure black theme](docs/screenshots/themes.png)
 
 ## Security
 

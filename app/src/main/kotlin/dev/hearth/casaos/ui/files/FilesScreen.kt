@@ -186,6 +186,7 @@ data class FilesState(
     val listing: FolderListing? = null,
     val loading: Boolean = true,
     val error: String? = null,
+    val searchError: String? = null,
     val transfer: Transfer? = null,
     val clipboard: Clipboard? = null,
     val pendingUpload: PendingUpload? = null,
@@ -269,6 +270,7 @@ class FilesViewModel(
         if (indexJob?.isActive == true) return
         if (_index.value != null && !indexStale) return
         indexStale = false
+        _state.update { it.copy(searchError = null) }
         val previous = _index.value
         // While rebuilding, keep showing the old results instead of a partial list that grows back.
         if (previous != null) _index.value = previous.copy(done = false)
@@ -276,9 +278,9 @@ class FilesViewModel(
             try {
                 _index.value = walkFolders(ROOT, client::folder) { partial -> if (previous == null) _index.value = partial }
             } catch (e: CasaException) {
-                _messages.emit("Couldn't search the whole server: ${e.message}")
                 _index.update { it?.copy(done = true) }
                 indexStale = true
+                _state.update { it.copy(searchError = "Couldn't search the whole server: ${e.message}") }
             }
         }
     }
@@ -691,7 +693,10 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState) {
                                 if (searching) {
                                     item(key = "elsewhere-header") { SectionHeader("Everywhere else", Modifier.padding(top = 8.dp, bottom = 6.dp)) }
                                     item(key = "elsewhere-status") {
-                                        SearchStatus(index, elsewhere, nothingHere = shown.isEmpty(), query = q)
+                                        SearchStatus(
+                                            index, elsewhere, nothingHere = shown.isEmpty(), query = q,
+                                            error = state.searchError, onRetry = viewModel::ensureIndex,
+                                        )
                                     }
                                     itemsIndexed(elsewhere.entries, key = { _, it -> "elsewhere:" + it.path }) { i, entry ->
                                         FileRow(
@@ -852,11 +857,21 @@ private fun directionLabel(sort: FileSort): String = when (sort.by) {
 
 /** How far the server-wide search has got, or why there's nothing (more) to show. */
 @Composable
-private fun SearchStatus(index: FileIndex?, hits: SearchHits, nothingHere: Boolean, query: String) {
+private fun SearchStatus(
+    index: FileIndex?,
+    hits: SearchHits,
+    nothingHere: Boolean,
+    query: String,
+    error: String?,
+    onRetry: () -> Unit,
+) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val style = MaterialTheme.typography.bodyMedium
     Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        if (index == null || !index.done) {
+        if (error != null) {
+            Text(error, style = style, color = MaterialTheme.colorScheme.error)
+            TextButton(onClick = onRetry) { Text("Retry") }
+        } else if (index == null || !index.done) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
                 val scanned = index?.foldersScanned ?: 0

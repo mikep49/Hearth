@@ -132,7 +132,26 @@ class TerminalViewModel(
     init {
         // Signing out (or switching servers) must never leave a shell open in the background.
         viewModelScope.launch {
-            sessions.collect { if (it != owner) close(forgetSecrets = true) }
+            var away = false
+            sessions.collect {
+                if (it != owner) {
+                    close(forgetSecrets = true)
+                    away = true
+                } else if (away) {
+                    // Back on this server: show what's saved for it again. After a sign-out that's nothing,
+                    // but a key that's still saved must show, or "Create a key" would replace it.
+                    away = false
+                    reloadSecrets()
+                }
+            }
+        }
+    }
+
+    /** Puts the saved password and key back in the form, keeping the host, port and username as they are. */
+    private fun reloadSecrets() {
+        val saved = profiles.load(server).toForm()
+        _state.update {
+            it.copy(form = it.form.copy(password = saved.password, remember = saved.remember, key = saved.key, method = saved.method))
         }
     }
 

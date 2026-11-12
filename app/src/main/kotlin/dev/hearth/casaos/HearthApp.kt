@@ -3,6 +3,7 @@ package dev.hearth.casaos
 import android.app.Application
 import android.widget.Toast
 import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import coil3.ImageLoader
@@ -162,6 +163,8 @@ class AppContainer(private val app: Application) {
             runCatching { File(app.cacheDir, "documents/uploads").deleteRecursively() }
             saves.resume()
         }
+        // Copies made for "Open with" and "Share" are kept for a day, then go even if nothing else is opened.
+        scope.launch(Dispatchers.IO) { PhoneFiles.pruneCache(app) }
         // With logins not remembered, an app that was open when Android ended Hearth is signed out now.
         scope.launch { webLogins.clearLeftovers() }
         // The background check runs only while alerts are on.
@@ -203,6 +206,9 @@ class AppContainer(private val app: Application) {
         val next = if (onPhone) "A copy is in Downloads/Hearth." else "Hearth is keeping it and will try again."
         scope.launch { Toast.makeText(app, "Couldn't save ${ref.name} to $server: $reason. $next", Toast.LENGTH_LONG).show() }
     }
+
+    /** Whether Hearth is on screen, rather than in the background. */
+    fun inFront(): Boolean = ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
 
     /** Called when Hearth goes to the background, so the widgets you're about to see are current. */
     fun refreshWidgets() {

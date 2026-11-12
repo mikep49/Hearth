@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="18 18 72 72" width="256" height="256" role="img" aria-label="Hearth logo">
+  <rect x="18.4" y="18.4" width="71.2" height="71.2" rx="16.6" fill="#10131A" stroke="#2B303B" stroke-width="0.8"/>
+  <path fill="#FF8A4C" d="M54,22 C60,32 72,40 72,57 C72,69 64,78 54,78 C44,78 36,69 36,57 C36,49 40,44 44,40 C44,46 47,49 50,50 C48,42 50,30 54,22 Z"/>
+  <path fill="#FFD2A8" d="M54,50 C58,56 63,59 63,66 C63,72 59,76 54,76 C49,76 45,72 45,66 C45,61 48,58 50,56 C51,59 52,60 53,61 C52,57 52,53 54,50 Z"/>
+</svg>

@@ -16,16 +16,17 @@ Hearth runs on Android 10 or later, phones and tablets.
 
 - Sign in with the server address and your CasaOS login. Tokens are encrypted with an Android Keystore key and refreshed automatically.
 - The sign-in page looks for CasaOS servers on your Wi-Fi when it opens, or when you tap **Find servers on this network**. It tries `casaos.local` and every address on the phone's subnet (at most 254) on port 80. Tap a result to fill in the address. If it finds exactly one and you haven't typed anything, it fills it in for you.
-- You can save more than one server. Each one keeps its own encrypted login. Switch servers from the server name on Home or from Settings, where you can also add and remove servers. A signed-out server opens the sign-in form already filled in.
+- You can save more than one server. Each one keeps its own encrypted login. Switch servers from the bar under the greeting on Home or from Settings, where you can also add and remove servers. A signed-out server opens the sign-in form already filled in.
 - **Sign out** ends the current login but keeps the server in your list. It also forgets that server's SSH password and key, its widget reading and every login saved in the in-app browser.
 
 ### Home
 
-- Live CPU, memory and storage gauges, CPU history and network throughput. They update every 2.5 s, and only while the screen is visible.
-- The dot beside the server name is green while the server answers and red when it can't be reached. Tap the name to switch servers.
-- The **Storage** card lists each drive: its model, type (HDD, SSD or USB), size and temperature, whether its SMART self-check passes, and how full each of its volumes is. It refreshes every minute, since CasaOS checks every drive to answer. CasaOS reports a drive it can't check (for example when `smartctl` isn't installed) as passing, so "Healthy" means no failure was reported. USB drives and the system drive have no health badge. On servers without this information, Home shows the storage total instead.
+- A greeting for the time of day, then a bar with the server's address that says **Connected** in green while the server answers and **Offline** in red when it can't be reached. Tap the bar to switch servers.
+- Square tiles for the processor's load, its temperature, memory and storage, then cards for CPU history, network throughput, memory and drives. They update every 2.5 s, and only while the screen is visible. The temperature tile is green below 65°C, amber from there and red from 80°C.
+- **Settings › Appearance › Customize Home** arranges the tiles and cards. Touch and hold one to drag it somewhere else, take off the ones you don't want with their minus buttons, and put them back from the list underneath. Tiles sit two to a row, a tile alone on its row stretches across it, and cards take the full width. A widget is left out on a server that has no reading for it, such as the temperature on some machines. The arrangement is the same for every server and survives sign-out.
+- The **Storage** card (**Drives** in Customize Home) lists each drive: its model, type (HDD, SSD or USB), size and temperature, whether its SMART self-check passes, and how full each of its volumes is. It refreshes every minute, since CasaOS checks every drive to answer. CasaOS reports a drive it can't check (for example when `smartctl` isn't installed) as passing, so "Healthy" means no failure was reported. USB drives and the system drive have no health badge. On servers without this information, Home shows the storage total instead.
 - The **Processor** graph covers the last two minutes. Its scale follows the load, so a quiet server isn't a flat line: the top of the graph is 5%, 10%, 20%, 50% or 100%, whichever is the smallest that fits the highest reading with some room to spare, and it's written beside the graph. Below 10% the figure above the graph keeps one decimal.
-- Tap the Processor card to open the **Task manager**: the same graph over the last five minutes with the average and the peak, memory, and every app's CPU and memory, busiest first. Tap a column title to sort by app name, CPU or memory. An app with several containers opens to show each one.
+- Tap the Processor card or the CPU tile to open the **Task manager**: the same graph over the last five minutes with the average and the peak, memory, and every app's CPU and memory, busiest first. Tap a column title to sort by app name, CPU or memory. An app with several containers opens to show each one.
 - CasaOS only reports whole-server totals, so the Task manager reads each app's use from `docker stats` over SSH. It needs you to sign in once on the Terminal tab, with an SSH key or with **Remember password** on. If your account isn't in the `docker` group, it runs the command with `sudo`. With a key there's no password to give `sudo`, so that only works if `sudo` doesn't ask for one; otherwise add your account to the `docker` group. Hearth only reads this while the Task manager is open, and closes its SSH connection when you leave it.
 
 ### Apps
@@ -123,12 +124,13 @@ Hearth runs on Android 10 or later, phones and tablets.
 - A pure black mode for OLED screens.
 - Two styles, with the same colors either way. **Android** follows Material, as on a Pixel: a tab bar across the bottom, and lists whose rows sit a little apart. **One UI** follows Samsung's phones: the tabs float in a pill, each list joins into one card with thin lines between its rows, and switches are plain with a white thumb.
 - The choice is remembered and survives sign-out.
+- **Customize Home**, on the same page, picks and orders what Home shows (see [Home](#home)).
 - Text uses [Google Sans Flex](https://github.com/googlefonts/googlesans-flex), shipped with the app under the SIL Open Font License 1.1 ([`fonts/GoogleSansFlex-OFL.txt`](../fonts/GoogleSansFlex-OFL.txt)). Monospace text and the widget use the phone's fonts.
 
 ### Tablets and landscape
 
 - On screens 600dp wide or more (tablets, and phones turned on their side) the tabs move from the bottom bar to a rail down the side. In the One UI style the pill moves there instead, standing on its end.
-- From 840dp, Home puts memory and storage in a second column beside the gauges and graphs.
+- On wide screens Home fits four tiles to a row, and from 840dp it puts its cards in two columns.
 - Apps and the App Store show two or three cards per row when there's room. Files, Settings and the forms stay in a centred column no wider than 720dp. Logs, the terminal and web pages use the full width.
 - Content keeps clear of a camera cutout at the side of the screen.
 

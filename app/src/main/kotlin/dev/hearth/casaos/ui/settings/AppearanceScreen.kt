@@ -23,11 +23,12 @@ import dev.hearth.casaos.ui.components.BackButton
 import dev.hearth.casaos.ui.components.hearthTopBarColors
 import dev.hearth.casaos.ui.components.readableWidth
 
-/** Settings › Appearance: light or dark, the accent color, and the Android or One UI style. */
+/** Settings › Appearance: light or dark, the accent color, the Android or One UI style, and what's on Home. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AppearanceScreen(viewModel: SettingsViewModel, onClose: () -> Unit, modifier: Modifier = Modifier) {
+fun AppearanceScreen(viewModel: SettingsViewModel, onClose: () -> Unit, onCustomizeHome: () -> Unit, modifier: Modifier = Modifier) {
     val theme by viewModel.theme.collectAsStateWithLifecycle()
+    val homeWidgets by viewModel.homeWidgets.collectAsStateWithLifecycle()
 
     BackHandler(onBack = onClose)
 
@@ -50,6 +51,7 @@ fun AppearanceScreen(viewModel: SettingsViewModel, onClose: () -> Unit, modifier
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             AppearanceSection(theme, viewModel::setTheme)
+            CustomizeHomeRow(homeWidgets, onCustomizeHome)
         }
     }
 }

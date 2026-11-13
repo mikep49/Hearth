@@ -2,6 +2,7 @@ package dev.hearth.casaos
 
 import dev.hearth.casaos.data.DiskStats
 import dev.hearth.casaos.data.HomeLayout
+import dev.hearth.casaos.data.HomeLayouts
 import dev.hearth.casaos.data.HomeSection
 import dev.hearth.casaos.data.HomeSize.Large
 import dev.hearth.casaos.data.HomeSize.Medium
@@ -117,6 +118,41 @@ class HomeWidgetsTest {
         assertEquals(Large, home.adding(Network).sizeOf(Network))
     }
 
+    @Test fun `servers share a layout until one is given its own`() {
+        val shared = HomeLayouts(shared = HomeLayout(listOf(CpuTile, Network), mapOf(Network to Large)))
+        assertEquals(shared.shared, shared.of("a"))
+        assertFalse(shared.isOwn("a"))
+
+        // Its own layout starts as the shared one, sizes too, so turning the switch on moves nothing.
+        val split = shared.owning("a", true)
+        assertTrue(split.isOwn("a"))
+        assertEquals(shared.shared, split.of("a"))
+        assertEquals("already has its own", split, split.owning("a", true))
+        assertEquals("never had its own", shared, shared.owning("a", false))
+    }
+
+    @Test fun `changing a server's own layout leaves the others alone`() {
+        val before = HomeLayout(listOf(CpuTile, Network))
+        val layouts = HomeLayouts(shared = before).owning("a", true)
+            .with("a", HomeLayout(listOf(Drives, Drives, ProcessorGraph), mapOf(ProcessorGraph to Large)))
+        assertEquals("repeats are dropped", listOf(Drives, ProcessorGraph), layouts.of("a").widgets)
+        assertEquals(Large, layouts.of("a").sizeOf(ProcessorGraph))
+        assertEquals(before, layouts.of("b"))
+
+        // A server without its own layout changes the shared one, for every server that shows it.
+        val changed = layouts.with("b", before.resized(Network, Small))
+        assertEquals(Small, changed.of("b").sizeOf(Network))
+        assertEquals(Small, changed.of("c").sizeOf(Network))
+        assertEquals(layouts.of("a"), changed.of("a"))
+    }
+
+    @Test fun `a server that gives up its own layout shows the shared one again`() {
+        val layouts = HomeLayouts(shared = HomeLayout(listOf(CpuTile))).owning("a", true).with("a", HomeLayout(listOf(Drives))).owning("b", true)
+        val back = layouts.owning("a", false)
+        assertEquals(listOf(CpuTile), back.of("a").widgets)
+        assertEquals(setOf("b"), back.own.keys)
+    }
+
     @Test fun `dragging a widget onto another takes its place`() {
         val home = listOf(CpuTile, MemoryTile, Network, Drives)
         assertEquals(listOf(MemoryTile, Network, CpuTile, Drives), home.moved(CpuTile, Network))
@@ -214,5 +250,6 @@ class HomeWidgetsTest {
         assertEquals("All 8 widgets", homeWidgetsSummary(HomeWidget.Default))
         assertEquals("3 of 8 widgets", homeWidgetsSummary(listOf(CpuTile, Network, Drives)))
         assertEquals("Nothing on Home", homeWidgetsSummary(emptyList()))
+        assertEquals("3 of 8 widgets · this server only", homeWidgetsSummary(listOf(CpuTile, Network, Drives), own = true))
     }
 }

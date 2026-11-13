@@ -53,7 +53,7 @@ import dev.hearth.casaos.data.CasaClient
 import dev.hearth.casaos.data.Launcher
 import dev.hearth.casaos.data.LockAfter
 import dev.hearth.casaos.data.CasaException
-import dev.hearth.casaos.data.HomeLayout
+import dev.hearth.casaos.data.HomeLayouts
 import dev.hearth.casaos.data.OpenAppsIn
 import dev.hearth.casaos.data.PhoneTailscaleReader
 import dev.hearth.casaos.data.PowerAction
@@ -82,6 +82,8 @@ import dev.hearth.casaos.ui.components.readableWidth
 
 class SettingsViewModel(
     private val client: CasaClient,
+    /** The saved server these settings are open for. */
+    val serverId: String,
     private val session: SessionStore,
     private val themeStore: ThemeStore,
     private val prefs: PrefsStore,
@@ -104,8 +106,8 @@ class SettingsViewModel(
     /** How each home screen widget is set up, by app widget id. */
     val widgetOptions: StateFlow<Map<Int, WidgetOptions>> = widgetOptions.options
 
-    /** What Home shows, in order, and at what size. */
-    val homeLayout: StateFlow<HomeLayout> = prefs.homeLayout
+    /** What Home shows, in order and at what size: the arrangement servers share, and those of servers with their own. */
+    val homeLayouts: StateFlow<HomeLayouts> = prefs.homeLayouts
 
     val openAppsIn: StateFlow<OpenAppsIn> = prefs.openAppsIn
 

@@ -244,7 +244,8 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
         adding = true
     }
     val openAppsIn by container.prefs.openAppsIn.collectAsStateWithLifecycle()
-    val homeLayout by container.prefs.homeLayout.collectAsStateWithLifecycle()
+    val homeLayouts by container.prefs.homeLayouts.collectAsStateWithLifecycle()
+    val homeLayout = homeLayouts.of(session.id)
     val nickname by container.prefs.nickname.collectAsStateWithLifecycle()
     // An app's web UI open inside Hearth, drawn over the tabs so they keep their state underneath.
     var webApp by rememberSaveable { mutableStateOf<String?>(null) }
@@ -283,7 +284,7 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
         val settingsFactory = viewModelFactory {
             initializer {
                 SettingsViewModel(
-                    client, container.session, container.theme, container.prefs,
+                    client, session.id, container.session, container.theme, container.prefs,
                     container.lock, container.terminalLock, container.appsLock, container.widgetOptions,
                 )
             }
@@ -479,7 +480,17 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
 
         // Opened from Home or from the Appearance page, and drawn over either, so Back returns to where it was opened.
         if (customizeHomeOpen) {
-            CustomizeHomeScreen(homeLayout, container.prefs::setHomeLayout, onClose = { customizeHomeOpen = false }, Modifier.fillMaxSize())
+            val own = homeLayouts.isOwn(session.id)
+            CustomizeHomeScreen(
+                homeLayout,
+                onChange = { container.prefs.setHomeLayout(session.id, it) },
+                onClose = { customizeHomeOpen = false },
+                Modifier.fillMaxSize(),
+                // Still offered on the last server left if it has its own arrangement, so that can be undone.
+                ownLayout = own.takeIf { profiles.size > 1 || own },
+                onOwnLayout = { container.prefs.setOwnHomeLayout(session.id, it) },
+                serverLabel = label,
+            )
         }
 
         if (notificationsOpen) {

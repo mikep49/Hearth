@@ -83,6 +83,34 @@ data class HomeLayout(val widgets: List<HomeWidget>, val sizes: Map<HomeWidget, 
 }
 
 /**
+ * How Home is laid out on each server. Servers show the [shared] layout until one is given a layout of
+ * its [own], kept by the server's id.
+ */
+data class HomeLayouts(val shared: HomeLayout = HomeLayout.Default, val own: Map<String, HomeLayout> = emptyMap()) {
+    /** What [server]'s Home shows. */
+    fun of(server: String): HomeLayout = own[server] ?: shared
+
+    /** Whether [server] has a layout of its own rather than the shared one. */
+    fun isOwn(server: String): Boolean = server in own
+
+    /** [server]'s Home changed to [layout]: its own layout if it has one, and otherwise the shared one. */
+    fun with(server: String, layout: HomeLayout): HomeLayouts {
+        val tidy = layout.copy(widgets = layout.widgets.distinct())
+        return if (server in own) copy(own = own + (server to tidy)) else copy(shared = tidy)
+    }
+
+    /**
+     * Gives [server] a layout of its own, which starts as the shared one so nothing moves until it's
+     * changed. With [own] false its layout is dropped, and it shows the shared one again.
+     */
+    fun owning(server: String, own: Boolean): HomeLayouts = when {
+        own == isOwn(server) -> this
+        own -> copy(own = this.own + (server to shared))
+        else -> copy(own = this.own - server)
+    }
+}
+
+/**
  * The widgets on Home, in order, from what was saved: [shown] and [hidden] are names with commas between.
  * A widget in neither list was added to Hearth after the layout was saved, and goes on the end.
  */

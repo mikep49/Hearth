@@ -94,6 +94,7 @@ import dev.hearth.casaos.ui.components.ListGroup
 import dev.hearth.casaos.ui.components.ListRow
 import dev.hearth.casaos.ui.components.ReadableGutter
 import dev.hearth.casaos.ui.components.SectionHeader
+import dev.hearth.casaos.ui.components.SwitchRow
 import dev.hearth.casaos.ui.components.hearthTopBarColors
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -111,21 +112,27 @@ private val HomeWidget.icon: ImageVector
         HomeWidget.Drives -> Icons.Rounded.Dns
     }
 
-/** What the row that opens the page says: how much of what there is has been put on Home. */
-internal fun homeWidgetsSummary(shown: List<HomeWidget>): String = when (shown.size) {
-    0 -> "Nothing on Home"
-    HomeWidget.entries.size -> "All ${shown.size} widgets"
-    else -> "${shown.size} of ${HomeWidget.entries.size} widgets"
+/**
+ * What the row that opens the page says: how much of what there is has been put on Home, and whether
+ * that's this server's [own] arrangement.
+ */
+internal fun homeWidgetsSummary(shown: List<HomeWidget>, own: Boolean = false): String {
+    val count = when (shown.size) {
+        0 -> "Nothing on Home"
+        HomeWidget.entries.size -> "All ${shown.size} widgets"
+        else -> "${shown.size} of ${HomeWidget.entries.size} widgets"
+    }
+    return if (own) "$count · this server only" else count
 }
 
 /** The row on the Appearance page that opens [CustomizeHomeScreen]. */
 @Composable
-fun CustomizeHomeRow(shown: List<HomeWidget>, onOpen: () -> Unit) {
+fun CustomizeHomeRow(shown: List<HomeWidget>, own: Boolean, onOpen: () -> Unit) {
     SectionHeader("Home")
     ListGroup {
         ListRow(
             "Customize Home",
-            subtitle = homeWidgetsSummary(shown),
+            subtitle = homeWidgetsSummary(shown, own),
             icon = Icons.Rounded.DashboardCustomize,
             trailing = { Chevron() },
             onClick = onOpen,
@@ -141,10 +148,22 @@ private val Gap = 12.dp
  * there, small ones two to a row and the rest across it. Holding one picks it up to drag it somewhere
  * else, its size button gives it more or less room, its minus button takes it off Home, and the ones
  * taken off wait underneath to be put back. [onChange] saves each change as it's made.
+ *
+ * [layout] is the one servers share unless this server ([serverLabel]) has its own, which is what
+ * [ownLayout] says and the switch at the top changes through [onOwnLayout]. Null leaves the switch out,
+ * for when there's no other server to differ from.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CustomizeHomeScreen(layout: HomeLayout, onChange: (HomeLayout) -> Unit, onClose: () -> Unit, modifier: Modifier = Modifier) {
+fun CustomizeHomeScreen(
+    layout: HomeLayout,
+    onChange: (HomeLayout) -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+    ownLayout: Boolean? = null,
+    onOwnLayout: (Boolean) -> Unit = {},
+    serverLabel: String = "",
+) {
     val shown = layout.widgets
     val hidden = HomeWidget.entries.filter { it !in shown }
     val haptic = LocalHapticFeedback.current
@@ -204,6 +223,19 @@ fun CustomizeHomeScreen(layout: HomeLayout, onChange: (HomeLayout) -> Unit, onCl
                 // A widget being carried shouldn't take the page with it.
                 userScrollEnabled = drag.carried == null,
             ) {
+                if (ownLayout != null) {
+                    item(key = "own", span = { GridItemSpan(maxLineSpan) }) {
+                        ListGroup(Modifier.animateItem()) {
+                            SwitchRow(
+                                "Own layout for this server",
+                                checked = ownLayout,
+                                onCheckedChange = onOwnLayout,
+                                subtitle = if (ownLayout) "Only $serverLabel shows this layout" else "Using the layout your servers share",
+                                icon = Icons.Rounded.Dns,
+                            )
+                        }
+                    }
+                }
                 item(key = "intro", span = { GridItemSpan(maxLineSpan) }) {
                     GroupFootnote(
                         if (shown.isEmpty()) "Nothing is on Home. Add widgets from the list below."

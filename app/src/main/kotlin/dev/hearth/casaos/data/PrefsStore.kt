@@ -112,25 +112,49 @@ class PrefsStore(context: Context) {
         _strictBrowser.value = value
     }
 
-    private val _homeLayout = MutableStateFlow(
-        HomeLayout(
-            homeWidgets(prefs.getString(KEY_HOME_WIDGETS, null), prefs.getString(KEY_HOME_HIDDEN, null)),
-            homeSizes(prefs.getString(KEY_HOME_SIZES, null)),
+    private fun savedHomeLayout(of: String) = HomeLayout(
+        homeWidgets(prefs.getString(KEY_HOME_WIDGETS + of, null), prefs.getString(KEY_HOME_HIDDEN + of, null)),
+        homeSizes(prefs.getString(KEY_HOME_SIZES + of, null)),
+    )
+
+    private val _homeLayouts = MutableStateFlow(
+        HomeLayouts(
+            shared = savedHomeLayout(of = ""),
+            // A server's own layout is saved like the shared one, with "/" and the server's id after each key.
+            own = prefs.all.keys.filter { it.startsWith("$KEY_HOME_WIDGETS/") }
+                .associate { key -> key.substringAfter('/').let { id -> id to savedHomeLayout(of = "/$id") } },
         ),
     )
 
-    /** What Home shows, top to bottom and at what size, as arranged in Customize Home. One arrangement for every server. */
-    val homeLayout: StateFlow<HomeLayout> = _homeLayout.asStateFlow()
+    /**
+     * What Home shows, top to bottom and at what size, as arranged in Customize Home: one arrangement that
+     * servers share, and another for each server that was given its own.
+     */
+    val homeLayouts: StateFlow<HomeLayouts> = _homeLayouts.asStateFlow()
 
-    fun setHomeLayout(value: HomeLayout) {
-        val layout = value.copy(widgets = value.widgets.distinct())
-        // The removed ones are saved too, which tells them apart from widgets a later version adds.
-        prefs.edit()
-            .putString(KEY_HOME_WIDGETS, layout.widgets.joinToString(",") { it.name })
-            .putString(KEY_HOME_HIDDEN, HomeWidget.entries.filter { it !in layout.widgets }.joinToString(",") { it.name })
-            .putString(KEY_HOME_SIZES, savedHomeSizes(layout.sizes))
-            .apply()
-        _homeLayout.value = layout
+    /** Changes what [server]'s Home shows. That's the shared arrangement unless the server has its own. */
+    fun setHomeLayout(server: String, value: HomeLayout) = saveHomeLayouts(_homeLayouts.value.with(server, value))
+
+    /** Gives [server] an arrangement of its own, or with [own] false puts it back on the shared one. */
+    fun setOwnHomeLayout(server: String, own: Boolean) = saveHomeLayouts(_homeLayouts.value.owning(server, own))
+
+    private fun saveHomeLayouts(next: HomeLayouts) {
+        val before = _homeLayouts.value
+        if (next == before) return
+        val edit = prefs.edit()
+        fun put(of: String, layout: HomeLayout) {
+            // The removed ones are saved too, which tells them apart from widgets a later version adds.
+            edit.putString(KEY_HOME_WIDGETS + of, layout.widgets.joinToString(",") { it.name })
+                .putString(KEY_HOME_HIDDEN + of, HomeWidget.entries.filter { it !in layout.widgets }.joinToString(",") { it.name })
+                .putString(KEY_HOME_SIZES + of, savedHomeSizes(layout.sizes))
+        }
+        if (next.shared != before.shared) put("", next.shared)
+        for ((id, layout) in next.own) if (before.own[id] != layout) put("/$id", layout)
+        for (id in before.own.keys - next.own.keys) {
+            edit.remove("$KEY_HOME_WIDGETS/$id").remove("$KEY_HOME_HIDDEN/$id").remove("$KEY_HOME_SIZES/$id")
+        }
+        edit.apply()
+        _homeLayouts.value = next
     }
 
     /** The terminal's text size in sp, as last set by pinching or from its menu. Read once when a terminal opens. */

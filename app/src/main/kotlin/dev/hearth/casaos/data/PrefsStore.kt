@@ -52,6 +52,16 @@ class PrefsStore(context: Context) {
         _fileSort.value = value
     }
 
+    private val _fileThumbnails = MutableStateFlow(prefs.getBoolean(KEY_FILE_THUMBNAILS, false))
+
+    /** Whether Files shows a folder as a grid of thumbnails rather than a list. One choice for every folder and server. */
+    val fileThumbnails: StateFlow<Boolean> = _fileThumbnails.asStateFlow()
+
+    fun setFileThumbnails(value: Boolean) {
+        prefs.edit().putBoolean(KEY_FILE_THUMBNAILS, value).apply()
+        _fileThumbnails.value = value
+    }
+
     private val _alerts = MutableStateFlow(
         AlertSettings(
             enabled = prefs.getBoolean(KEY_ALERTS, false),
@@ -141,5 +151,6 @@ class PrefsStore(context: Context) {
         private const val KEY_SORT_BY = "file_sort_by"
         private const val KEY_SORT_DESC = "file_sort_descending"
         private const val KEY_SHOW_HIDDEN = "file_show_hidden"
+        private const val KEY_FILE_THUMBNAILS = "file_thumbnails"
     }
 }

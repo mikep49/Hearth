@@ -47,6 +47,7 @@ Hearth runs on Android 10 or later, phones and tablets.
 
 - Browse `/DATA`. Photos, videos, songs and text files preview inside Hearth (pinch or double-tap to zoom photos). Other files open in an app you pick.
 - The sort button orders a folder by name, size or date modified. Tap the same choice again to reverse it. Hidden files (names starting with a dot) are hidden unless you turn on **Show hidden files** there.
+- The button beside it switches between a list and thumbnails, and Hearth remembers the choice. In thumbnails, photos show as small pictures of themselves and everything else keeps its icon. CasaOS doesn't make thumbnails, so Hearth downloads each photo to draw one (photos over 20 MB keep their icon) and keeps them in its cache.
 - Each item's ⋮ menu has **Select**, **Open with…**, **Share**, **Download**, **Rename**, **Copy to…**, **Move to…** and **Delete**. Downloads go to `Downloads/Hearth` and don't need storage permission. To copy or move, browse to the destination and tap **Paste here**.
 - To work on several items at once, long-press one (or pick **Select** in its menu), then tap the others. **Select all** is at the top, and **Copy**, **Move** and **Delete** are at the bottom. It works in search results too, so you can gather items from different folders. Back or ✕ clears the selection.
 - **+** uploads photos, videos or any files from the phone, and makes new folders. If an uploaded file's name is already taken, you choose to skip it, keep both or replace it.

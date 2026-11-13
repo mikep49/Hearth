@@ -8,8 +8,27 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridItemSpanScope
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.automirrored.rounded.ViewList
+import androidx.compose.material.icons.rounded.GridView
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.Role
+import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.request.crossfade
+import dev.hearth.casaos.data.hasThumbnail
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -256,6 +275,11 @@ class FilesViewModel(
     fun sortBy(by: SortBy) = prefs.setFileSort(sort.value.pick(by))
 
     fun setShowHidden(show: Boolean) = prefs.setFileSort(sort.value.copy(showHidden = show))
+
+    /** Whether folders show as a grid of thumbnails rather than a list. */
+    val thumbnails: StateFlow<Boolean> = prefs.fileThumbnails
+
+    fun setThumbnails(on: Boolean) = prefs.setFileThumbnails(on)
 
     fun open(path: String) {
         loadJob?.cancel()
@@ -547,6 +571,7 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState, locked: 
     val state by viewModel.state.collectAsStateWithLifecycle()
     val index by viewModel.index.collectAsStateWithLifecycle()
     val sort by viewModel.sort.collectAsStateWithLifecycle()
+    val thumbnails by viewModel.thumbnails.collectAsStateWithLifecycle()
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
     var dialog by remember { mutableStateOf<FileDialog?>(null) }
@@ -647,6 +672,11 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState, locked: 
                             }) { Icon(Icons.Rounded.SelectAll, "Select all") }
                             IconButton(onClick = { selected = emptyMap() }) { Icon(Icons.Rounded.Close, "Clear selection") }
                         } else {
+                            // Shows the view a tap switches to, as file managers do.
+                            IconButton(onClick = { viewModel.setThumbnails(!thumbnails) }) {
+                                if (thumbnails) Icon(Icons.AutoMirrored.Rounded.ViewList, "Show as a list")
+                                else Icon(Icons.Rounded.GridView, "Show as thumbnails")
+                            }
                             SortButton(sort, onSortBy = viewModel::sortBy, onShowHidden = viewModel::setShowHidden)
                         }
                     }
@@ -693,9 +723,52 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState, locked: 
                                     FileAction.Delete -> dialog = FileDialog.Delete(listOf(entry))
                                 }
                             }
-                            LazyColumn(
-                                // Room at the bottom so the last row isn't under the + button or the selection's actions.
-                                contentPadding = PaddingValues(start = side, end = side, top = 8.dp, bottom = 96.dp),
+                            // Room at the bottom so the last item isn't under the + button or the selection's actions.
+                            val padding = PaddingValues(start = side, end = side, top = 8.dp, bottom = 96.dp)
+                            if (thumbnails) LazyVerticalGrid(
+                                columns = GridCells.Adaptive(TileMinWidth),
+                                contentPadding = padding,
+                                verticalArrangement = Arrangement.spacedBy(TileGap),
+                                horizontalArrangement = Arrangement.spacedBy(TileGap),
+                            ) {
+                                val wide: LazyGridItemSpanScope.() -> GridItemSpan = { GridItemSpan(maxLineSpan) }
+                                if (searching && shown.isNotEmpty()) {
+                                    item(key = "here-header", span = wide) { SectionHeader("In ${folderName(state.path)}") }
+                                }
+                                items(shown, key = { it.path }, contentType = { "tile" }) { entry ->
+                                    FileTile(
+                                        entry,
+                                        thumbnailUrl = if (hasThumbnail(entry)) viewModel.fileUrl(entry) else null,
+                                        onClick = { openEntry(entry) },
+                                        onAction = { onAction(entry, it) },
+                                        selecting = selecting,
+                                        selected = entry.path in selected,
+                                        onSelect = { toggle(entry) },
+                                    )
+                                }
+                                if (searching) {
+                                    item(key = "elsewhere-header", span = wide) { SectionHeader("Everywhere else") }
+                                    item(key = "elsewhere-status", span = wide) {
+                                        SearchStatus(
+                                            index, elsewhere, nothingHere = shown.isEmpty(), query = q,
+                                            error = state.searchError, onRetry = viewModel::ensureIndex,
+                                        )
+                                    }
+                                    items(elsewhere.entries, key = { "elsewhere:" + it.path }, contentType = { "tile" }) { entry ->
+                                        FileTile(
+                                            entry,
+                                            thumbnailUrl = if (hasThumbnail(entry)) viewModel.fileUrl(entry) else null,
+                                            location = locationOf(entry),
+                                            onClick = { openEntry(entry) },
+                                            onAction = { onAction(entry, it) },
+                                            selecting = selecting,
+                                            selected = entry.path in selected,
+                                            onSelect = { toggle(entry) },
+                                        )
+                                    }
+                                }
+                            } else LazyColumn(
+                                contentPadding = padding,
                                 verticalArrangement = Arrangement.spacedBy(GroupGap),
                             ) {
                                 if (searching && shown.isNotEmpty()) {
@@ -1081,17 +1154,153 @@ private fun FileRow(
                 }
             }
         }
-        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, offset = DpOffset(14.dp, 0.dp)) {
-            FileAction.entries.filter { !it.filesOnly || !entry.isDir }.forEach { action ->
-                if (action == FileAction.Rename && !entry.isDir) HorizontalDivider()
-                if (action == FileAction.Delete) HorizontalDivider()
-                val danger = action == FileAction.Delete
-                DropdownMenuItem(
-                    text = { Text(action.label, color = if (danger) MaterialTheme.colorScheme.error else Color.Unspecified) },
-                    leadingIcon = { Icon(action.icon, null, tint = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) },
-                    onClick = { menu = false; onAction(action) },
+        FileMenu(entry, expanded = menu, onDismiss = { menu = false }, onAction = onAction)
+    }
+}
+
+/** An item's ⋮ menu, the same in the list and in the thumbnail view. */
+@Composable
+private fun FileMenu(entry: FileEntry, expanded: Boolean, onDismiss: () -> Unit, onAction: (FileAction) -> Unit) {
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss, offset = DpOffset(14.dp, 0.dp)) {
+        FileAction.entries.filter { !it.filesOnly || !entry.isDir }.forEach { action ->
+            if (action == FileAction.Rename && !entry.isDir) HorizontalDivider()
+            if (action == FileAction.Delete) HorizontalDivider()
+            val danger = action == FileAction.Delete
+            DropdownMenuItem(
+                text = { Text(action.label, color = if (danger) MaterialTheme.colorScheme.error else Color.Unspecified) },
+                leadingIcon = { Icon(action.icon, null, tint = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) },
+                onClick = { onDismiss(); onAction(action) },
+            )
+        }
+    }
+}
+
+/** The narrowest a tile in the thumbnail view gets before the grid drops a column: three across on most phones. */
+private val TileMinWidth = 112.dp
+private val TileGap = 8.dp
+private val TileShape = RoundedCornerShape(20.dp)
+
+/**
+ * An item in the thumbnail view: a photo shows itself, anything else its icon. Tap, long-press and ⋮ do what
+ * they do on a [FileRow]. ⋮ sits in the corner of the picture so the name gets the tile's whole width, and
+ * while [selecting] a tick mark takes its place.
+ */
+@Composable
+private fun FileTile(
+    entry: FileEntry,
+    thumbnailUrl: String?,
+    onClick: () -> Unit,
+    onAction: (FileAction) -> Unit,
+    selecting: Boolean,
+    selected: Boolean,
+    onSelect: () -> Unit,
+    location: String? = null,
+) {
+    var menu by remember { mutableStateOf(false) }
+    // Whether the photo is showing, rather than the icon that stands in for it.
+    var pictured by remember(thumbnailUrl) { mutableStateOf(false) }
+    val haptic = LocalHapticFeedback.current
+    val scheme = MaterialTheme.colorScheme
+    Box {
+        HearthCard(
+            Modifier.fillMaxWidth().then(if (selecting) Modifier.semantics { this.selected = selected } else Modifier),
+            shape = TileShape,
+            onClick = onClick,
+            onLongClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                onSelect()
+            },
+        ) {
+            Box(Modifier.fillMaxWidth().aspectRatio(1f)) {
+                Thumbnail(entry, thumbnailUrl, pictured, onPictured = { pictured = true }, Modifier.matchParentSize())
+                if (selected) Box(Modifier.matchParentSize().background(scheme.primary.copy(alpha = 0.35f)))
+                // Over a photo, the corner controls are white on a dark spot so they show on any picture.
+                val spot = if (pictured) Color.Black.copy(alpha = 0.4f) else Color.Transparent
+                if (selecting) {
+                    Box(Modifier.align(Alignment.TopEnd).size(TileCorner), Alignment.Center) {
+                        if (selected) {
+                            Box(Modifier.size(24.dp).background(scheme.primary, CircleShape), Alignment.Center) {
+                                Icon(Icons.Rounded.Check, null, Modifier.size(16.dp), tint = scheme.onPrimary)
+                            }
+                        } else {
+                            Box(Modifier.size(24.dp).background(spot, CircleShape).border(2.dp, if (pictured) Color.White else scheme.outline, CircleShape))
+                        }
+                    }
+                } else {
+                    Box(
+                        Modifier.align(Alignment.TopEnd).size(TileCorner).clip(CircleShape).clickable(role = Role.Button) { menu = true },
+                        Alignment.Center,
+                    ) {
+                        Box(Modifier.size(28.dp).background(spot, CircleShape), Alignment.Center) {
+                            Icon(
+                                Icons.Rounded.MoreVert, "Actions for ${entry.name}", Modifier.size(20.dp),
+                                tint = if (pictured) Color.White else scheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+            // Room for a name of two lines, so the tiles in a row end level whatever the length of their names.
+            val nameStyle = MaterialTheme.typography.titleSmall
+            val detailStyle = MaterialTheme.typography.labelMedium
+            val textHeight = with(LocalDensity.current) { nameStyle.lineHeight.toDp() * 2 + detailStyle.lineHeight.toDp() }
+            Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp).heightIn(min = textHeight)) {
+                Text(entry.name, style = nameStyle, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                val detail = remember(entry, location) {
+                    when {
+                        location != null -> "in $location"
+                        entry.isDir -> formatModified(entry.modified) ?: "Folder"
+                        else -> formatBytes(entry.size)
+                    }
+                }
+                Text(
+                    detail,
+                    style = detailStyle,
+                    color = if (location != null) scheme.primary else scheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
+        }
+        FileMenu(entry, expanded = menu, onDismiss = { menu = false }, onAction = onAction)
+    }
+}
+
+/** The size of the touch target in the corner of a tile's picture. */
+private val TileCorner = 44.dp
+
+/**
+ * The top of a [FileTile]: the photo at [url], cropped to fill, or the item's icon if it has no picture to
+ * show. [onPictured] is called once the photo is on screen.
+ */
+@Composable
+private fun Thumbnail(entry: FileEntry, url: String?, pictured: Boolean, onPictured: () -> Unit, modifier: Modifier = Modifier) {
+    val scheme = MaterialTheme.colorScheme
+    // Folders carry the accent, as in the list.
+    val tint = if (entry.isDir) scheme.primary else scheme.onSurfaceVariant
+    val container = if (entry.isDir) scheme.primary.copy(alpha = 0.14f) else scheme.surfaceContainerHighest
+    Box(modifier.background(container), Alignment.Center) {
+        // The icon stands in until the photo arrives, and stays if the photo can't be shown.
+        if (!pictured) Icon(iconFor(entry), null, Modifier.size(40.dp), tint = tint)
+        if (url != null) {
+            val context = LocalContext.current
+            val request = remember(url, entry.size, entry.modified) {
+                // The size and date are part of what's cached, so a photo replaced on the server isn't shown as the old one.
+                val version = "${entry.size}|${entry.modified}"
+                ImageRequest.Builder(context)
+                    .data(url)
+                    .memoryCacheKeyExtra("version", version)
+                    .diskCacheKey("$url|$version")
+                    .crossfade(true)
+                    .build()
+            }
+            AsyncImage(
+                model = request,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                onSuccess = { onPictured() },
+                modifier = Modifier.matchParentSize(),
+            )
         }
     }
 }

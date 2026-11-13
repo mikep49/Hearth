@@ -22,16 +22,6 @@ class PrefsStore(context: Context) {
         _openAppsIn.value = value
     }
 
-    private val _appsCardCollapsed = MutableStateFlow(prefs.getBoolean(KEY_APPS_COLLAPSED, false))
-
-    /** Whether the per-app list on Home is folded down to its title. */
-    val appsCardCollapsed: StateFlow<Boolean> = _appsCardCollapsed.asStateFlow()
-
-    fun setAppsCardCollapsed(value: Boolean) {
-        prefs.edit().putBoolean(KEY_APPS_COLLAPSED, value).apply()
-        _appsCardCollapsed.value = value
-    }
-
     private val _fileSort = MutableStateFlow(
         FileSort(
             by = SortBy.entries.firstOrNull { it.name == prefs.getString(KEY_SORT_BY, null) } ?: SortBy.Name,
@@ -118,7 +108,6 @@ class PrefsStore(context: Context) {
         private const val KEY_ALERT_APP_STOPPED = "alert_app_stopped"
         private const val KEY_ALERT_UPDATES = "alert_updates"
         private const val KEY_OPEN_IN = "open_apps_in"
-        private const val KEY_APPS_COLLAPSED = "apps_card_collapsed"
         private const val KEY_SORT_BY = "file_sort_by"
         private const val KEY_SORT_DESC = "file_sort_descending"
         private const val KEY_SHOW_HIDDEN = "file_show_hidden"

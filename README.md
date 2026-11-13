@@ -27,7 +27,7 @@ Sign in with your server's address (for example `192.168.1.20` or `casaos.local`
 
 | | |
 | --- | --- |
-| **Home** | Live CPU, memory, network and storage, how much each app uses, and every drive with its health and free space |
+| **Home** | Live CPU, memory, network and storage, a Task manager with how much each app uses, and every drive with its health and free space |
 | **Apps** | Start, stop, restart and update apps, change their settings or version, and read their logs live |
 | **App Store** | Browse and install apps from your server's stores |
 | **Files** | Browse, preview, upload, download, share and search everything on the server |

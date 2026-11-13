@@ -96,6 +96,7 @@ import dev.hearth.casaos.ui.connect.ConnectScreen
 import dev.hearth.casaos.ui.connect.ConnectViewModel
 import dev.hearth.casaos.ui.dashboard.DashboardScreen
 import dev.hearth.casaos.ui.dashboard.DashboardViewModel
+import dev.hearth.casaos.ui.dashboard.TaskManagerScreen
 import dev.hearth.casaos.ui.files.FilesScreen
 import dev.hearth.casaos.ui.files.FilesViewModel
 import dev.hearth.casaos.ui.lock.LockGate
@@ -238,6 +239,9 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
     var securityOpen by rememberSaveable { mutableStateOf(false) }
     var notificationsOpen by rememberSaveable { mutableStateOf(false) }
     var appearanceOpen by rememberSaveable { mutableStateOf(false) }
+    // The Task manager, kept as the server it was opened for, so it closes if another server takes over.
+    var taskManagerFor by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(tab) { if (Tab.entries[tab] != Tab.Dashboard) taskManagerFor = null }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         // Tablets, and phones on their side, get a rail down the side instead of the bar along the bottom.
@@ -255,6 +259,12 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
                     client, container.session, container.theme, container.prefs,
                     container.lock, container.terminalLock, container.appsLock, container.widgetOptions,
                 )
+            }
+        }
+        val dashboardFactory = viewModelFactory {
+            initializer {
+                val server = session.baseUrl.toHttpUrl().host
+                DashboardViewModel(client, AppUsageSource({ container.ssh.load(server) }, container.ssh))
             }
         }
         Row(Modifier.fillMaxSize()) {
@@ -308,24 +318,12 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
                 Crossfade(Tab.entries[tab], Modifier.padding(padding).consumeWindowInsets(padding), label = "tab") { current ->
                     when (current) {
                         Tab.Dashboard -> {
-                            val vm: DashboardViewModel = viewModel(key = "dash$key", factory = viewModelFactory {
-                                initializer {
-                                    val server = session.baseUrl.toHttpUrl().host
-                                    DashboardViewModel(
-                                        client,
-                                        AppUsageSource({ container.ssh.load(server) }, container.ssh),
-                                        container.prefs.appsCardCollapsed,
-                                    )
-                                }
-                            })
+                            val vm: DashboardViewModel = viewModel(key = "dash$key", factory = dashboardFactory)
                             WhileVisible { vm.poll() }
-                            val appsCollapsed by container.prefs.appsCardCollapsed.collectAsStateWithLifecycle()
                             DashboardScreen(
                                 vm, session.username, label,
                                 onOpenServers = { serversOpen = true },
-                                appsCollapsed = appsCollapsed,
-                                onAppsCollapsedChange = container.prefs::setAppsCardCollapsed,
-                                onOpenTerminal = { onTab(Tab.Terminal.ordinal) },
+                                onOpenTaskManager = { taskManagerFor = session.id },
                             )
                         }
                         Tab.Apps -> {
@@ -416,6 +414,17 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
                 initializer { StoreViewModel(client) }
             })
             StoreScreen(vm, onClose = { storeOpen = false }, Modifier.fillMaxSize())
+        }
+
+        if (taskManagerFor == session.id && Tab.entries[tab] == Tab.Dashboard) {
+            // The same view model as Home underneath, which keeps reading the server while this is open.
+            val vm: DashboardViewModel = viewModel(key = "dash$key", factory = dashboardFactory)
+            TaskManagerScreen(
+                vm,
+                onClose = { taskManagerFor = null },
+                onOpenTerminal = { taskManagerFor = null; onTab(Tab.Terminal.ordinal) },
+                Modifier.fillMaxSize(),
+            )
         }
 
         if (loginsOpen) SavedLoginsScreen(container.webLogins, onClose = { loginsOpen = false }, Modifier.fillMaxSize())

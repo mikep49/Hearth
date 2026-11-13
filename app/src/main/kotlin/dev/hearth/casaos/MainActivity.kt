@@ -79,6 +79,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import dev.hearth.casaos.alerts.AlertNotifications
 import dev.hearth.casaos.data.AppUsageSource
+import dev.hearth.casaos.data.TailscaleSource
 import dev.hearth.casaos.data.ServerProfile
 import dev.hearth.casaos.data.Session
 import dev.hearth.casaos.ui.apps.AppLogsScreen
@@ -105,6 +106,8 @@ import dev.hearth.casaos.ui.servers.ServerSheet
 import dev.hearth.casaos.ui.settings.SavedLoginsScreen
 import dev.hearth.casaos.ui.settings.NotificationsScreen
 import dev.hearth.casaos.ui.settings.SecurityScreen
+import dev.hearth.casaos.ui.settings.TailscaleScreen
+import dev.hearth.casaos.ui.settings.TailscaleViewModel
 import dev.hearth.casaos.ui.settings.SettingsScreen
 import dev.hearth.casaos.ui.settings.SettingsViewModel
 import dev.hearth.casaos.ui.terminal.TerminalScreen
@@ -239,6 +242,7 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
     var securityOpen by rememberSaveable { mutableStateOf(false) }
     var notificationsOpen by rememberSaveable { mutableStateOf(false) }
     var appearanceOpen by rememberSaveable { mutableStateOf(false) }
+    var tailscaleOpen by rememberSaveable { mutableStateOf(false) }
     // The Task manager, kept as the server it was opened for, so it closes if another server takes over.
     var taskManagerFor by rememberSaveable { mutableStateOf<String?>(null) }
     LaunchedEffect(tab) { if (Tab.entries[tab] != Tab.Dashboard) taskManagerFor = null }
@@ -375,10 +379,12 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
                                 onOpenServers = { serversOpen = true },
                                 loginsRemembered = loginsRemembered,
                                 onOpenLogins = { loginsOpen = true },
-                                pageOpen = securityOpen || notificationsOpen || appearanceOpen,
+                                pageOpen = securityOpen || notificationsOpen || appearanceOpen || tailscaleOpen,
                                 onOpenAppearance = { appearanceOpen = true },
                                 onOpenNotifications = { notificationsOpen = true },
                                 onOpenSecurity = { securityOpen = true },
+                                tailscale = container.phoneTailscale,
+                                onOpenTailscale = { tailscaleOpen = true },
                             )
                         }
                     }
@@ -445,6 +451,23 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
             // The same view model as the Settings tab underneath.
             val vm: SettingsViewModel = viewModel(key = "settings$key", factory = settingsFactory)
             SecurityScreen(vm, onClose = { securityOpen = false }, Modifier.fillMaxSize())
+        }
+
+        if (tailscaleOpen) {
+            val vm: TailscaleViewModel = viewModel(key = "tailscale$key", factory = viewModelFactory {
+                initializer {
+                    val server = session.baseUrl.toHttpUrl().host
+                    TailscaleViewModel(server, TailscaleSource({ container.ssh.load(server) }, container.ssh), container.phoneTailscale)
+                }
+            })
+            // The server's side is read over SSH, and only while this page is open.
+            WhileVisible { vm.poll() }
+            TailscaleScreen(
+                vm,
+                onClose = { tailscaleOpen = false },
+                onOpenTerminal = { tailscaleOpen = false; onTab(Tab.Terminal.ordinal) },
+                Modifier.fillMaxSize(),
+            )
         }
 
         val versionId = versionAppId

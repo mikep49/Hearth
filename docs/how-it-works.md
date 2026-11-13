@@ -77,6 +77,15 @@ Hearth runs on Android 10 or later, phones and tablets.
 - **Update server** (⋮ menu) runs `sudo apt update && sudo apt upgrade -y`.
 - The session keeps running while you switch tabs. **Disconnect** is in the ⋮ menu.
 
+### Tailscale
+
+- **Settings › Tailscale** shows how Hearth reaches the server, Tailscale on this phone, and Tailscale on the server. The row in Settings says whether Tailscale is on, with the phone's Tailscale address.
+- The card at the top says whether Hearth reaches the server through Tailscale, on your local network or some other way. It goes by the address you signed in with: a `100.x` Tailscale address, a `.ts.net` name, or a name that looks up to one, counts as Tailscale. Through Tailscale, it also says whether the phone and the server talk directly or through one of Tailscale's relays, which is slower. If the address is a Tailscale one and Tailscale looks off on the phone, it says so.
+- **This phone:** whether Tailscale is on, the phone's Tailscale addresses, its name on the tailnet, how much it has sent to and received from the server, and a button that opens the Tailscale app. The Tailscale app shares nothing with other apps, so Hearth reads the addresses from Android's VPN state. The name and the figures come from the server, so they need the sign-in below.
+- **Server:** whether Tailscale is connected, stopped or signed out, the server's name, Tailscale addresses and MagicDNS name (tap one to copy it), the tailnet, whether the server uses or offers an exit node, the subnets it shares, when its sign-in expires, the Tailscale version, and any problems Tailscale reports. **Other devices** lists the rest of the tailnet with each device's address and whether it's online. Tap a device to copy its address.
+- CasaOS knows nothing about Tailscale, so the server's side is read with `tailscale status --json` over SSH. Like the Task manager, it needs you to sign in once on the Terminal tab, with an SSH key or with **Remember password** on. Hearth looks for Tailscale installed on the server itself first, then for a running Docker container whose image is Tailscale's (how the app from an app store runs), using `sudo` for Docker if your account isn't in the `docker` group. It reads every five seconds while the page is open, and closes its SSH connection when you leave it.
+- The page only shows things. It doesn't turn Tailscale on or off, on the phone or on the server.
+
 ### Alerts
 
 - Off until you turn on **Alerts** in Settings › Notifications. On Android 13 and later, turning them on asks for permission to show notifications. Each kind can be turned off on its own, there or in Android's notification settings.
@@ -192,7 +201,9 @@ app/src/main/kotlin/dev/hearth/casaos/
            AppSettings + ComposeYaml (app settings <-> compose YAML),
            ImageRegistry (an image's versions from Docker Hub / ghcr.io / other registries),
            SessionStore + SecretBox (saved servers, Keystore encryption),
-           Ssh + SshKeys + SshProfileStore (SSH sessions, keys and saved SSH logins), AppUsage (docker stats over SSH),
+           Ssh + SshKeys + SshProfileStore (SSH sessions, keys and saved SSH logins),
+           SavedSsh (runs commands with the saved SSH login), AppUsage (docker stats over SSH),
+           Tailscale (the server's `tailscale status` over SSH, and the phone's VPN addresses),
            ServerFinder (finding servers on the Wi-Fi), FileSearch, FileSort, FileDownloader,
            AppLogs, AppLock, Alerts (what each background check should notify about),
            Transfers (runs one download or upload at a time for the whole app),
@@ -205,4 +216,4 @@ app/src/main/kotlin/dev/hearth/casaos/
   ui/      theme, components, and one package per screen (screen + ViewModel together)
 ```
 
-Unit tests are in `app/src/test/kotlin/dev/hearth/casaos/`. They cover the parsers, the API client (against a mock HTTP server), the SSH shell and keys (against an in-process SSH server), text selection in the terminal, alerts, search, sorting, the app lock and more.
+Unit tests are in `app/src/test/kotlin/dev/hearth/casaos/`. They cover the parsers, the API client (against a mock HTTP server), the SSH shell, keys, Task manager and Tailscale readings (against an in-process SSH server), text selection in the terminal, alerts, search, sorting, the app lock and more.

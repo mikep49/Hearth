@@ -590,12 +590,12 @@ fun SectionHeader(text: String, modifier: Modifier = Modifier) {
 
 /** Small print under a group of rows. */
 @Composable
-fun GroupFootnote(text: String, modifier: Modifier = Modifier) {
+fun GroupFootnote(text: String, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
     Text(
         text,
         modifier = modifier.padding(horizontal = 16.dp),
         style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        color = color,
     )
 }
 

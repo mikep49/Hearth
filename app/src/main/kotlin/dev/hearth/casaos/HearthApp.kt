@@ -21,6 +21,7 @@ import dev.hearth.casaos.data.FileDownloader
 import dev.hearth.casaos.data.ImageRegistry
 import dev.hearth.casaos.data.LanServerFinder
 import dev.hearth.casaos.data.PhoneFiles
+import dev.hearth.casaos.data.PhoneTailscaleReader
 import dev.hearth.casaos.data.PrefsStore
 import dev.hearth.casaos.data.SavedUploads
 import dev.hearth.casaos.data.ServerProfile
@@ -84,6 +85,9 @@ class AppContainer(private val app: Application) {
     val registry = ImageRegistry()
     val theme = ThemeStore(app)
     val ssh = SshProfileStore(app)
+
+    /** Tailscale on this phone, for Settings. */
+    val phoneTailscale = PhoneTailscaleReader(app)
     val prefs = PrefsStore(app)
     val lock = AppLock.create(app)
 

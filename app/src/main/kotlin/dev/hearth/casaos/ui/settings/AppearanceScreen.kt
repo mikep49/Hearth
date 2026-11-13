@@ -89,7 +89,7 @@ fun AppearanceScreen(viewModel: SettingsViewModel, onClose: () -> Unit, onCustom
                 )
             }
             AppearanceSection(theme, viewModel::setTheme)
-            CustomizeHomeRow(homeLayouts.of(viewModel.serverId), homeLayouts.isOwn(viewModel.serverId), onCustomizeHome)
+            CustomizeHomeRow(homeLayouts.of(viewModel.serverId).widgets, homeLayouts.isOwn(viewModel.serverId), onCustomizeHome)
         }
     }
 }

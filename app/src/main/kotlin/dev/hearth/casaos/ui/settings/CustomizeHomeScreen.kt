@@ -6,6 +6,8 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridItemInfo
@@ -25,6 +28,7 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AddCircleOutline
@@ -38,6 +42,7 @@ import androidx.compose.material.icons.rounded.RemoveCircleOutline
 import androidx.compose.material.icons.rounded.ShowChart
 import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.SwapVert
+import androidx.compose.material.icons.rounded.UnfoldMore
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -54,9 +59,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -66,18 +74,17 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.toOffset
 import androidx.compose.ui.zIndex
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.hearth.casaos.data.HomeLayout
+import dev.hearth.casaos.data.HomeSize
 import dev.hearth.casaos.data.HomeWidget
-import dev.hearth.casaos.data.adding
-import dev.hearth.casaos.data.loneTiles
-import dev.hearth.casaos.data.moved
-import dev.hearth.casaos.data.shifted
 import dev.hearth.casaos.ui.components.BackButton
 import dev.hearth.casaos.ui.components.CardRadius
 import dev.hearth.casaos.ui.components.Chevron
@@ -137,28 +144,32 @@ private val Side = 20.dp
 private val Gap = 12.dp
 
 /**
- * Settings › Appearance › Customize Home: Home's widgets laid out as they are on Home, tiles two to a
- * row and cards across it. Holding one picks it up to drag it somewhere else, its button takes it off
- * Home, and the ones taken off wait underneath to be put back.
+ * Customize Home, opened from Home and from Settings › Appearance: Home's widgets at the sizes they have
+ * there, small ones two to a row and the rest across it. Holding one picks it up to drag it somewhere
+ * else, its size button gives it more or less room, its minus button takes it off Home, and the ones
+ * taken off wait underneath to be put back. [onChange] saves each change as it's made.
  *
- * The arrangement is the one servers share, unless the switch at the top has given this server
- * ([serverLabel]) its own. The switch is there once there are [otherServers] to differ from.
+ * [layout] is the one servers share unless this server ([serverLabel]) has its own, which is what
+ * [ownLayout] says and the switch at the top changes through [onOwnLayout]. Null leaves the switch out,
+ * for when there's no other server to differ from.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CustomizeHomeScreen(
-    viewModel: SettingsViewModel,
-    serverLabel: String,
-    otherServers: Boolean,
+    layout: HomeLayout,
+    onChange: (HomeLayout) -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
+    ownLayout: Boolean? = null,
+    onOwnLayout: (Boolean) -> Unit = {},
+    serverLabel: String = "",
 ) {
-    val layouts by viewModel.homeLayouts.collectAsStateWithLifecycle()
-    val own = layouts.isOwn(viewModel.serverId)
-    val shown = layouts.of(viewModel.serverId)
+    val shown = layout.widgets
     val hidden = HomeWidget.entries.filter { it !in shown }
-    val lone = loneTiles(shown)
     val haptic = LocalHapticFeedback.current
+    // A drag outlives the layout it started with, so it moves widgets in whatever the layout is by then.
+    val latest by rememberUpdatedState(layout)
+    val change by rememberUpdatedState(onChange)
 
     BackHandler(onBack = onClose)
 
@@ -168,7 +179,7 @@ fun CustomizeHomeScreen(
         WidgetDrag(grid, scope) { widget, target ->
             // The grid follows its first visible row when that row moves, which would scroll the page mid-drag.
             grid.requestScrollToItem(grid.firstVisibleItemIndex, grid.firstVisibleItemScrollOffset)
-            viewModel.setHomeWidgets(viewModel.homeWidgets.moved(widget, target))
+            change(latest.moved(widget, target))
             haptic.performHapticFeedback(HapticFeedbackType.SegmentTick)
         }
     }
@@ -182,7 +193,7 @@ fun CustomizeHomeScreen(
                 navigationIcon = { BackButton(onClose) },
                 title = { Text("Customize Home") },
                 actions = {
-                    TextButton(onClick = { viewModel.setHomeWidgets(HomeWidget.Default) }, enabled = shown != HomeWidget.Default) { Text("Reset") }
+                    TextButton(onClick = { onChange(HomeLayout.Default) }, enabled = layout != HomeLayout.Default) { Text("Reset") }
                 },
                 colors = hearthTopBarColors(),
                 scrollBehavior = scrollBehavior,
@@ -212,15 +223,14 @@ fun CustomizeHomeScreen(
                 // A widget being carried shouldn't take the page with it.
                 userScrollEnabled = drag.carried == null,
             ) {
-                // Still offered on the last server left if it has its own arrangement, so that can be undone.
-                if (otherServers || own) {
+                if (ownLayout != null) {
                     item(key = "own", span = { GridItemSpan(maxLineSpan) }) {
                         ListGroup(Modifier.animateItem()) {
                             SwitchRow(
                                 "Own layout for this server",
-                                checked = own,
-                                onCheckedChange = viewModel::setOwnHomeLayout,
-                                subtitle = if (own) "Only $serverLabel shows this layout" else "Using the layout your servers share",
+                                checked = ownLayout,
+                                onCheckedChange = onOwnLayout,
+                                subtitle = if (ownLayout) "Only $serverLabel shows this layout" else "Using the layout your servers share",
                                 icon = Icons.Rounded.Dns,
                             )
                         }
@@ -229,17 +239,22 @@ fun CustomizeHomeScreen(
                 item(key = "intro", span = { GridItemSpan(maxLineSpan) }) {
                     GroupFootnote(
                         if (shown.isEmpty()) "Nothing is on Home. Add widgets from the list below."
-                        else "Touch and hold a widget, then drag it to where you want it on Home.",
+                        else "Touch and hold a widget to drag it somewhere else. Tap its size to give it more or less room.",
                         Modifier.padding(bottom = 4.dp).animateItem(),
                     )
                 }
-                items(shown, key = { it }, span = { GridItemSpan(if (it.tile && it !in lone) 1 else maxLineSpan) }) { widget ->
+                items(shown, key = { it }, span = { GridItemSpan(if (layout.isSmall(it)) 1 else maxLineSpan) }) { widget ->
                     Carried(drag, widget) { lifted ->
                         PlacedWidget(
                             widget,
+                            layout.sizeOf(widget),
                             lifted,
-                            onRemove = { viewModel.setHomeWidgets(shown - widget) },
-                            onShift = { by -> viewModel.setHomeWidgets(shown.shifted(widget, by)) },
+                            onResize = {
+                                onChange(layout.resized(widget, layout.nextSize(widget)))
+                                haptic.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                            },
+                            onRemove = { onChange(layout.removing(widget)) },
+                            onShift = { by -> onChange(layout.shifted(widget, by)) },
                             first = widget == shown.first(),
                             last = widget == shown.last(),
                         )
@@ -257,13 +272,14 @@ fun CustomizeHomeScreen(
                             icon = widget.icon,
                             shape = RoundedCornerShape(CardRadius),
                             trailing = { Icon(Icons.Rounded.AddCircleOutline, null, Modifier.padding(end = 8.dp), tint = MaterialTheme.colorScheme.primary) },
-                            onClick = { viewModel.setHomeWidgets(shown.adding(widget)) },
+                            onClick = { onChange(layout.adding(widget)) },
                         )
                     }
                 }
                 item(key = "note", span = { GridItemSpan(maxLineSpan) }) {
                     GroupFootnote(
-                        "A widget is left out on a server that has no reading for it, such as the temperature on some machines.",
+                        "On Home, a small widget with none beside it fills its row. " +
+                            "A widget is left out on a server that has no reading for it, such as the temperature on some machines.",
                         Modifier.padding(top = 4.dp).animateItem(),
                     )
                 }
@@ -273,13 +289,16 @@ fun CustomizeHomeScreen(
 }
 
 /**
- * A widget on Home, as the page shows it: what it is, and the button that takes it off. [lifted] while
+ * A widget on Home, as the page shows it: what it is, its [size], and the button that takes it off. A small
+ * one is a square tile, and a large one is taller than a medium one, as they are on Home. [lifted] while
  * it's being dragged. [onShift] moves it a place earlier or later for people who can't drag.
  */
 @Composable
 private fun PlacedWidget(
     widget: HomeWidget,
+    size: HomeSize,
     lifted: Boolean,
+    onResize: () -> Unit,
     onRemove: () -> Unit,
     onShift: (Int) -> Unit,
     first: Boolean,
@@ -304,28 +323,57 @@ private fun PlacedWidget(
                 Icon(Icons.Rounded.RemoveCircleOutline, "Remove ${widget.label}", tint = scheme.onSurfaceVariant)
             }
         }
-        if (widget.tile) {
-            // Taller than a card's row, as a tile is on Home.
-            Column(Modifier.heightIn(min = 104.dp).padding(start = 16.dp, top = 8.dp, end = 4.dp, bottom = 14.dp)) {
+        // Under the name: the size, which a tap changes, or what the widget shows if it comes in one size only.
+        val detail: @Composable () -> Unit = {
+            if (widget.resizable) {
+                SizeButton(widget, size, onResize)
+            } else {
+                Text(widget.about, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        if (size == HomeSize.Small) {
+            Column(Modifier.heightIn(min = 132.dp).padding(start = 16.dp, top = 8.dp, end = 4.dp, bottom = 10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconTile(widget.icon, size = 36.dp)
                     Spacer(Modifier.weight(1f))
                     remove()
                 }
                 Spacer(Modifier.weight(1f))
-                Text(widget.label, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("Tile", style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
+                Text(widget.label, Modifier.padding(bottom = 6.dp), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                detail()
             }
         } else {
-            Row(Modifier.heightIn(min = 72.dp).padding(start = 16.dp, top = 10.dp, end = 4.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.heightIn(min = if (size == HomeSize.Large) 132.dp else 76.dp).padding(start = 16.dp, top = 10.dp, end = 4.dp, bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 IconTile(widget.icon, size = 36.dp)
-                Column(Modifier.weight(1f).padding(start = 16.dp, end = 8.dp)) {
+                Column(Modifier.weight(1f).padding(start = 16.dp, end = 8.dp), verticalArrangement = Arrangement.spacedBy(if (widget.resizable) 6.dp else 0.dp)) {
                     Text(widget.label, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(widget.about, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    detail()
                 }
                 remove()
             }
         }
+    }
+}
+
+/** The pill under a widget's name that says its size. Tapping it gives the widget the next size up, then back to the smallest. */
+@Composable
+private fun SizeButton(widget: HomeWidget, size: HomeSize, onResize: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        Modifier
+            .clip(CircleShape)
+            .background(scheme.primary.copy(alpha = 0.14f))
+            .clickable(onClickLabel = "change size", role = Role.Button, onClick = onResize)
+            .semantics { contentDescription = "${widget.label} size, ${size.label}" }
+            .heightIn(min = 32.dp)
+            .padding(start = 12.dp, end = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(size.label, style = MaterialTheme.typography.labelLarge, color = scheme.primary, maxLines = 1)
+        Icon(Icons.Rounded.UnfoldMore, null, Modifier.padding(start = 2.dp).size(16.dp).rotate(45f), tint = scheme.primary)
     }
 }
 

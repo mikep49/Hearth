@@ -54,7 +54,6 @@ import dev.hearth.casaos.data.Launcher
 import dev.hearth.casaos.data.LockAfter
 import dev.hearth.casaos.data.CasaException
 import dev.hearth.casaos.data.HomeLayouts
-import dev.hearth.casaos.data.HomeWidget
 import dev.hearth.casaos.data.OpenAppsIn
 import dev.hearth.casaos.data.PhoneTailscaleReader
 import dev.hearth.casaos.data.PowerAction
@@ -107,16 +106,8 @@ class SettingsViewModel(
     /** How each home screen widget is set up, by app widget id. */
     val widgetOptions: StateFlow<Map<Int, WidgetOptions>> = widgetOptions.options
 
-    /** How Home is laid out: the arrangement servers share, and those of servers with their own. */
+    /** What Home shows, in order and at what size: the arrangement servers share, and those of servers with their own. */
     val homeLayouts: StateFlow<HomeLayouts> = prefs.homeLayouts
-
-    /** What this server's Home shows, in order. */
-    val homeWidgets: List<HomeWidget> get() = prefs.homeLayouts.value.of(serverId)
-
-    fun setHomeWidgets(value: List<HomeWidget>) = prefs.setHomeWidgets(serverId, value)
-
-    /** Gives this server a Home arrangement of its own, or puts it back on the shared one. */
-    fun setOwnHomeLayout(own: Boolean) = prefs.setOwnHomeLayout(serverId, own)
 
     val openAppsIn: StateFlow<OpenAppsIn> = prefs.openAppsIn
 

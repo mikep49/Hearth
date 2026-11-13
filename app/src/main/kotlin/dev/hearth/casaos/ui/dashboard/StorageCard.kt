@@ -35,8 +35,8 @@ import dev.hearth.casaos.ui.theme.hearth
 
 /** Each drive on the server: what it is, whether SMART reports a problem, and how full its volumes are. */
 @Composable
-internal fun StorageCard(drives: List<Drive>, total: DiskStats?) {
-    HearthCard(Modifier.fillMaxWidth()) {
+internal fun StorageCard(drives: List<Drive>, total: DiskStats?, modifier: Modifier = Modifier.fillMaxWidth()) {
+    HearthCard(modifier) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 SectionLabel("Storage", Modifier.weight(1f))

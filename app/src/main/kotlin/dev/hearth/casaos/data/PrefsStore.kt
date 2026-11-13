@@ -112,26 +112,28 @@ class PrefsStore(context: Context) {
         _strictBrowser.value = value
     }
 
-    private fun savedHomeWidgets(of: String) =
-        homeWidgets(prefs.getString(KEY_HOME_WIDGETS + of, null), prefs.getString(KEY_HOME_HIDDEN + of, null))
+    private fun savedHomeLayout(of: String) = HomeLayout(
+        homeWidgets(prefs.getString(KEY_HOME_WIDGETS + of, null), prefs.getString(KEY_HOME_HIDDEN + of, null)),
+        homeSizes(prefs.getString(KEY_HOME_SIZES + of, null)),
+    )
 
     private val _homeLayouts = MutableStateFlow(
         HomeLayouts(
-            shared = savedHomeWidgets(of = ""),
+            shared = savedHomeLayout(of = ""),
             // A server's own layout is saved like the shared one, with "/" and the server's id after each key.
             own = prefs.all.keys.filter { it.startsWith("$KEY_HOME_WIDGETS/") }
-                .associate { key -> key.substringAfter('/').let { id -> id to savedHomeWidgets(of = "/$id") } },
+                .associate { key -> key.substringAfter('/').let { id -> id to savedHomeLayout(of = "/$id") } },
         ),
     )
 
     /**
-     * What Home shows, top to bottom, as arranged in Settings › Appearance: one arrangement that servers
-     * share, and another for each server that was given its own.
+     * What Home shows, top to bottom and at what size, as arranged in Customize Home: one arrangement that
+     * servers share, and another for each server that was given its own.
      */
     val homeLayouts: StateFlow<HomeLayouts> = _homeLayouts.asStateFlow()
 
     /** Changes what [server]'s Home shows. That's the shared arrangement unless the server has its own. */
-    fun setHomeWidgets(server: String, value: List<HomeWidget>) = saveHomeLayouts(_homeLayouts.value.with(server, value))
+    fun setHomeLayout(server: String, value: HomeLayout) = saveHomeLayouts(_homeLayouts.value.with(server, value))
 
     /** Gives [server] an arrangement of its own, or with [own] false puts it back on the shared one. */
     fun setOwnHomeLayout(server: String, own: Boolean) = saveHomeLayouts(_homeLayouts.value.owning(server, own))
@@ -140,14 +142,17 @@ class PrefsStore(context: Context) {
         val before = _homeLayouts.value
         if (next == before) return
         val edit = prefs.edit()
-        fun put(of: String, shown: List<HomeWidget>) {
+        fun put(of: String, layout: HomeLayout) {
             // The removed ones are saved too, which tells them apart from widgets a later version adds.
-            edit.putString(KEY_HOME_WIDGETS + of, shown.joinToString(",") { it.name })
-                .putString(KEY_HOME_HIDDEN + of, HomeWidget.entries.filter { it !in shown }.joinToString(",") { it.name })
+            edit.putString(KEY_HOME_WIDGETS + of, layout.widgets.joinToString(",") { it.name })
+                .putString(KEY_HOME_HIDDEN + of, HomeWidget.entries.filter { it !in layout.widgets }.joinToString(",") { it.name })
+                .putString(KEY_HOME_SIZES + of, savedHomeSizes(layout.sizes))
         }
         if (next.shared != before.shared) put("", next.shared)
-        for ((id, shown) in next.own) if (before.own[id] != shown) put("/$id", shown)
-        for (id in before.own.keys - next.own.keys) edit.remove("$KEY_HOME_WIDGETS/$id").remove("$KEY_HOME_HIDDEN/$id")
+        for ((id, layout) in next.own) if (before.own[id] != layout) put("/$id", layout)
+        for (id in before.own.keys - next.own.keys) {
+            edit.remove("$KEY_HOME_WIDGETS/$id").remove("$KEY_HOME_HIDDEN/$id").remove("$KEY_HOME_SIZES/$id")
+        }
         edit.apply()
         _homeLayouts.value = next
     }
@@ -163,6 +168,7 @@ class PrefsStore(context: Context) {
         private const val KEY_TERMINAL_FONT = "terminal_font_sp"
         private const val KEY_HOME_WIDGETS = "home_widgets"
         private const val KEY_HOME_HIDDEN = "home_widgets_hidden"
+        private const val KEY_HOME_SIZES = "home_widget_sizes"
         private const val KEY_STRICT_BROWSER = "strict_browser"
         private const val KEY_SHOW_IN_FILES = "show_in_files"
         private const val KEY_ALERTS = "alerts"

@@ -245,6 +245,7 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
     }
     val openAppsIn by container.prefs.openAppsIn.collectAsStateWithLifecycle()
     val homeLayouts by container.prefs.homeLayouts.collectAsStateWithLifecycle()
+    val homeLayout = homeLayouts.of(session.id)
     val nickname by container.prefs.nickname.collectAsStateWithLifecycle()
     // An app's web UI open inside Hearth, drawn over the tabs so they keep their state underneath.
     var webApp by rememberSaveable { mutableStateOf<String?>(null) }
@@ -349,9 +350,10 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
                             WhileVisible { vm.poll() }
                             val route = remember(session.baseUrl) { serverRoute(session.baseUrl.toHttpUrl().host) }
                             DashboardScreen(
-                                vm, nickname.trim().ifBlank { session.username }, label, route, homeLayouts.of(session.id),
+                                vm, nickname.trim().ifBlank { session.username }, label, route, homeLayout,
                                 onOpenServers = { serversOpen = true },
                                 onOpenTaskManager = { taskManagerFor = session.id },
+                                onCustomize = { customizeHomeOpen = true },
                             )
                         }
                         Tab.Apps -> {
@@ -474,10 +476,21 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
             // The same view model as the Settings tab underneath.
             val vm: SettingsViewModel = viewModel(key = "settings$key", factory = settingsFactory)
             AppearanceScreen(vm, onClose = { appearanceOpen = false }, onCustomizeHome = { customizeHomeOpen = true }, Modifier.fillMaxSize())
-            // Over the Appearance page, so Back returns to it.
-            if (customizeHomeOpen) {
-                CustomizeHomeScreen(vm, label, otherServers = profiles.size > 1, onClose = { customizeHomeOpen = false }, Modifier.fillMaxSize())
-            }
+        }
+
+        // Opened from Home or from the Appearance page, and drawn over either, so Back returns to where it was opened.
+        if (customizeHomeOpen) {
+            val own = homeLayouts.isOwn(session.id)
+            CustomizeHomeScreen(
+                homeLayout,
+                onChange = { container.prefs.setHomeLayout(session.id, it) },
+                onClose = { customizeHomeOpen = false },
+                Modifier.fillMaxSize(),
+                // Still offered on the last server left if it has its own arrangement, so that can be undone.
+                ownLayout = own.takeIf { profiles.size > 1 || own },
+                onOwnLayout = { container.prefs.setOwnHomeLayout(session.id, it) },
+                serverLabel = label,
+            )
         }
 
         if (notificationsOpen) {

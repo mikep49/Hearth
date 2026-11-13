@@ -1,0 +1,8 @@
+• Files: a photo gallery, and a thumbnail grid view
+• Home: a connection bar, square tiles, and a layout you can arrange
+• A nickname for Home's greeting
+• Task manager: CPU and memory for every app, from the Processor card
+• New Tailscale page in Settings
+• Use Hearth as a tablet's home screen
+• Fingerprint can stand in for the Terminal password
+• The Processor graph zooms in on a quiet server

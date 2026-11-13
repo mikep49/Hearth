@@ -2,9 +2,12 @@ package dev.hearth.casaos.ui.files
 
 import android.widget.MediaController
 import android.widget.VideoView
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -42,24 +45,28 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -70,6 +77,9 @@ import dev.hearth.casaos.data.PreviewKind
 import dev.hearth.casaos.data.Transfer
 import dev.hearth.casaos.data.previewKind
 import dev.hearth.casaos.ui.components.formatBytes
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 /**
  * A full-screen look at a file on the server: images zoom, text scrolls, video and audio play. Opened on a
@@ -152,17 +162,23 @@ fun FilePreview(
     }
 }
 
-/** A photo that pinch and double-tap zoom. [showing] is false for the album's photos waiting off screen. */
+/**
+ * A photo that pinch and double-tap zoom, into the spot under your fingers, and can be dragged around while zoomed
+ * but not off the screen. [showing] is false for the album's photos waiting off screen.
+ */
 @Composable
 private fun ImagePreview(url: String, name: String, showing: Boolean = true) {
-    var scale by remember { mutableFloatStateOf(1f) }
-    var offset by remember { mutableStateOf(Offset.Zero) }
+    var zoom by remember { mutableStateOf(PhotoZoom()) }
+    var box by remember { mutableStateOf(Size.Zero) }
+    var image by remember { mutableStateOf(Size.Unspecified) }
     var failed by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    var doubleTap by remember { mutableStateOf<Job?>(null) }
     // A photo swiped away comes back at its normal size.
     LaunchedEffect(showing) {
         if (!showing) {
-            scale = 1f
-            offset = Offset.Zero
+            doubleTap?.cancel()
+            zoom = PhotoZoom()
         }
     }
     if (failed) {
@@ -173,34 +189,61 @@ private fun ImagePreview(url: String, name: String, showing: Boolean = true) {
         model = url,
         contentDescription = name,
         contentScale = ContentScale.Fit,
+        onSuccess = { image = it.painter.intrinsicSize },
         onError = { failed = true },
         modifier = Modifier
             .fillMaxSize()
+            .onSizeChanged {
+                box = it.toSize()
+                zoom = zoom.clamped(box, image)
+            }
             .pointerInput(Unit) {
-                detectTapGestures(onDoubleTap = {
-                    // Double tap toggles between fitting the screen and a 2.5× zoom.
-                    if (scale > 1f) { scale = 1f; offset = Offset.Zero } else scale = 2.5f
+                detectTapGestures(onDoubleTap = { at ->
+                    // Double tap toggles between fitting the screen and zooming in on the spot tapped.
+                    val from = zoom
+                    val to = zoom.toggled(at, box, image)
+                    doubleTap?.cancel()
+                    doubleTap = scope.launch {
+                        animate(0f, 1f, animationSpec = tween(250)) { t, _ -> zoom = from.towards(to, t).clamped(box, image) }
+                    }
                 })
             }
             .pointerInput(Unit) {
                 awaitEachGesture {
                     awaitFirstDown(requireUnconsumed = false)
+                    // Each touch is decided once it has moved enough to tell what it is: a pinch, or a drag of a zoomed
+                    // photo, is the photo's; anything else is left for the album to swipe to the next photo. That
+                    // includes a drag sideways on a zoomed photo already pushed to that edge, as galleries do.
+                    var mine = false
+                    var passedOn = false
+                    var moved = Offset.Zero
                     do {
                         val event = awaitPointerEvent()
-                        // One finger on a photo at its normal size is left alone: in an album, it swipes to the next photo.
-                        if (scale > 1f || event.changes.count { it.pressed } > 1) {
-                            scale = (scale * event.calculateZoom()).coerceIn(1f, 6f)
-                            offset = if (scale == 1f) Offset.Zero else offset + event.calculatePan()
+                        if (!mine && !passedOn) {
+                            if (event.changes.count { it.pressed } > 1) {
+                                mine = true
+                            } else {
+                                moved += event.calculatePan()
+                                if (moved.getDistance() > viewConfiguration.touchSlop) {
+                                    val sideways = abs(moved.x) > abs(moved.y)
+                                    if (zoom.zoomed && !(sideways && zoom.atSideEdge(moved.x, box, image))) mine = true else passedOn = true
+                                }
+                            }
+                            if (mine) doubleTap?.cancel()
+                        }
+                        if (mine) {
+                            val focus = event.calculateCentroid(useCurrent = false)
+                            if (focus.isSpecified) zoom = zoom.transformed(event.calculateZoom(), focus, event.calculatePan(), box, image)
                             event.changes.forEach { if (it.positionChanged()) it.consume() }
                         }
                     } while (event.changes.any { it.pressed })
                 }
             }
             .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-                translationX = offset.x
-                translationY = offset.y
+                scaleX = zoom.scale
+                scaleY = zoom.scale
+                translationX = zoom.offset.x
+                translationY = zoom.offset.y
             },
     )
 }

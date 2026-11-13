@@ -101,6 +101,7 @@ import dev.hearth.casaos.ui.dashboard.TaskManagerScreen
 import dev.hearth.casaos.ui.files.FilesScreen
 import dev.hearth.casaos.ui.files.FilesViewModel
 import dev.hearth.casaos.ui.lock.LockGate
+import dev.hearth.casaos.ui.lock.LockedPage
 import dev.hearth.casaos.ui.lock.PartLockGate
 import dev.hearth.casaos.ui.servers.ServerSheet
 import dev.hearth.casaos.ui.settings.SavedLoginsScreen
@@ -110,6 +111,7 @@ import dev.hearth.casaos.ui.settings.TailscaleScreen
 import dev.hearth.casaos.ui.settings.TailscaleViewModel
 import dev.hearth.casaos.ui.settings.SettingsScreen
 import dev.hearth.casaos.ui.settings.SettingsViewModel
+import dev.hearth.casaos.ui.terminal.LockedSignIn
 import dev.hearth.casaos.ui.terminal.TerminalScreen
 import dev.hearth.casaos.ui.terminal.TerminalViewModel
 import dev.hearth.casaos.ui.theme.HearthTheme
@@ -368,8 +370,14 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
                             val vm: TerminalViewModel = viewModel(key = "terminal$key", factory = viewModelFactory {
                                 initializer { TerminalViewModel(container.ssh, container.prefs, session, container.session.session) }
                             })
+                            // With a login ready and no shell open, the lock asks when Connect is tapped, not before.
+                            val terminal by vm.state.collectAsStateWithLifecycle()
+                            val signIn: LockedPage = { error, unlock -> LockedSignIn(vm, error, unlock) }
                             // The shell (in the view model) keeps running while the tab is locked or closed.
-                            PartLockGate(container.terminalLock, container.lock, "Terminal", Modifier.fillMaxSize()) { TerminalScreen(vm) }
+                            PartLockGate(
+                                container.terminalLock, container.lock, "Terminal", Modifier.fillMaxSize(),
+                                lockedPage = signIn.takeIf { terminal.canQuickConnect },
+                            ) { TerminalScreen(vm) }
                         }
                         Tab.Settings -> {
                             val vm: SettingsViewModel = viewModel(key = "settings$key", factory = settingsFactory)
@@ -433,7 +441,11 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
             )
         }
 
-        if (loginsOpen) SavedLoginsScreen(container.webLogins, onClose = { loginsOpen = false }, Modifier.fillMaxSize())
+        if (loginsOpen) {
+            // SSH passwords and keys are kept per server address, and only while that server is signed in.
+            val servers = remember(profiles) { profiles.filter { it.signedIn }.mapNotNull { it.baseUrl.toHttpUrlOrNull()?.host }.distinct() }
+            SavedLoginsScreen(container.webLogins, container.ssh, servers, onClose = { loginsOpen = false }, Modifier.fillMaxSize())
+        }
 
         if (appearanceOpen) {
             // The same view model as the Settings tab underneath.

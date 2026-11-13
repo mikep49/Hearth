@@ -120,6 +120,7 @@ fun LockGate(lock: AppLock, content: @Composable () -> Unit) {
  * [name] is what's locked ("Terminal", an app's name). [appLock] is the lock in front of all of Hearth:
  * unlocking that while this part is in front unlocks it too, so nobody is asked twice in a row.
  * [onBack] is what Back does while locked; null leaves it to whatever is underneath.
+ * [lockedPage], when given, stands in for the usual lock screen, and then nothing asks until that page does.
  */
 @Composable
 fun PartLockGate(
@@ -128,6 +129,7 @@ fun PartLockGate(
     name: String,
     modifier: Modifier = Modifier,
     onBack: (() -> Unit)? = null,
+    lockedPage: LockedPage? = null,
     content: @Composable () -> Unit,
 ) {
     val locked by lock.locked.collectAsStateWithLifecycle()
@@ -151,16 +153,31 @@ fun PartLockGate(
 
     Box(modifier) {
         if (opened) Box(Modifier.fillMaxSize().then(if (locked) Modifier.clearAndSetSemantics {} else Modifier)) { content() }
-        if (locked) LockScreen(lock, "$name is locked", "Unlock $name", appLock, onBack)
+        if (locked) LockScreen(lock, "$name is locked", "Unlock $name", appLock, onBack, lockedPage)
     }
 }
 
 /**
+ * A part's own page for while it's locked, in place of the usual lock screen. `error` is why the last try to
+ * unlock failed, if it did. `unlock` asks the phone to confirm it's the owner, unlocks the part, and then runs
+ * what it's given: what the button that asked was for.
+ */
+typealias LockedPage = @Composable (error: String?, unlock: (then: () -> Unit) -> Unit) -> Unit
+
+/**
  * The page covering what [lock] guards. [behind] is Hearth's own lock when this one is for a part of Hearth:
- * it asks first, and its answer counts here too.
+ * it asks first, and its answer counts here too. [page] is drawn in place of the padlock and its button, and
+ * does the asking itself.
  */
 @Composable
-private fun LockScreen(lock: AppLock, heading: String, prompt: String, behind: AppLock? = null, onBack: (() -> Unit)? = null) {
+private fun LockScreen(
+    lock: AppLock,
+    heading: String,
+    prompt: String,
+    behind: AppLock? = null,
+    onBack: (() -> Unit)? = null,
+    page: LockedPage? = null,
+) {
     val activity = LocalActivity.current as? FragmentActivity
     val owner = LocalLifecycleOwner.current
     val keyboard = LocalSoftwareKeyboardController.current
@@ -168,11 +185,12 @@ private fun LockScreen(lock: AppLock, heading: String, prompt: String, behind: A
     var error by remember { mutableStateOf<String?>(null) }
     val waiting = behind?.locked?.collectAsStateWithLifecycle()?.value ?: false
     var waited by remember { mutableStateOf(waiting) }
+    val asksItself = page == null
 
-    fun ask() {
+    fun ask(then: () -> Unit = {}) {
         val a = activity ?: return
         error = null
-        a.confirmOwner(prompt, null, onSuccess = lock::unlock, onError = { error = it })
+        a.confirmOwner(prompt, null, onSuccess = { lock.unlock(); then() }, onError = { error = it })
     }
 
     // Takes focus and the keyboard from whatever was being typed into (the terminal, a form).
@@ -181,7 +199,7 @@ private fun LockScreen(lock: AppLock, heading: String, prompt: String, behind: A
         runCatching { focus.requestFocus() }
     }
     // Asks once each time Hearth comes to the front locked. After a cancel, the button asks again.
-    LaunchedEffect(owner, waiting) {
+    LaunchedEffect(owner, waiting, asksItself) {
         if (waiting) {
             waited = true
             return@LaunchedEffect
@@ -190,6 +208,7 @@ private fun LockScreen(lock: AppLock, heading: String, prompt: String, behind: A
             lock.unlock()
             return@LaunchedEffect
         }
+        if (!asksItself) return@LaunchedEffect
         owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             owner.lifecycle.currentStateFlow.first { it.isAtLeast(Lifecycle.State.RESUMED) }
             ask()
@@ -200,7 +219,7 @@ private fun LockScreen(lock: AppLock, heading: String, prompt: String, behind: A
 
     // A Surface takes every touch, so nothing underneath can be tapped.
     Surface(Modifier.fillMaxSize().focusRequester(focus).focusable(), color = MaterialTheme.colorScheme.background) {
-        Column(
+        if (page != null) page(error) { then -> ask(then) } else Column(
             Modifier.safeDrawingPadding().padding(32.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -215,7 +234,7 @@ private fun LockScreen(lock: AppLock, heading: String, prompt: String, behind: A
             error?.let {
                 Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
             }
-            Button(onClick = ::ask, Modifier.padding(top = 8.dp)) {
+            Button(onClick = { ask() }, Modifier.padding(top = 8.dp)) {
                 Icon(Icons.Rounded.Fingerprint, null, Modifier.size(ButtonDefaults.IconSize))
                 Text("Unlock", Modifier.padding(start = ButtonDefaults.IconSpacing))
             }

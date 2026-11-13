@@ -80,7 +80,13 @@ data class TerminalUiState(
     val keyImport: KeyImport? = null,
     /** A new key is being made. */
     val creatingKey: Boolean = false,
-)
+) {
+    /**
+     * No shell is open and the form already has everything to sign in with. With Lock Terminal on, that's when
+     * confirming it's the owner can stand in for the password: Connect asks, then signs in.
+     */
+    val canQuickConnect: Boolean get() = !open && form.canSubmit
+}
 
 /** Updates the server's Ubuntu/Debian packages. `&&` so the upgrade only runs once the package lists refreshed. */
 const val SYSTEM_UPDATE_COMMAND = "sudo apt update && sudo apt upgrade -y"
@@ -143,6 +149,14 @@ class TerminalViewModel(
                     away = false
                     reloadSecrets()
                 }
+            }
+        }
+        // Removed on the Saved logins page: back to an empty form, as if nobody had signed in here.
+        viewModelScope.launch {
+            profiles.forgotten.collect { forgotten ->
+                if (forgotten != server) return@collect
+                close(forgetSecrets = false)
+                _state.update { it.copy(form = profiles.load(server).toForm(), error = null) }
             }
         }
     }

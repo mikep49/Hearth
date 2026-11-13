@@ -41,6 +41,7 @@ import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.East
+import androidx.compose.material.icons.rounded.Fingerprint
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.MoreVert
@@ -618,6 +619,70 @@ private fun SignInForm(viewModel: TerminalViewModel, state: TerminalUiState) {
                 }
             },
             dismissButton = { TextButton(onClick = { confirmRemoveKey = false }) { Text("Cancel") } },
+        )
+    }
+}
+
+/**
+ * The Terminal tab while Lock Terminal has it locked and a login is ready to use (see [TerminalUiState.canQuickConnect]).
+ * Connect asks the phone to confirm it's the owner, in place of the password, and signs in. The form, with the
+ * password and the key in it, stays out of reach until the phone has confirmed. [error] and [unlock] are the
+ * lock's: see [dev.hearth.casaos.ui.lock.LockedPage].
+ */
+@Composable
+fun LockedSignIn(viewModel: TerminalViewModel, error: String?, unlock: (then: () -> Unit) -> Unit) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val form = state.form
+    val usesKey = form.method == SshMethod.Key
+
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).readableWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        ScreenHeader("Terminal", subtitle = { HeaderSubtitle("Sign in over SSH") })
+
+        HearthCard(Modifier.fillMaxWidth()) {
+            Row(Modifier.padding(CardPadding), verticalAlignment = Alignment.CenterVertically) {
+                IconTile(if (usesKey) Icons.Rounded.Key else Icons.Rounded.Lock)
+                Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                    Text(
+                        "${form.username.trim()}@${form.host.trim()}",
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        (if (usesKey) "SSH key" else "Password") + if (form.portNumber == 22) "" else ", port ${form.port.trim()}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        AnimatedVisibility(error != null) {
+            Text(error.orEmpty(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+        }
+
+        Button(
+            onClick = { unlock(viewModel::connect) },
+            enabled = !state.connecting,
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+        ) {
+            if (state.connecting) {
+                CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.5.dp, color = MaterialTheme.colorScheme.onPrimary)
+            } else {
+                Icon(Icons.Rounded.Fingerprint, null, Modifier.size(22.dp))
+                Text("Connect", Modifier.padding(start = 10.dp), style = MaterialTheme.typography.titleMedium)
+            }
+        }
+        TextButton(onClick = { unlock {} }, Modifier.align(Alignment.CenterHorizontally)) { Text("Change sign-in details") }
+
+        Text(
+            "Lock Terminal is on, so Hearth asks for your fingerprint, face or PIN in place of the " +
+                (if (usesKey) "key" else "password") + ".",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

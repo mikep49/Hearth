@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Key
+import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -39,6 +40,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.hearth.casaos.data.SavedLogin
+import dev.hearth.casaos.data.SavedSshLogin
+import dev.hearth.casaos.data.SshProfileStore
 import dev.hearth.casaos.data.WebLogins
 import dev.hearth.casaos.ui.components.AppIcon
 import dev.hearth.casaos.ui.components.BackButton
@@ -55,23 +58,26 @@ import dev.hearth.casaos.ui.components.readableWidth
 /**
  * Settings › Saved logins: whether apps opened in Hearth stay signed in, and which ones are, each with a
  * way to sign out of it. Like a browser's password list, except Hearth keeps the app's login (its cookies)
- * rather than the password.
+ * rather than the password. Below the apps, the SSH login the Terminal tab saved for each of [servers]
+ * (the hosts of the CasaOS servers that are signed in), which [ssh] keeps.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SavedLoginsScreen(logins: WebLogins, onClose: () -> Unit, modifier: Modifier = Modifier) {
+fun SavedLoginsScreen(logins: WebLogins, ssh: SshProfileStore, servers: List<String>, onClose: () -> Unit, modifier: Modifier = Modifier) {
     val keep by logins.remember.collectAsStateWithLifecycle()
     val perApp = remember(logins) { logins.perApp }
     var saved by remember { mutableStateOf<List<SavedLogin>?>(null) }
-    // Bumped to read the list again: after a removal, and on returning to the page.
+    // Bumped to read the lists again: after a removal, and on returning to the page.
     var reload by remember { mutableIntStateOf(0) }
     LaunchedEffect(reload) { saved = logins.saved() }
+    val terminal = remember(reload, servers) { ssh.saved(servers) }
     LifecycleResumeEffect(Unit) {
         reload++
         onPauseOrDispose {}
     }
 
     var removing by remember { mutableStateOf<SavedLogin?>(null) }
+    var removingTerminal by remember { mutableStateOf<SavedSshLogin?>(null) }
     var removingAll by remember { mutableStateOf(false) }
     var turningOff by remember { mutableStateOf(false) }
 
@@ -105,7 +111,7 @@ fun SavedLoginsScreen(logins: WebLogins, onClose: () -> Unit, modifier: Modifier
                 )
             }
             GroupFootnote(
-                "Hearth never stores your passwords. Signing out of Hearth signs you out of every app too.",
+                "Hearth keeps each app's login, not its password. Signing out of Hearth signs you out of every app too.",
             )
 
             SectionHeader("Apps")
@@ -138,7 +144,7 @@ fun SavedLoginsScreen(logins: WebLogins, onClose: () -> Unit, modifier: Modifier
             if (!perApp || !list.isNullOrEmpty()) {
                 ListGroup(Modifier.padding(top = 8.dp)) {
                     ListRow(
-                        "Remove all logins",
+                        "Remove all app logins",
                         icon = Icons.Rounded.DeleteSweep,
                         iconTint = MaterialTheme.colorScheme.error,
                         titleColor = MaterialTheme.colorScheme.error,
@@ -146,7 +152,47 @@ fun SavedLoginsScreen(logins: WebLogins, onClose: () -> Unit, modifier: Modifier
                     )
                 }
             }
+
+            SectionHeader("Terminal")
+            if (terminal.isEmpty()) {
+                Notice("Nothing saved. The SSH login you use on the Terminal tab shows up here.")
+            } else {
+                ListGroup {
+                    terminal.forEach { login ->
+                        ListRow(
+                            login.address,
+                            subtitle = when {
+                                login.hasPassword && login.hasKey -> "Password and SSH key saved"
+                                login.hasKey -> "SSH key saved"
+                                login.hasPassword -> "Password saved"
+                                else -> "No password saved"
+                            },
+                            icon = Icons.Rounded.Terminal,
+                            trailing = {
+                                IconButton(onClick = { removingTerminal = login }) {
+                                    Icon(Icons.Rounded.Close, "Remove the terminal login ${login.address}")
+                                }
+                            },
+                        )
+                    }
+                }
+                GroupFootnote("A saved password or key is kept encrypted on this phone, and goes when you sign out of Hearth.")
+            }
         }
+    }
+
+    removingTerminal?.let { login ->
+        Confirm(
+            title = "Remove this terminal login?",
+            text = "Hearth forgets ${login.address}" +
+                (if (login.hasPassword) " and its password" else "") +
+                ", and closes the terminal if it's connected. Pages that read the server over SSH, such as the " +
+                "Task manager, need you to sign in on the Terminal tab again." +
+                if (login.hasKey) "\n\nThe SSH key can't be brought back, so a server that only knows this key will need a new one added." else "",
+            action = "Remove",
+            onConfirm = { ssh.forget(login.server); reload++ },
+            onDismiss = { removingTerminal = null },
+        )
     }
 
     removing?.let { login ->
@@ -160,7 +206,7 @@ fun SavedLoginsScreen(logins: WebLogins, onClose: () -> Unit, modifier: Modifier
     }
     if (removingAll) {
         Confirm(
-            title = "Remove all logins?",
+            title = "Remove all app logins?",
             text = "You'll need to sign in again to every app you open in Hearth.",
             action = "Remove all",
             onConfirm = { logins.forgetAll(); reload++ },

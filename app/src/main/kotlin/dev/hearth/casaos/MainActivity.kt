@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.Brush
 import dev.hearth.casaos.ui.components.PillTab
 import dev.hearth.casaos.ui.components.PillTabs
 import dev.hearth.casaos.ui.settings.AppearanceScreen
+import dev.hearth.casaos.ui.settings.CustomizeHomeScreen
 import dev.hearth.casaos.ui.theme.LocalUiStyle
 import dev.hearth.casaos.ui.theme.UiStyle
 import androidx.compose.foundation.layout.Row
@@ -84,6 +85,7 @@ import dev.hearth.casaos.data.AppUsageSource
 import dev.hearth.casaos.data.TailscaleSource
 import dev.hearth.casaos.data.ServerProfile
 import dev.hearth.casaos.data.Session
+import dev.hearth.casaos.data.serverRoute
 import dev.hearth.casaos.ui.apps.AppLogsScreen
 import dev.hearth.casaos.ui.apps.AppLogsViewModel
 import dev.hearth.casaos.ui.apps.AppSettingsScreen
@@ -242,6 +244,7 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
         adding = true
     }
     val openAppsIn by container.prefs.openAppsIn.collectAsStateWithLifecycle()
+    val homeWidgets by container.prefs.homeWidgets.collectAsStateWithLifecycle()
     // An app's web UI open inside Hearth, drawn over the tabs so they keep their state underneath.
     var webApp by rememberSaveable { mutableStateOf<String?>(null) }
     var webUrl by rememberSaveable { mutableStateOf<String?>(null) }
@@ -260,6 +263,7 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
     var securityOpen by rememberSaveable { mutableStateOf(false) }
     var notificationsOpen by rememberSaveable { mutableStateOf(false) }
     var appearanceOpen by rememberSaveable { mutableStateOf(false) }
+    var customizeHomeOpen by rememberSaveable { mutableStateOf(false) }
     var tailscaleOpen by rememberSaveable { mutableStateOf(false) }
     // The Task manager, kept as the server it was opened for, so it closes if another server takes over.
     var taskManagerFor by rememberSaveable { mutableStateOf<String?>(null) }
@@ -342,8 +346,9 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
                         Tab.Dashboard -> {
                             val vm: DashboardViewModel = viewModel(key = "dash$key", factory = dashboardFactory)
                             WhileVisible { vm.poll() }
+                            val route = remember(session.baseUrl) { serverRoute(session.baseUrl.toHttpUrl().host) }
                             DashboardScreen(
-                                vm, session.username, label,
+                                vm, session.username, label, route, homeWidgets,
                                 onOpenServers = { serversOpen = true },
                                 onOpenTaskManager = { taskManagerFor = session.id },
                             )
@@ -467,7 +472,9 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
         if (appearanceOpen) {
             // The same view model as the Settings tab underneath.
             val vm: SettingsViewModel = viewModel(key = "settings$key", factory = settingsFactory)
-            AppearanceScreen(vm, onClose = { appearanceOpen = false }, Modifier.fillMaxSize())
+            AppearanceScreen(vm, onClose = { appearanceOpen = false }, onCustomizeHome = { customizeHomeOpen = true }, Modifier.fillMaxSize())
+            // Over the Appearance page, so Back returns to it.
+            if (customizeHomeOpen) CustomizeHomeScreen(vm, onClose = { customizeHomeOpen = false }, Modifier.fillMaxSize())
         }
 
         if (notificationsOpen) {

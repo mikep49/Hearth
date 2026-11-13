@@ -92,6 +92,23 @@ class PrefsStore(context: Context) {
         _strictBrowser.value = value
     }
 
+    private val _homeWidgets = MutableStateFlow(
+        homeWidgets(prefs.getString(KEY_HOME_WIDGETS, null), prefs.getString(KEY_HOME_HIDDEN, null)),
+    )
+
+    /** What Home shows, top to bottom, as arranged in Settings › Appearance. One arrangement for every server. */
+    val homeWidgets: StateFlow<List<HomeWidget>> = _homeWidgets.asStateFlow()
+
+    fun setHomeWidgets(value: List<HomeWidget>) {
+        val shown = value.distinct()
+        // The removed ones are saved too, which tells them apart from widgets a later version adds.
+        prefs.edit()
+            .putString(KEY_HOME_WIDGETS, shown.joinToString(",") { it.name })
+            .putString(KEY_HOME_HIDDEN, HomeWidget.entries.filter { it !in shown }.joinToString(",") { it.name })
+            .apply()
+        _homeWidgets.value = shown
+    }
+
     /** The terminal's text size in sp, as last set by pinching or from its menu. Read once when a terminal opens. */
     var terminalFontSp: Float
         get() = prefs.getFloat(KEY_TERMINAL_FONT, DEFAULT_TERMINAL_FONT_SP)
@@ -100,6 +117,8 @@ class PrefsStore(context: Context) {
     companion object {
         const val DEFAULT_TERMINAL_FONT_SP = 12f
         private const val KEY_TERMINAL_FONT = "terminal_font_sp"
+        private const val KEY_HOME_WIDGETS = "home_widgets"
+        private const val KEY_HOME_HIDDEN = "home_widgets_hidden"
         private const val KEY_STRICT_BROWSER = "strict_browser"
         private const val KEY_SHOW_IN_FILES = "show_in_files"
         private const val KEY_ALERTS = "alerts"

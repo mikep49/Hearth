@@ -2,10 +2,14 @@ package dev.hearth.casaos
 
 import dev.hearth.casaos.data.SystemStats
 import dev.hearth.casaos.ui.dashboard.DashboardState
+import dev.hearth.casaos.ui.dashboard.Heat
 import dev.hearth.casaos.ui.dashboard.advance
 import dev.hearth.casaos.ui.dashboard.chartScale
+import dev.hearth.casaos.ui.dashboard.cpuName
 import dev.hearth.casaos.ui.dashboard.formatCpuTotal
+import dev.hearth.casaos.ui.dashboard.greeting
 import dev.hearth.casaos.ui.dashboard.halfScaleLabel
+import dev.hearth.casaos.ui.dashboard.heat
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -57,6 +61,34 @@ class DashboardStateTest {
         assertEquals("2.5%", halfScaleLabel(5))
         assertEquals("5%", halfScaleLabel(10))
         assertEquals("50%", halfScaleLabel(100))
+    }
+
+    @Test fun `the greeting follows the time of day`() {
+        assertEquals("Good evening", greeting(0))
+        assertEquals("Good evening", greeting(4))
+        assertEquals("Good morning", greeting(5))
+        assertEquals("Good morning", greeting(11))
+        assertEquals("Good afternoon", greeting(12))
+        assertEquals("Good afternoon", greeting(17))
+        assertEquals("Good evening", greeting(18))
+        assertEquals("Good evening", greeting(23))
+    }
+
+    @Test fun `the temperature tile warms up with the processor`() {
+        assertEquals(Heat.Cool, heat(38))
+        assertEquals(Heat.Cool, heat(64))
+        assertEquals(Heat.Warm, heat(65))
+        assertEquals(Heat.Warm, heat(79))
+        assertEquals(Heat.Hot, heat(80))
+        assertEquals(Heat.Hot, heat(101))
+    }
+
+    @Test fun `the processor tile names the maker properly`() {
+        assertEquals("Intel", cpuName("intel"))
+        assertEquals("AMD", cpuName("amd"))
+        assertEquals("ARM", cpuName("arm"))
+        assertEquals("Intel Core i5-1235U", cpuName(" Intel Core i5-1235U "))
+        assertEquals("", cpuName(""))
     }
 
     @Test fun `low processor load keeps a decimal`() {

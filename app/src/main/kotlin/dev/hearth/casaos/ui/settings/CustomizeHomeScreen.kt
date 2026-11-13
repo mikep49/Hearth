@@ -87,6 +87,7 @@ import dev.hearth.casaos.ui.components.ListGroup
 import dev.hearth.casaos.ui.components.ListRow
 import dev.hearth.casaos.ui.components.ReadableGutter
 import dev.hearth.casaos.ui.components.SectionHeader
+import dev.hearth.casaos.ui.components.SwitchRow
 import dev.hearth.casaos.ui.components.hearthTopBarColors
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -104,21 +105,27 @@ private val HomeWidget.icon: ImageVector
         HomeWidget.Drives -> Icons.Rounded.Dns
     }
 
-/** What the row that opens the page says: how much of what there is has been put on Home. */
-internal fun homeWidgetsSummary(shown: List<HomeWidget>): String = when (shown.size) {
-    0 -> "Nothing on Home"
-    HomeWidget.entries.size -> "All ${shown.size} widgets"
-    else -> "${shown.size} of ${HomeWidget.entries.size} widgets"
+/**
+ * What the row that opens the page says: how much of what there is has been put on Home, and whether
+ * that's this server's [own] arrangement.
+ */
+internal fun homeWidgetsSummary(shown: List<HomeWidget>, own: Boolean = false): String {
+    val count = when (shown.size) {
+        0 -> "Nothing on Home"
+        HomeWidget.entries.size -> "All ${shown.size} widgets"
+        else -> "${shown.size} of ${HomeWidget.entries.size} widgets"
+    }
+    return if (own) "$count · this server only" else count
 }
 
 /** The row on the Appearance page that opens [CustomizeHomeScreen]. */
 @Composable
-fun CustomizeHomeRow(shown: List<HomeWidget>, onOpen: () -> Unit) {
+fun CustomizeHomeRow(shown: List<HomeWidget>, own: Boolean, onOpen: () -> Unit) {
     SectionHeader("Home")
     ListGroup {
         ListRow(
             "Customize Home",
-            subtitle = homeWidgetsSummary(shown),
+            subtitle = homeWidgetsSummary(shown, own),
             icon = Icons.Rounded.DashboardCustomize,
             trailing = { Chevron() },
             onClick = onOpen,
@@ -133,11 +140,22 @@ private val Gap = 12.dp
  * Settings › Appearance › Customize Home: Home's widgets laid out as they are on Home, tiles two to a
  * row and cards across it. Holding one picks it up to drag it somewhere else, its button takes it off
  * Home, and the ones taken off wait underneath to be put back.
+ *
+ * The arrangement is the one servers share, unless the switch at the top has given this server
+ * ([serverLabel]) its own. The switch is there once there are [otherServers] to differ from.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CustomizeHomeScreen(viewModel: SettingsViewModel, onClose: () -> Unit, modifier: Modifier = Modifier) {
-    val shown by viewModel.homeWidgets.collectAsStateWithLifecycle()
+fun CustomizeHomeScreen(
+    viewModel: SettingsViewModel,
+    serverLabel: String,
+    otherServers: Boolean,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val layouts by viewModel.homeLayouts.collectAsStateWithLifecycle()
+    val own = layouts.isOwn(viewModel.serverId)
+    val shown = layouts.of(viewModel.serverId)
     val hidden = HomeWidget.entries.filter { it !in shown }
     val lone = loneTiles(shown)
     val haptic = LocalHapticFeedback.current
@@ -150,7 +168,7 @@ fun CustomizeHomeScreen(viewModel: SettingsViewModel, onClose: () -> Unit, modif
         WidgetDrag(grid, scope) { widget, target ->
             // The grid follows its first visible row when that row moves, which would scroll the page mid-drag.
             grid.requestScrollToItem(grid.firstVisibleItemIndex, grid.firstVisibleItemScrollOffset)
-            viewModel.setHomeWidgets(viewModel.homeWidgets.value.moved(widget, target))
+            viewModel.setHomeWidgets(viewModel.homeWidgets.moved(widget, target))
             haptic.performHapticFeedback(HapticFeedbackType.SegmentTick)
         }
     }
@@ -194,6 +212,20 @@ fun CustomizeHomeScreen(viewModel: SettingsViewModel, onClose: () -> Unit, modif
                 // A widget being carried shouldn't take the page with it.
                 userScrollEnabled = drag.carried == null,
             ) {
+                // Still offered on the last server left if it has its own arrangement, so that can be undone.
+                if (otherServers || own) {
+                    item(key = "own", span = { GridItemSpan(maxLineSpan) }) {
+                        ListGroup(Modifier.animateItem()) {
+                            SwitchRow(
+                                "Own layout for this server",
+                                checked = own,
+                                onCheckedChange = viewModel::setOwnHomeLayout,
+                                subtitle = if (own) "Only $serverLabel shows this layout" else "Using the layout your servers share",
+                                icon = Icons.Rounded.Dns,
+                            )
+                        }
+                    }
+                }
                 item(key = "intro", span = { GridItemSpan(maxLineSpan) }) {
                     GroupFootnote(
                         if (shown.isEmpty()) "Nothing is on Home. Add widgets from the list below."

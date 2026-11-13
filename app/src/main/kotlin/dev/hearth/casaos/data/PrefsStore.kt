@@ -112,21 +112,44 @@ class PrefsStore(context: Context) {
         _strictBrowser.value = value
     }
 
-    private val _homeWidgets = MutableStateFlow(
-        homeWidgets(prefs.getString(KEY_HOME_WIDGETS, null), prefs.getString(KEY_HOME_HIDDEN, null)),
+    private fun savedHomeWidgets(of: String) =
+        homeWidgets(prefs.getString(KEY_HOME_WIDGETS + of, null), prefs.getString(KEY_HOME_HIDDEN + of, null))
+
+    private val _homeLayouts = MutableStateFlow(
+        HomeLayouts(
+            shared = savedHomeWidgets(of = ""),
+            // A server's own layout is saved like the shared one, with "/" and the server's id after each key.
+            own = prefs.all.keys.filter { it.startsWith("$KEY_HOME_WIDGETS/") }
+                .associate { key -> key.substringAfter('/').let { id -> id to savedHomeWidgets(of = "/$id") } },
+        ),
     )
 
-    /** What Home shows, top to bottom, as arranged in Settings › Appearance. One arrangement for every server. */
-    val homeWidgets: StateFlow<List<HomeWidget>> = _homeWidgets.asStateFlow()
+    /**
+     * What Home shows, top to bottom, as arranged in Settings › Appearance: one arrangement that servers
+     * share, and another for each server that was given its own.
+     */
+    val homeLayouts: StateFlow<HomeLayouts> = _homeLayouts.asStateFlow()
 
-    fun setHomeWidgets(value: List<HomeWidget>) {
-        val shown = value.distinct()
-        // The removed ones are saved too, which tells them apart from widgets a later version adds.
-        prefs.edit()
-            .putString(KEY_HOME_WIDGETS, shown.joinToString(",") { it.name })
-            .putString(KEY_HOME_HIDDEN, HomeWidget.entries.filter { it !in shown }.joinToString(",") { it.name })
-            .apply()
-        _homeWidgets.value = shown
+    /** Changes what [server]'s Home shows. That's the shared arrangement unless the server has its own. */
+    fun setHomeWidgets(server: String, value: List<HomeWidget>) = saveHomeLayouts(_homeLayouts.value.with(server, value))
+
+    /** Gives [server] an arrangement of its own, or with [own] false puts it back on the shared one. */
+    fun setOwnHomeLayout(server: String, own: Boolean) = saveHomeLayouts(_homeLayouts.value.owning(server, own))
+
+    private fun saveHomeLayouts(next: HomeLayouts) {
+        val before = _homeLayouts.value
+        if (next == before) return
+        val edit = prefs.edit()
+        fun put(of: String, shown: List<HomeWidget>) {
+            // The removed ones are saved too, which tells them apart from widgets a later version adds.
+            edit.putString(KEY_HOME_WIDGETS + of, shown.joinToString(",") { it.name })
+                .putString(KEY_HOME_HIDDEN + of, HomeWidget.entries.filter { it !in shown }.joinToString(",") { it.name })
+        }
+        if (next.shared != before.shared) put("", next.shared)
+        for ((id, shown) in next.own) if (before.own[id] != shown) put("/$id", shown)
+        for (id in before.own.keys - next.own.keys) edit.remove("$KEY_HOME_WIDGETS/$id").remove("$KEY_HOME_HIDDEN/$id")
+        edit.apply()
+        _homeLayouts.value = next
     }
 
     /** The terminal's text size in sp, as last set by pinching or from its menu. Read once when a terminal opens. */

@@ -1,6 +1,7 @@
 package dev.hearth.casaos
 
 import dev.hearth.casaos.data.DiskStats
+import dev.hearth.casaos.data.HomeLayouts
 import dev.hearth.casaos.data.HomeSection
 import dev.hearth.casaos.data.HomeWidget
 import dev.hearth.casaos.data.HomeWidget.CpuTile
@@ -50,6 +51,38 @@ class HomeWidgetsTest {
             listOf(CpuTile, Network),
             homeWidgets("CpuTile,Gone,CpuTile,Network", "TemperatureTile,MemoryTile,StorageTile,ProcessorGraph,MemoryBar,Drives,Gone"),
         )
+    }
+
+    @Test fun `servers share a layout until one is given its own`() {
+        val shared = HomeLayouts(shared = listOf(CpuTile, Network))
+        assertEquals(listOf(CpuTile, Network), shared.of("a"))
+        assertEquals(false, shared.isOwn("a"))
+
+        // Its own layout starts as the shared one, so turning the switch on moves nothing.
+        val split = shared.owning("a", true)
+        assertEquals(true, split.isOwn("a"))
+        assertEquals(listOf(CpuTile, Network), split.of("a"))
+        assertEquals("already has its own", split, split.owning("a", true))
+        assertEquals("never had its own", shared, shared.owning("a", false))
+    }
+
+    @Test fun `changing a server's own layout leaves the others alone`() {
+        val layouts = HomeLayouts(shared = listOf(CpuTile, Network)).owning("a", true).with("a", listOf(Drives, Drives, MemoryTile))
+        assertEquals("repeats are dropped", listOf(Drives, MemoryTile), layouts.of("a"))
+        assertEquals(listOf(CpuTile, Network), layouts.of("b"))
+
+        // A server without its own layout changes the shared one, for every server that shows it.
+        val changed = layouts.with("b", listOf(Network))
+        assertEquals(listOf(Network), changed.of("b"))
+        assertEquals(listOf(Network), changed.of("c"))
+        assertEquals(listOf(Drives, MemoryTile), changed.of("a"))
+    }
+
+    @Test fun `a server that gives up its own layout shows the shared one again`() {
+        val layouts = HomeLayouts(shared = listOf(CpuTile)).owning("a", true).with("a", listOf(Drives)).owning("b", true)
+        val back = layouts.owning("a", false)
+        assertEquals(listOf(CpuTile), back.of("a"))
+        assertEquals(setOf("b"), back.own.keys)
     }
 
     @Test fun `dragging a widget onto another takes its place`() {
@@ -112,5 +145,6 @@ class HomeWidgetsTest {
         assertEquals("All 8 widgets", homeWidgetsSummary(HomeWidget.Default))
         assertEquals("3 of 8 widgets", homeWidgetsSummary(listOf(CpuTile, Network, Drives)))
         assertEquals("Nothing on Home", homeWidgetsSummary(emptyList()))
+        assertEquals("3 of 8 widgets · this server only", homeWidgetsSummary(listOf(CpuTile, Network, Drives), own = true))
     }
 }

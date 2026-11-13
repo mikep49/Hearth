@@ -150,6 +150,8 @@ class AppContainer(private val app: Application) {
                 before = now
                 if (prev == null) return@collect
                 ServerDocumentsProvider.serversChanged(app)
+                // A removed server's own Home arrangement goes with it.
+                prev.filter { was -> now.none { it.id == was.id } }.forEach { prefs.setOwnHomeLayout(it.id, false) }
                 fun List<ServerProfile>.signedIn(id: String) = any { it.id == id && it.signedIn }
                 val ended = prev.filter { it.signedIn && !now.signedIn(it.id) }
                 if (ended.isNotEmpty()) forget(ended, now)

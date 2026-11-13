@@ -244,7 +244,7 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
         adding = true
     }
     val openAppsIn by container.prefs.openAppsIn.collectAsStateWithLifecycle()
-    val homeWidgets by container.prefs.homeWidgets.collectAsStateWithLifecycle()
+    val homeLayouts by container.prefs.homeLayouts.collectAsStateWithLifecycle()
     val nickname by container.prefs.nickname.collectAsStateWithLifecycle()
     // An app's web UI open inside Hearth, drawn over the tabs so they keep their state underneath.
     var webApp by rememberSaveable { mutableStateOf<String?>(null) }
@@ -283,7 +283,7 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
         val settingsFactory = viewModelFactory {
             initializer {
                 SettingsViewModel(
-                    client, container.session, container.theme, container.prefs,
+                    client, session.id, container.session, container.theme, container.prefs,
                     container.lock, container.terminalLock, container.appsLock, container.widgetOptions,
                 )
             }
@@ -349,7 +349,7 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
                             WhileVisible { vm.poll() }
                             val route = remember(session.baseUrl) { serverRoute(session.baseUrl.toHttpUrl().host) }
                             DashboardScreen(
-                                vm, nickname.trim().ifBlank { session.username }, label, route, homeWidgets,
+                                vm, nickname.trim().ifBlank { session.username }, label, route, homeLayouts.of(session.id),
                                 onOpenServers = { serversOpen = true },
                                 onOpenTaskManager = { taskManagerFor = session.id },
                             )
@@ -475,7 +475,9 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
             val vm: SettingsViewModel = viewModel(key = "settings$key", factory = settingsFactory)
             AppearanceScreen(vm, onClose = { appearanceOpen = false }, onCustomizeHome = { customizeHomeOpen = true }, Modifier.fillMaxSize())
             // Over the Appearance page, so Back returns to it.
-            if (customizeHomeOpen) CustomizeHomeScreen(vm, onClose = { customizeHomeOpen = false }, Modifier.fillMaxSize())
+            if (customizeHomeOpen) {
+                CustomizeHomeScreen(vm, label, otherServers = profiles.size > 1, onClose = { customizeHomeOpen = false }, Modifier.fillMaxSize())
+            }
         }
 
         if (notificationsOpen) {

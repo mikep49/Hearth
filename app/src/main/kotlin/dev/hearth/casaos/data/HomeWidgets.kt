@@ -32,6 +32,34 @@ fun homeWidgets(shown: String?, hidden: String?): List<HomeWidget> {
     return on.filter { it !in off } + HomeWidget.entries.filter { it !in on && it !in off }
 }
 
+/**
+ * How Home is laid out on each server. Servers show the [shared] layout until one is given a layout of
+ * its [own], kept by the server's id.
+ */
+data class HomeLayouts(val shared: List<HomeWidget> = HomeWidget.Default, val own: Map<String, List<HomeWidget>> = emptyMap()) {
+    /** What [server]'s Home shows, in order. */
+    fun of(server: String): List<HomeWidget> = own[server] ?: shared
+
+    /** Whether [server] has a layout of its own rather than the shared one. */
+    fun isOwn(server: String): Boolean = server in own
+
+    /** [server]'s Home changed to [widgets]: its own layout if it has one, and otherwise the shared one. */
+    fun with(server: String, widgets: List<HomeWidget>): HomeLayouts {
+        val shown = widgets.distinct()
+        return if (server in own) copy(own = own + (server to shown)) else copy(shared = shown)
+    }
+
+    /**
+     * Gives [server] a layout of its own, which starts as the shared one so nothing moves until it's
+     * changed. With [own] false its layout is dropped, and it shows the shared one again.
+     */
+    fun owning(server: String, own: Boolean): HomeLayouts = when {
+        own == isOwn(server) -> this
+        own -> copy(own = this.own + (server to shared))
+        else -> copy(own = this.own - server)
+    }
+}
+
 /** The list with [widget] moved to where [target] is, which is what dragging one onto the other does. */
 fun List<HomeWidget>.moved(widget: HomeWidget, target: HomeWidget): List<HomeWidget> {
     val from = indexOf(widget)

@@ -35,6 +35,7 @@ import dev.hearth.casaos.data.CasaException
 import dev.hearth.casaos.data.DocumentRef
 import dev.hearth.casaos.data.FileEntry
 import dev.hearth.casaos.data.RangeReader
+import dev.hearth.casaos.data.THUMBNAIL_MAX_BYTES
 import dev.hearth.casaos.data.cleanFileName
 import dev.hearth.casaos.data.isHidden
 import dev.hearth.casaos.data.mimeTypeOf
@@ -457,7 +458,6 @@ class ServerDocumentsProvider : DocumentsProvider() {
 
     companion object {
         private const val TAG = "HearthFiles"
-        private const val THUMBNAIL_MAX_BYTES = 20L * 1024 * 1024
         private const val THUMBNAILS_KEPT = 300
 
         private val ROOT_COLUMNS = arrayOf(

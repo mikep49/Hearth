@@ -1,6 +1,9 @@
 package dev.hearth.casaos
 
+import dev.hearth.casaos.data.FileEntry
 import dev.hearth.casaos.data.PreviewKind
+import dev.hearth.casaos.data.THUMBNAIL_MAX_BYTES
+import dev.hearth.casaos.data.hasThumbnail
 import dev.hearth.casaos.data.parseStoreApps
 import dev.hearth.casaos.data.previewKind
 import dev.hearth.casaos.data.uniqueName
@@ -62,5 +65,17 @@ class StoreAndFilesTest {
         assertEquals(PreviewKind.Text, previewKind(".env"))
         assertNull(previewKind("archive.zip"))
         assertNull(previewKind("report.pdf"))
+    }
+
+    @Test fun `only photos small enough to download get a thumbnail`() {
+        fun entry(name: String, size: Long, isDir: Boolean = false) = FileEntry(name, "/DATA/$name", isDir, size, null)
+        assertTrue(hasThumbnail(entry("IMG_001.JPG", 4_000_000)))
+        assertTrue(hasThumbnail(entry("scan.png", THUMBNAIL_MAX_BYTES)))
+        assertFalse(hasThumbnail(entry("panorama.jpg", THUMBNAIL_MAX_BYTES + 1)))
+        assertFalse(hasThumbnail(entry("empty.jpg", 0)))
+        assertFalse(hasThumbnail(entry("clip.mp4", 4_000_000)))
+        assertFalse(hasThumbnail(entry("notes.txt", 100)))
+        // A folder can be named like a photo.
+        assertFalse(hasThumbnail(entry("holiday.jpg", 4096, isDir = true)))
     }
 }

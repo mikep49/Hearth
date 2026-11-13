@@ -9,6 +9,7 @@ import android.net.Uri
 import android.net.http.SslError
 import android.view.ViewGroup
 import android.webkit.CookieManager
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.SslErrorHandler
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -98,6 +99,9 @@ fun WebAppScreen(
     var canGoBack by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var webView by remember { mutableStateOf<WebView?>(null) }
+    // Set when the page's own process ended, from a crash or because Android needed the memory. That WebView
+    // can't be used again, so it's taken off screen, and Reload makes a new one.
+    var stopped by remember { mutableStateOf<String?>(null) }
 
     // Lets web apps (photo uploads etc.) use the system file picker.
     var pendingFiles by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
@@ -122,6 +126,12 @@ fun WebAppScreen(
         if (view != null && view.canGoBack()) view.goBack() else onClose()
     }
 
+    fun reload() {
+        error = null
+        // Showing the page again makes a new WebView, which opens the page that was showing.
+        if (stopped != null) stopped = null else webView?.reload()
+    }
+
     Scaffold(
         modifier = modifier,
         containerColor = MaterialTheme.colorScheme.background,
@@ -143,7 +153,7 @@ fun WebAppScreen(
                         }
                     },
                     actions = {
-                        IconButton(onClick = { error = null; webView?.reload() }) { Icon(Icons.Rounded.Refresh, "Reload") }
+                        IconButton(onClick = { reload() }) { Icon(Icons.Rounded.Refresh, "Reload") }
                         // The app's address, not the current page, so it matches an app created from the Apps list.
                         IconButton(onClick = { createApp(appName, url, iconUrl) }) {
                             Icon(Icons.Rounded.InstallMobile, "Create app")
@@ -164,7 +174,7 @@ fun WebAppScreen(
         },
     ) { padding ->
         Box(Modifier.padding(padding).consumeWindowInsets(padding).imePadding().fillMaxSize()) {
-            AndroidView(
+            if (stopped == null) AndroidView(
                 modifier = Modifier.fillMaxSize(),
                 factory = { ctx ->
                     WebView(ctx).apply {
@@ -211,6 +221,15 @@ fun WebAppScreen(
                                 handler.cancel()
                                 error = "The app's HTTPS certificate isn't trusted by this phone."
                             }
+
+                            // Without this, Android ends all of Hearth along with the page.
+                            override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                                if (webView === view) webView = null
+                                progress = 0
+                                canGoBack = false
+                                stopped = if (detail.didCrash()) "The page crashed." else "Android closed the page to free up memory."
+                                return true
+                            }
                         }
                         webChromeClient = object : WebChromeClient() {
                             override fun onProgressChanged(view: WebView, newProgress: Int) {
@@ -249,21 +268,28 @@ fun WebAppScreen(
                 },
                 onRelease = { view ->
                     if (webView === view) webView = null
-                    view.stopLoading()
+                    // A view whose page has stopped has nothing left to stop, and is only destroyed.
+                    if (stopped == null) view.stopLoading()
                     view.destroy()
-                    // Rotating recreates the view, but the app is still open.
-                    if (activity?.isChangingConfigurations == true) logins.flush(url) else logins.closed(url)
+                    // Rotating recreates the view, and a page that stopped is reloaded: either way the app is still open.
+                    if (activity?.isChangingConfigurations == true || stopped != null) logins.flush(url) else logins.closed(url)
                 },
             )
 
-            error?.let { message ->
+            stopped?.let { message ->
+                EmptyState("$appName stopped", message) {
+                    Button(onClick = { reload() }) { Text("Reload") }
+                }
+            }
+
+            error?.takeIf { stopped == null }?.let { message ->
                 EmptyState(
                     "Couldn't open $appName",
                     message,
                     // Opaque so the half-loaded page underneath doesn't show through.
                     Modifier.background(MaterialTheme.colorScheme.background),
                 ) {
-                    Button(onClick = { error = null; webView?.reload() }) { Text("Try again") }
+                    Button(onClick = { reload() }) { Text("Try again") }
                 }
             }
         }

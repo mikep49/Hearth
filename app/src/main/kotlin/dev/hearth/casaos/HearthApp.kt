@@ -20,6 +20,7 @@ import dev.hearth.casaos.data.DocumentRef
 import dev.hearth.casaos.data.FileDownloader
 import dev.hearth.casaos.data.ImageRegistry
 import dev.hearth.casaos.data.LanServerFinder
+import dev.hearth.casaos.data.Launcher
 import dev.hearth.casaos.data.PhoneFiles
 import dev.hearth.casaos.data.PhoneTailscaleReader
 import dev.hearth.casaos.data.PrefsStore
@@ -88,6 +89,9 @@ class AppContainer(private val app: Application) {
 
     /** Tailscale on this phone, for Settings. */
     val phoneTailscale = PhoneTailscaleReader(app)
+
+    /** Hearth as the tablet's home screen. */
+    val launcher = Launcher(app)
     val prefs = PrefsStore(app)
     val lock = AppLock.create(app)
 

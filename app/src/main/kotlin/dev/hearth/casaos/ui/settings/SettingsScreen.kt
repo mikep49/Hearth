@@ -50,6 +50,7 @@ import dev.hearth.casaos.BuildConfig
 import dev.hearth.casaos.data.AlertSettings
 import dev.hearth.casaos.data.AppLock
 import dev.hearth.casaos.data.CasaClient
+import dev.hearth.casaos.data.Launcher
 import dev.hearth.casaos.data.LockAfter
 import dev.hearth.casaos.data.CasaException
 import dev.hearth.casaos.data.OpenAppsIn
@@ -182,6 +183,7 @@ fun SettingsScreen(
     onOpenSecurity: () -> Unit,
     tailscale: PhoneTailscaleReader,
     onOpenTailscale: () -> Unit,
+    launcher: Launcher,
 ) {
     val version by viewModel.version.collectAsStateWithLifecycle()
     val theme by viewModel.theme.collectAsStateWithLifecycle()
@@ -249,7 +251,8 @@ fun SettingsScreen(
             }
         }
 
-        Section("Files") {
+        // Where Hearth shows up in Android itself, outside its own screens.
+        Section("Android") {
             ListGroup {
                 SwitchRow(
                     "Show in Android Files",
@@ -259,6 +262,7 @@ fun SettingsScreen(
                     icon = Icons.Rounded.FolderOpen,
                     enabled = !lockEnabled,
                 )
+                if (launcher.available) LauncherRows(launcher, viewModel::showError)
             }
         }
 

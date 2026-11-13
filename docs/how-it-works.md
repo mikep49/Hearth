@@ -55,7 +55,7 @@ Hearth runs on Android 10 or later, phones and tablets.
 
 ### Android Files
 
-- Off until you turn on **Show in Android Files** in Settings. Then each server you're signed in to shows in the Files app's side menu as **Hearth**, with the server's address under it, and in the file pickers other apps open (for example to attach a file, or to choose a backup folder).
+- Off until you turn on **Show in Android Files** in Settings, under **Android**. Then each server you're signed in to shows in the Files app's side menu as **Hearth**, with the server's address under it, and in the file pickers other apps open (for example to attach a file, or to choose a backup folder).
 - Browse `/DATA`, open files in other apps, copy files to and from the phone, rename, delete, move and make new folders. Photos get thumbnails. Hidden files follow Hearth's **Show hidden files** choice.
 - Opening a file doesn't download it first. Hearth reads just the parts the other app asks for (HTTP range requests), so a video can start playing and a zip can be opened without fetching the whole file.
 - Copying or moving within one server happens on the server, like **Paste here** in Hearth. Between two servers, the Files app copies through the phone.
@@ -132,6 +132,16 @@ Hearth runs on Android 10 or later, phones and tablets.
 - Apps and the App Store show two or three cards per row when there's room. Files, Settings and the forms stay in a centred column no wider than 720dp. Logs, the terminal and web pages use the full width.
 - Content keeps clear of a camera cutout at the side of the screen.
 
+### Home screen
+
+- For a tablet kept just for your server, on the wall or on a desk. Turn on **Use as home screen** in Settings, under **Android**, and Android asks whether to make Hearth the default home app. After a yes, Hearth opens when the tablet starts and whenever you press Home, in place of the usual launcher.
+- Off until you turn it on, and until then Android doesn't list Hearth among the home apps.
+- As the home screen there is one Hearth. Tapping an alert shows it there, on the alert's server. Back does nothing from its main pages and its lock page, and still closes the pages opened over them. Home also closes a file picker Hearth opened.
+- There's no app list. **Android settings**, under the switch and on the sign-in page, opens Android's settings, which lead to the other apps (Apps) and to Wi-Fi. Notifications and quick settings still pull down from the top.
+- To stop, turn the switch off: Hearth closes and Android goes back to the home app it had. Picking another home app in Android's settings (Apps › Default apps) does the same, and Hearth turns its switch off the next time it opens.
+- If Android won't ask (after **Don't ask again**), the switch opens Android's Default home app page, where you can pick Hearth yourself.
+- An update keeps the choice. The app lock works as usual: the home screen starts locked.
+
 ## How it talks to CasaOS
 
 | Feature | Endpoint |
@@ -164,6 +174,7 @@ CasaOS expects the raw JWT in the `Authorization` header (no `Bearer`). Endpoint
 - Pages in the in-app browser can't read the phone's files or other apps' content (`file:` and `content:` addresses are off).
 - Logins saved by apps in the in-app browser stay in Hearth's private app storage, and Hearth turns off Android backups, so they never leave the phone.
 - Only Android itself can list the servers Hearth puts in the Files app (the provider requires `MANAGE_DOCUMENTS`). Other apps only get the files or folders you pick for them, and links to a folder can't reach outside it (paths with `.` or `..` are refused). The provider is disabled while **Show in Android Files** is off and whenever the app lock is on.
+- The home screen (`HomeActivity`) is disabled while **Use as home screen** is off, so Android can't start it or offer it as a home app. While it's on, it's the same app behind the same locks.
 - The auth token is only sent to the server you signed in to, never to other hosts such as icon CDNs. A unit test covers this.
 
 ## Building
@@ -208,7 +219,8 @@ app/src/main/kotlin/dev/hearth/casaos/
            ServerFinder (finding servers on the Wi-Fi), FileSearch, FileSort, FileDownloader,
            AppLogs, AppLock, Alerts (what each background check should notify about),
            Transfers (runs one download or upload at a time for the whole app),
-           SavedUploads (keeps what other apps save through Android Files until it's uploaded)
+           SavedUploads (keeps what other apps save through Android Files until it's uploaded),
+           Launcher (Hearth as the tablet's home screen, which HomeActivity is)
   alerts/  the background check (WorkManager), its schedule and notifications
   files/   ServerDocumentsProvider: servers in Android's Files app (ServerDocuments holds its testable parts),
            SaveUploadWorker: has Android restart Hearth to finish uploading those saves (WorkManager),

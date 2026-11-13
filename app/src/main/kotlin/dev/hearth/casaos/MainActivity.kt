@@ -4,6 +4,7 @@ import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.SystemBarStyle
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.Crossfade
@@ -67,6 +68,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
@@ -120,14 +122,15 @@ import dev.hearth.casaos.ui.web.WebAppScreen
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
-// A FragmentActivity because the system unlock prompt needs one.
-class MainActivity : FragmentActivity() {
+// A FragmentActivity because the system unlock prompt needs one. Open for HomeActivity, the same app as the home screen.
+open class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val container = (application as HearthApp).container
         // Not again after rotating: the intent is the same, but it was already shown.
         if (savedInstanceState == null) openFrom(intent)
+        val homeScreen = this is HomeActivity
         setContent {
             val theme by container.theme.settings.collectAsStateWithLifecycle()
             val dark = theme.isDark()
@@ -136,8 +139,18 @@ class MainActivity : FragmentActivity() {
                 val style = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT) { dark }
                 enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
             }
-            HearthTheme(theme) { ClearOfCutout { LockGate(container.lock) { Root(container) } } }
+            // Back has nowhere to go from the home screen, and closing it would only make Android start it again.
+            // Pages opened over it still close with Back: their handlers come after this one.
+            if (homeScreen) BackHandler {}
+            HearthTheme(theme) { ClearOfCutout { LockGate(container.lock) { Root(container, homeScreen) } } }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // While Hearth is the home screen, a Hearth opened beside it, such as from a notification, hands over
+        // to it. What it was asked to open is already with the app, for the home screen to show.
+        (application as HearthApp).container.launcher.settle(this)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -158,9 +171,9 @@ class MainActivity : FragmentActivity() {
     }
 }
 
-/** The sign-in page, or the app once signed in. */
+/** The sign-in page, or the app once signed in. [homeScreen]: this is the tablet's home screen. */
 @Composable
-private fun Root(container: AppContainer) {
+private fun Root(container: AppContainer, homeScreen: Boolean) {
     val session by container.session.session.collectAsStateWithLifecycle()
     val profiles by container.session.profiles.collectAsStateWithLifecycle()
     // Kept out here so switching servers stays on the same tab; a fresh sign-in starts at Home.
@@ -179,12 +192,15 @@ private fun Root(container: AppContainer) {
         if (s == null) {
             // Offers to sign in again to the server that was open, if it's still saved.
             val last = remember { container.session.lastProfile }
+            val context = LocalContext.current
             ConnectScreen(
                 viewModel(key = "connect|${last?.id}", factory = viewModelFactory {
                     initializer { ConnectViewModel(container.client, last, container.finder) }
                 }),
                 saved = profiles,
                 onSwitch = { container.session.switchTo(it.id) },
+                // Signed out there's no Settings tab, which is where the home screen is turned off.
+                onAndroidSettings = if (homeScreen) ({ container.launcher.openAndroidSettings(context) }) else null,
             )
         } else {
             MainShell(container, s, profiles, tab) { tab = it }
@@ -393,6 +409,7 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
                                 onOpenSecurity = { securityOpen = true },
                                 tailscale = container.phoneTailscale,
                                 onOpenTailscale = { tailscaleOpen = true },
+                                launcher = container.launcher,
                             )
                         }
                     }

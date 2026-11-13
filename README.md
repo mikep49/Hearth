@@ -40,6 +40,7 @@ Sign in with your server's address (for example `192.168.1.20` or `casaos.local`
 | **Widget** | Your server's stats on the home screen |
 | **Themes** | System, light or dark, pure black, six accent colors, and an Android or One UI style |
 | **Tablets** | A side rail and wider layouts on big screens and in landscape |
+| **Home screen** | Optional: Hearth as the home screen of a tablet kept just for your server |
 
 ![The Appearance page, the Android style, a light theme and a pure black theme](docs/screenshots/themes.png)
 

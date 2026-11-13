@@ -52,6 +52,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
+import dev.hearth.casaos.HomeActivity
 import dev.hearth.casaos.data.AppLock
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.first
@@ -215,7 +216,8 @@ private fun LockScreen(
             awaitCancellation()
         }
     }
-    if (behind == null) BackHandler { activity?.moveTaskToBack(true) } else if (onBack != null) BackHandler(onBack = onBack)
+    // Back leaves a locked Hearth, except as the home screen, which has nowhere to go.
+    if (behind == null) BackHandler { if (activity !is HomeActivity) activity?.moveTaskToBack(true) } else if (onBack != null) BackHandler(onBack = onBack)
 
     // A Surface takes every touch, so nothing underneath can be tapped.
     Surface(Modifier.fillMaxSize().focusRequester(focus).focusable(), color = MaterialTheme.colorScheme.background) {

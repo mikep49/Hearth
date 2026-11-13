@@ -3,8 +3,11 @@ package dev.hearth.casaos.ui.files
 import android.widget.MediaController
 import android.widget.VideoView
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +17,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -48,6 +53,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
@@ -65,11 +71,24 @@ import dev.hearth.casaos.data.Transfer
 import dev.hearth.casaos.data.previewKind
 import dev.hearth.casaos.ui.components.formatBytes
 
-/** A full-screen look at a file on the server: images zoom, text scrolls, video and audio play. */
+/**
+ * A full-screen look at a file on the server: images zoom, text scrolls, video and audio play. Opened on a
+ * photo from [album], swiping sideways moves through the album's photos, and the bar above follows the one
+ * on screen.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FilePreview(entry: FileEntry, viewModel: FilesViewModel, transfer: Transfer?, onClose: () -> Unit) {
-    val kind = previewKind(entry.name) ?: return
+fun FilePreview(
+    entry: FileEntry,
+    viewModel: FilesViewModel,
+    transfer: Transfer?,
+    onClose: () -> Unit,
+    album: List<FileEntry> = emptyList(),
+) {
+    val start = remember(entry.path) { album.indexOfFirst { it.path == entry.path } }
+    val pager = if (start >= 0) rememberPagerState(initialPage = start) { album.size } else null
+    val shown = pager?.let { album.getOrNull(it.currentPage) } ?: entry
+    val kind = previewKind(shown.name) ?: return
     // Media looks best on black; text follows the theme.
     val dark = kind != PreviewKind.Text
     val bg = if (dark) Color.Black else MaterialTheme.colorScheme.background
@@ -87,17 +106,22 @@ fun FilePreview(entry: FileEntry, viewModel: FilesViewModel, transfer: Transfer?
                         navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = fg) } },
                         title = {
                             Column {
-                                Text(entry.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, color = fg)
-                                Text(formatBytes(entry.size), style = MaterialTheme.typography.labelMedium, color = fg.copy(alpha = 0.7f))
+                                Text(shown.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, color = fg)
+                                val size = formatBytes(shown.size)
+                                Text(
+                                    if (pager != null) "${pager.currentPage + 1} of ${album.size} · $size" else size,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = fg.copy(alpha = 0.7f),
+                                )
                             }
                         },
                         actions = {
                             val idle = transfer == null
-                            IconButton(onClick = { viewModel.openWith(entry, share = true) }, enabled = idle) { Icon(Icons.Rounded.Share, "Share", tint = fg) }
-                            IconButton(onClick = { viewModel.openWith(entry, share = false) }, enabled = idle) {
+                            IconButton(onClick = { viewModel.openWith(shown, share = true) }, enabled = idle) { Icon(Icons.Rounded.Share, "Share", tint = fg) }
+                            IconButton(onClick = { viewModel.openWith(shown, share = false) }, enabled = idle) {
                                 Icon(Icons.AutoMirrored.Rounded.OpenInNew, "Open with", tint = fg)
                             }
-                            IconButton(onClick = { viewModel.download(entry) }, enabled = idle) { Icon(Icons.Rounded.Download, "Download", tint = fg) }
+                            IconButton(onClick = { viewModel.download(shown) }, enabled = idle) { Icon(Icons.Rounded.Download, "Download", tint = fg) }
                         },
                         colors = TopAppBarDefaults.topAppBarColors(containerColor = if (dark) Color.Black.copy(alpha = 0.6f) else MaterialTheme.colorScheme.background),
                     )
@@ -110,21 +134,37 @@ fun FilePreview(entry: FileEntry, viewModel: FilesViewModel, transfer: Transfer?
             },
         ) { padding ->
             Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding), Alignment.Center) {
-                when (kind) {
-                    PreviewKind.Image -> ImagePreview(viewModel.fileUrl(entry), entry.name)
-                    PreviewKind.Text -> TextPreview(entry, viewModel)
-                    PreviewKind.Video, PreviewKind.Audio -> MediaPreview(entry, viewModel, fg)
+                if (pager != null) {
+                    // The photo either side is kept ready, so a swipe shows it rather than a blank page.
+                    HorizontalPager(pager, Modifier.fillMaxSize(), beyondViewportPageCount = 1, key = { album.getOrNull(it)?.path ?: it }) { page ->
+                        val photo = album.getOrNull(page) ?: return@HorizontalPager
+                        Box(Modifier.fillMaxSize(), Alignment.Center) {
+                            ImagePreview(viewModel.fileUrl(photo), photo.name, showing = page == pager.currentPage)
+                        }
+                    }
+                } else when (kind) {
+                    PreviewKind.Image -> ImagePreview(viewModel.fileUrl(shown), shown.name)
+                    PreviewKind.Text -> TextPreview(shown, viewModel)
+                    PreviewKind.Video, PreviewKind.Audio -> MediaPreview(shown, viewModel, fg)
                 }
             }
         }
     }
 }
 
+/** A photo that pinch and double-tap zoom. [showing] is false for the album's photos waiting off screen. */
 @Composable
-private fun ImagePreview(url: String, name: String) {
+private fun ImagePreview(url: String, name: String, showing: Boolean = true) {
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
     var failed by remember { mutableStateOf(false) }
+    // A photo swiped away comes back at its normal size.
+    LaunchedEffect(showing) {
+        if (!showing) {
+            scale = 1f
+            offset = Offset.Zero
+        }
+    }
     if (failed) {
         PreviewMessage("Couldn't show this image", "Try Open with… to view it in another app.", Color.White)
         return
@@ -143,9 +183,17 @@ private fun ImagePreview(url: String, name: String) {
                 })
             }
             .pointerInput(Unit) {
-                detectTransformGestures { _, pan, zoom, _ ->
-                    scale = (scale * zoom).coerceIn(1f, 6f)
-                    offset = if (scale == 1f) Offset.Zero else offset + pan
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    do {
+                        val event = awaitPointerEvent()
+                        // One finger on a photo at its normal size is left alone: in an album, it swipes to the next photo.
+                        if (scale > 1f || event.changes.count { it.pressed } > 1) {
+                            scale = (scale * event.calculateZoom()).coerceIn(1f, 6f)
+                            offset = if (scale == 1f) Offset.Zero else offset + event.calculatePan()
+                            event.changes.forEach { if (it.positionChanged()) it.consume() }
+                        }
+                    } while (event.changes.any { it.pressed })
                 }
             }
             .graphicsLayer {

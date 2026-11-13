@@ -32,10 +32,12 @@ private const val PROGRESS_EVERY_MS = 300L
 /**
  * Lists every folder under [root], breadth first so the top of the tree is covered first if the walk is cut short.
  * Folders that can't be read (no permission, vanished) are skipped; a lost connection or session ends the walk.
+ * A folder [descend] turns down is still listed in the result, but nothing inside it is.
  */
 suspend fun walkFolders(
     root: String,
     list: suspend (String) -> FolderListing,
+    descend: (FileEntry) -> Boolean = { true },
     onProgress: (FileIndex) -> Unit = {},
 ): FileIndex = coroutineScope {
     val found = ArrayList<FileEntry>()
@@ -66,7 +68,7 @@ suspend fun walkFolders(
                         break
                     }
                     found += entry
-                    if (entry.isDir) next += entry.path
+                    if (entry.isDir && descend(entry)) next += entry.path
                 }
             }
             if (truncated) break

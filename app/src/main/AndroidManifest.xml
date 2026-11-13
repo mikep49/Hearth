@@ -35,6 +35,23 @@
             </intent-filter>
         </activity>
 
+        <!-- Hearth as the home screen, for a tablet kept just for the server. Off until "Use as home screen" is
+             turned on in Settings, which enables it, so Android doesn't offer Hearth as a home app before then.
+             A task of its own keeps a Hearth opened from its icon or a notification out of the home screen's. -->
+        <activity
+            android:name=".HomeActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:taskAffinity="${applicationId}.home"
+            android:windowSoftInputMode="adjustResize|stateHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
         <!-- Opened only by Hearth's own home screen shortcuts, so other apps can't load pages into it. -->
         <activity
             android:name=".WebAppActivity"

@@ -14,6 +14,7 @@ Hearth is a native app for CasaOS home servers. Check your server, manage your a
 <li><b>Widget:</b> your server's stats on the home screen</li>
 <li><b>Themes:</b> system, light or dark, pure black, six accent colors, and an Android or One UI style</li>
 <li><b>Tablets:</b> a side rail and wider layouts on big screens and in landscape</li>
+<li><b>Home screen:</b> optional, Hearth as the home screen of a tablet kept just for your server</li>
 </ul>
 
 Sign in with your server's address (for example 192.168.1.20 or casaos.local) and the same login you use for the CasaOS dashboard.

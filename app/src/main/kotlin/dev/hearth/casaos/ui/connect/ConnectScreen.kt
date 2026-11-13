@@ -183,6 +183,8 @@ fun ConnectScreen(
     saved: List<ServerProfile> = emptyList(),
     onSwitch: (ServerProfile) -> Unit = {},
     onClose: (() -> Unit)? = null,
+    /** Set while Hearth is the home screen, when nothing else on the tablet leads to Android's settings. */
+    onAndroidSettings: (() -> Unit)? = null,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val adding = onClose != null
@@ -343,6 +345,10 @@ fun ConnectScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 8.dp),
             )
+            if (onAndroidSettings != null) {
+                Spacer(Modifier.height(8.dp))
+                TextButton(onClick = onAndroidSettings) { Text("Android settings") }
+            }
             Spacer(Modifier.height(24.dp))
         }
     } }

@@ -48,6 +48,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -170,16 +174,37 @@ fun CustomizeHomeScreen(
     // A drag outlives the layout it started with, so it moves widgets in whatever the layout is by then.
     val latest by rememberUpdatedState(layout)
     val change by rememberUpdatedState(onChange)
+    val changeOwn by rememberUpdatedState(onOwnLayout)
 
     BackHandler(onBack = onClose)
 
     val grid = rememberLazyGridState()
     val scope = rememberCoroutineScope()
+
+    // Reset, and turning off this server's own layout, each lose an arrangement in one tap, so the message
+    // after them offers to put it back. Closing the page ends the offer.
+    val snackbar = remember { SnackbarHostState() }
+    fun offerUndo(message: String, undo: () -> Unit) {
+        // Undispatched, so the message is up before anything else can be changed, and [edit] can close it.
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            // A newer change takes the place of the last one's offer.
+            snackbar.currentSnackbarData?.dismiss()
+            val result = snackbar.showSnackbar(message, actionLabel = "Undo", withDismissAction = true, duration = SnackbarDuration.Long)
+            if (result == SnackbarResult.ActionPerformed) undo()
+        }
+    }
+
+    /** Any other change ends the offer, so Undo never takes back more than its message says. */
+    fun edit(next: HomeLayout) {
+        snackbar.currentSnackbarData?.dismiss()
+        change(next)
+    }
+
     val drag = remember(grid, scope) {
         WidgetDrag(grid, scope) { widget, target ->
             // The grid follows its first visible row when that row moves, which would scroll the page mid-drag.
             grid.requestScrollToItem(grid.firstVisibleItemIndex, grid.firstVisibleItemScrollOffset)
-            change(latest.moved(widget, target))
+            edit(latest.moved(widget, target))
             haptic.performHapticFeedback(HapticFeedbackType.SegmentTick)
         }
     }
@@ -188,12 +213,20 @@ fun CustomizeHomeScreen(
     Scaffold(
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = MaterialTheme.colorScheme.background,
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 navigationIcon = { BackButton(onClose) },
                 title = { Text("Customize Home") },
                 actions = {
-                    TextButton(onClick = { onChange(HomeLayout.Default) }, enabled = layout != HomeLayout.Default) { Text("Reset") }
+                    TextButton(
+                        onClick = {
+                            val before = layout
+                            change(HomeLayout.Default)
+                            offerUndo("Layout reset") { change(before) }
+                        },
+                        enabled = layout != HomeLayout.Default,
+                    ) { Text("Reset") }
                 },
                 colors = hearthTopBarColors(),
                 scrollBehavior = scrollBehavior,
@@ -229,7 +262,17 @@ fun CustomizeHomeScreen(
                             SwitchRow(
                                 "Own layout for this server",
                                 checked = ownLayout,
-                                onCheckedChange = onOwnLayout,
+                                onCheckedChange = { own ->
+                                    if (own) {
+                                        snackbar.currentSnackbarData?.dismiss()
+                                        changeOwn(true)
+                                    } else {
+                                        val mine = layout
+                                        changeOwn(false)
+                                        // Turning it on again would start from the shared layout, so Undo brings this one back.
+                                        offerUndo("Removed this server's own layout") { changeOwn(true); change(mine) }
+                                    }
+                                },
                                 subtitle = if (ownLayout) "Only $serverLabel shows this layout" else "Using the layout your servers share",
                                 icon = Icons.Rounded.Dns,
                             )
@@ -250,11 +293,11 @@ fun CustomizeHomeScreen(
                             layout.sizeOf(widget),
                             lifted,
                             onResize = {
-                                onChange(layout.resized(widget, layout.nextSize(widget)))
+                                edit(layout.resized(widget, layout.nextSize(widget)))
                                 haptic.performHapticFeedback(HapticFeedbackType.SegmentTick)
                             },
-                            onRemove = { onChange(layout.removing(widget)) },
-                            onShift = { by -> onChange(layout.shifted(widget, by)) },
+                            onRemove = { edit(layout.removing(widget)) },
+                            onShift = { by -> edit(layout.shifted(widget, by)) },
                             first = widget == shown.first(),
                             last = widget == shown.last(),
                         )
@@ -272,7 +315,7 @@ fun CustomizeHomeScreen(
                             icon = widget.icon,
                             shape = RoundedCornerShape(CardRadius),
                             trailing = { Icon(Icons.Rounded.AddCircleOutline, null, Modifier.padding(end = 8.dp), tint = MaterialTheme.colorScheme.primary) },
-                            onClick = { onChange(layout.adding(widget)) },
+                            onClick = { edit(layout.adding(widget)) },
                         )
                     }
                 }

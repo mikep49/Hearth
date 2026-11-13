@@ -3,6 +3,8 @@ package dev.hearth.casaos.data
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -11,6 +13,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.longOrNull
+import java.net.InetAddress
 import java.time.Instant
 
 /** One machine on the tailnet, as the server's Tailscale reports it. */
@@ -230,6 +233,20 @@ fun serverRoute(host: String, resolved: List<String> = emptyList()): ServerRoute
         name.endsWith(".local") || all.any(::isPrivateAddress) -> ServerRoute.LocalNetwork
         else -> ServerRoute.Other
     }
+}
+
+/**
+ * [serverRoute], looking [host] up first when it's a name that doesn't say by itself, such as "casaos" or
+ * "nas.lan". The lookup runs off the main thread; if it fails, the route is worked out from the name alone.
+ */
+suspend fun lookUpServerRoute(
+    host: String,
+    lookUp: (String) -> List<String> = { name -> InetAddress.getAllByName(name).mapNotNull { it.hostAddress } },
+): ServerRoute {
+    val route = serverRoute(host)
+    if (route != ServerRoute.Other || isIpAddress(host)) return route
+    val resolved = withContext(Dispatchers.IO) { runCatching { lookUp(host) }.getOrDefault(emptyList()) }
+    return serverRoute(host, resolved)
 }
 
 /** Whether [host] is an address already, so there's nothing to look up. */

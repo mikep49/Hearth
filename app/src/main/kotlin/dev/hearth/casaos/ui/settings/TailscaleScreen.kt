@@ -57,7 +57,7 @@ import dev.hearth.casaos.data.TailscaleDevice
 import dev.hearth.casaos.data.TailscalePath
 import dev.hearth.casaos.data.TailscaleSource
 import dev.hearth.casaos.data.TailscaleStatus
-import dev.hearth.casaos.data.isIpAddress
+import dev.hearth.casaos.data.lookUpServerRoute
 import dev.hearth.casaos.data.serverRoute
 import dev.hearth.casaos.ui.components.BackButton
 import dev.hearth.casaos.ui.components.CardPadding
@@ -73,7 +73,6 @@ import dev.hearth.casaos.ui.components.formatBytes
 import dev.hearth.casaos.ui.components.hearthTopBarColors
 import dev.hearth.casaos.ui.components.readableWidth
 import dev.hearth.casaos.ui.theme.hearth
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -81,8 +80,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.net.InetAddress
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -134,11 +131,9 @@ class TailscaleViewModel(
             }
         }
         // A name such as "casaos" doesn't say how it's reached until it's looked up.
-        if (!isIpAddress(host) && _state.value.route == ServerRoute.Other) launch {
-            val resolved = withContext(Dispatchers.IO) {
-                runCatching { InetAddress.getAllByName(host).mapNotNull { it.hostAddress } }.getOrDefault(emptyList())
-            }
-            _state.update { it.copy(route = serverRoute(host, resolved)) }
+        if (_state.value.route == ServerRoute.Other) launch {
+            val route = lookUpServerRoute(host)
+            _state.update { it.copy(route = route) }
         }
         launch { pollServer() }
     }

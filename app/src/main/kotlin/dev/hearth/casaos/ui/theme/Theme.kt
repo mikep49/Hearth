@@ -158,8 +158,10 @@ private val LightBase = lightColorScheme(
 
 // Secondary containers back the nav-bar indicator, selected chips and tonal buttons: tint them with the
 // accent so switching palette recolors the whole app, not just the primary buttons.
-private fun ColorScheme.withAccent(a: Accent) = copy(
+/** [inverse] is the accent of the other mode, for buttons on surfaces drawn the other way round, such as a snackbar's. */
+private fun ColorScheme.withAccent(a: Accent, inverse: Accent) = copy(
     primary = a.primary,
+    inversePrimary = inverse.primary,
     onPrimary = a.onPrimary,
     primaryContainer = a.container,
     onPrimaryContainer = a.onContainer,
@@ -244,7 +246,8 @@ fun hearthColorScheme(context: Context, settings: ThemeSettings, dark: Boolean):
     var scheme = if (settings.palette == Palette.Wallpaper && Palette.dynamicSupported) {
         if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
     } else {
-        if (dark) DarkBase.withAccent(settings.palette.dark) else LightBase.withAccent(settings.palette.light)
+        val p = settings.palette
+        if (dark) DarkBase.withAccent(p.dark, inverse = p.light) else LightBase.withAccent(p.light, inverse = p.dark)
     }
     if (dark && settings.pureBlack) scheme = scheme.pureBlack()
     return scheme

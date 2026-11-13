@@ -63,6 +63,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -85,6 +86,7 @@ import dev.hearth.casaos.data.AppUsageSource
 import dev.hearth.casaos.data.TailscaleSource
 import dev.hearth.casaos.data.ServerProfile
 import dev.hearth.casaos.data.Session
+import dev.hearth.casaos.data.lookUpServerRoute
 import dev.hearth.casaos.data.serverRoute
 import dev.hearth.casaos.ui.apps.AppLogsScreen
 import dev.hearth.casaos.ui.apps.AppLogsViewModel
@@ -232,6 +234,10 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
     val key = session.id
     val client = remember(session.id) { container.clientFor(session.id) }
     val label = session.label
+    // How Hearth reaches the server, for the icon on Home's connection bar. A name such as "casaos" is looked up
+    // first, off the main thread, as the Tailscale page does; until then, and if that fails, the name decides.
+    val host = remember(session.baseUrl) { session.baseUrl.toHttpUrl().host }
+    val route by produceState(serverRoute(host), host) { value = lookUpServerRoute(host) }
     // The server switcher, and the "Add a server" page (with a saved server to sign in to again, if any).
     var serversOpen by rememberSaveable { mutableStateOf(false) }
     var adding by rememberSaveable { mutableStateOf(false) }
@@ -348,7 +354,6 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
                         Tab.Dashboard -> {
                             val vm: DashboardViewModel = viewModel(key = "dash$key", factory = dashboardFactory)
                             WhileVisible { vm.poll() }
-                            val route = remember(session.baseUrl) { serverRoute(session.baseUrl.toHttpUrl().host) }
                             DashboardScreen(
                                 vm, nickname.trim().ifBlank { session.username }, label, route, homeLayout,
                                 onOpenServers = { serversOpen = true },

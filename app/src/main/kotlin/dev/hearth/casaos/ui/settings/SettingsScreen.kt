@@ -53,7 +53,7 @@ import dev.hearth.casaos.data.CasaClient
 import dev.hearth.casaos.data.Launcher
 import dev.hearth.casaos.data.LockAfter
 import dev.hearth.casaos.data.CasaException
-import dev.hearth.casaos.data.HomeWidget
+import dev.hearth.casaos.data.HomeLayout
 import dev.hearth.casaos.data.OpenAppsIn
 import dev.hearth.casaos.data.PhoneTailscaleReader
 import dev.hearth.casaos.data.PowerAction
@@ -104,10 +104,8 @@ class SettingsViewModel(
     /** How each home screen widget is set up, by app widget id. */
     val widgetOptions: StateFlow<Map<Int, WidgetOptions>> = widgetOptions.options
 
-    /** What Home shows, in order. */
-    val homeWidgets: StateFlow<List<HomeWidget>> = prefs.homeWidgets
-
-    fun setHomeWidgets(value: List<HomeWidget>) = prefs.setHomeWidgets(value)
+    /** What Home shows, in order, and at what size. */
+    val homeLayout: StateFlow<HomeLayout> = prefs.homeLayout
 
     val openAppsIn: StateFlow<OpenAppsIn> = prefs.openAppsIn
 

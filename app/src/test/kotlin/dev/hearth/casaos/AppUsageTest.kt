@@ -85,7 +85,7 @@ class AppUsageParsingTest {
         val immich = grouped[0]
         assertEquals("Immich", immich.name)
         assertEquals("https://icons/immich.png", immich.iconUrl)
-        assertEquals(2, immich.containers)
+        assertEquals("its containers, busiest first", listOf("immich-server", "immich-postgres"), immich.containers.map { it.name })
         assertEquals(180.25, immich.cpuPercent, 1e-9)
         assertEquals(1536L * 1024 * 1024 + 256L * 1024 * 1024, immich.memBytes)
         assertEquals("a container from outside CasaOS keeps its own name", "portainer", grouped[3].name)
@@ -102,7 +102,7 @@ class AppUsageParsingTest {
     }
 
     @Test fun `a failed reading keeps the last list, but sign-in problems replace it`() {
-        val ready = AppsUsageState.Ready(listOf(AppUsage("a", "A", null, 1.0, 1, 1)))
+        val ready = AppsUsageState.Ready(listOf(AppUsage("a", "A", null, 1.0, 1, emptyList())))
         val stale = ready.failed(UsageUnavailable("Connection lost"))
         assertEquals(AppsUsageState.Ready(ready.apps, "Connection lost"), stale)
         val signIn = ready.failed(UsageUnavailable("Sign in", needsSignIn = true))

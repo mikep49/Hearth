@@ -24,7 +24,9 @@ Hearth runs on Android 10 or later, phones and tablets.
 - Live CPU, memory and storage gauges, CPU history and network throughput. They update every 2.5 s, and only while the screen is visible.
 - The dot beside the server name is green while the server answers and red when it can't be reached. Tap the name to switch servers.
 - The **Storage** card lists each drive: its model, type (HDD, SSD or USB), size and temperature, whether its SMART self-check passes, and how full each of its volumes is. It refreshes every minute, since CasaOS checks every drive to answer. CasaOS reports a drive it can't check (for example when `smartctl` isn't installed) as passing, so "Healthy" means no failure was reported. USB drives and the system drive have no health badge. On servers without this information, Home shows the storage total instead.
-- The **Apps** card shows CPU and memory per app, busiest first, sorted by CPU or memory. CasaOS only reports whole-server totals, so this card reads `docker stats` over SSH. It needs you to sign in once on the Terminal tab, with an SSH key or with **Remember password** on. If your account isn't in the `docker` group, it runs the command with `sudo`. With a key there's no password to give `sudo`, so that only works if `sudo` doesn't ask for one; otherwise add your account to the `docker` group. While the card is collapsed, Hearth doesn't poll it and closes its SSH connection.
+- The **Processor** graph covers the last two minutes. Its scale follows the load, so a quiet server isn't a flat line: the top of the graph is 5%, 10%, 20%, 50% or 100%, whichever is the smallest that fits the highest reading with some room to spare, and it's written beside the graph. Below 10% the figure above the graph keeps one decimal.
+- Tap the Processor card to open the **Task manager**: the same graph over the last five minutes with the average and the peak, memory, and every app's CPU and memory, busiest first. Tap a column title to sort by app name, CPU or memory. An app with several containers opens to show each one.
+- CasaOS only reports whole-server totals, so the Task manager reads each app's use from `docker stats` over SSH. It needs you to sign in once on the Terminal tab, with an SSH key or with **Remember password** on. If your account isn't in the `docker` group, it runs the command with `sudo`. With a key there's no password to give `sudo`, so that only works if `sudo` doesn't ask for one; otherwise add your account to the `docker` group. Hearth only reads this while the Task manager is open, and closes its SSH connection when you leave it.
 
 ### Apps
 
@@ -116,7 +118,7 @@ Hearth runs on Android 10 or later, phones and tablets.
 ### Tablets and landscape
 
 - On screens 600dp wide or more (tablets, and phones turned on their side) the tabs move from the bottom bar to a rail down the side. In the One UI style the pill moves there instead, standing on its end.
-- From 840dp, Home puts the Apps card in a second column beside the server's stats.
+- From 840dp, Home puts memory and storage in a second column beside the gauges and graphs.
 - Apps and the App Store show two or three cards per row when there's room. Files, Settings and the forms stay in a centred column no wider than 720dp. Logs, the terminal and web pages use the full width.
 - Content keeps clear of a camera cutout at the side of the screen.
 

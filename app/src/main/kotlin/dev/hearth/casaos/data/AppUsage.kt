@@ -17,7 +17,8 @@ data class AppUsage(
     /** 100 means one full core, like Docker; divide by the core count for a share of the whole server. */
     val cpuPercent: Double,
     val memBytes: Long,
-    val containers: Int,
+    /** The containers this is the sum of, busiest first. */
+    val containers: List<ContainerUsage>,
 )
 
 /** Why per-app usage can't be shown. [needsSignIn] means the fix is signing in on the Terminal tab. */
@@ -172,7 +173,7 @@ fun groupUsage(containers: List<ContainerUsage>, apps: List<InstalledApp>): List
                 iconUrl = app?.iconUrl,
                 cpuPercent = list.sumOf { it.cpuPercent },
                 memBytes = list.sumOf { it.memBytes },
-                containers = list.size,
+                containers = list.sortedByDescending { it.cpuPercent },
             )
         }
         .sortedByDescending { it.cpuPercent }

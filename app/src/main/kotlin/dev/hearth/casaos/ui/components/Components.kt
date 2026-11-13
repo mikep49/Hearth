@@ -458,28 +458,34 @@ fun RingGauge(
     Box(modifier.size(size).then(ring), contentAlignment = Alignment.Center, content = content)
 }
 
-/** Filled line chart for a rolling window of samples. [max] pins the scale (e.g. 1f for percentages). */
+/**
+ * Filled line chart for a rolling window of samples. [max] pins the scale (e.g. 1f for percentages).
+ * With [slots], the chart is that many samples wide and fills from the right, so the time one step
+ * stands for doesn't change while the first samples come in.
+ */
 @Composable
 fun Sparkline(
     values: List<Float>,
     color: Color,
     modifier: Modifier = Modifier,
     max: Float? = null,
+    slots: Int? = null,
 ) {
     // Paths are rebuilt only when the samples or size change, not on every frame the screen scrolls.
     Spacer(
         modifier.drawWithCache {
             if (values.size < 2) return@drawWithCache onDrawBehind {}
             val top = max ?: (values.max().coerceAtLeast(1f) * 1.15f)
-            val stepX = size.width / (values.size - 1)
+            val stepX = size.width / (maxOf(slots ?: 0, values.size) - 1)
+            val startX = size.width - (values.size - 1) * stepX
             fun y(v: Float) = size.height - (v / top).coerceIn(0f, 1f) * (size.height - 4.dp.toPx()) - 2.dp.toPx()
 
             val line = Path().apply {
-                moveTo(0f, y(values[0]))
+                moveTo(startX, y(values[0]))
                 for (i in 1 until values.size) {
                     // Smooth the polyline with midpoint cubic segments.
-                    val x0 = (i - 1) * stepX
-                    val x1 = i * stepX
+                    val x0 = startX + (i - 1) * stepX
+                    val x1 = startX + i * stepX
                     val mid = (x0 + x1) / 2
                     cubicTo(mid, y(values[i - 1]), mid, y(values[i]), x1, y(values[i]))
                 }
@@ -487,7 +493,7 @@ fun Sparkline(
             val fill = Path().apply {
                 addPath(line)
                 lineTo(size.width, size.height)
-                lineTo(0f, size.height)
+                lineTo(startX, size.height)
                 close()
             }
             val fillBrush = Brush.verticalGradient(listOf(color.copy(alpha = 0.28f), Color.Transparent))

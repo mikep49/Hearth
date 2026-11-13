@@ -43,7 +43,7 @@ import dev.hearth.casaos.ui.components.readableWidth
 @Composable
 fun AppearanceScreen(viewModel: SettingsViewModel, onClose: () -> Unit, onCustomizeHome: () -> Unit, modifier: Modifier = Modifier) {
     val theme by viewModel.theme.collectAsStateWithLifecycle()
-    val homeWidgets by viewModel.homeWidgets.collectAsStateWithLifecycle()
+    val homeLayout by viewModel.homeLayout.collectAsStateWithLifecycle()
     val nickname by viewModel.nickname.collectAsStateWithLifecycle()
     val focus = LocalFocusManager.current
 
@@ -89,7 +89,7 @@ fun AppearanceScreen(viewModel: SettingsViewModel, onClose: () -> Unit, onCustom
                 )
             }
             AppearanceSection(theme, viewModel::setTheme)
-            CustomizeHomeRow(homeWidgets, onCustomizeHome)
+            CustomizeHomeRow(homeLayout.widgets, onCustomizeHome)
         }
     }
 }

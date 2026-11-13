@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,20 +21,26 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.CloudOff
+import androidx.compose.material.icons.rounded.DashboardCustomize
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.VpnLock
 import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
@@ -52,6 +57,8 @@ import dev.hearth.casaos.data.CasaException
 import dev.hearth.casaos.data.ContainerUsage
 import dev.hearth.casaos.data.DiskStats
 import dev.hearth.casaos.data.Drive
+import dev.hearth.casaos.data.HomeLayout
+import dev.hearth.casaos.data.HomeSize
 import dev.hearth.casaos.data.HomeWidget
 import dev.hearth.casaos.data.InstalledApp
 import dev.hearth.casaos.data.ServerRoute
@@ -231,8 +238,8 @@ class DashboardViewModel(
 }
 
 /**
- * [route] is how Hearth reaches the server, which picks the icon beside its address. [widgets] is what the
- * page shows under that, in order, as arranged in Settings › Appearance.
+ * [route] is how Hearth reaches the server, which picks the icon beside its address. [layout] is what the
+ * page shows under that, in order and at what size, as arranged in Customize Home, which [onCustomize] opens.
  */
 @Composable
 fun DashboardScreen(
@@ -240,11 +247,27 @@ fun DashboardScreen(
     username: String,
     serverLabel: String,
     route: ServerRoute,
-    widgets: List<HomeWidget>,
+    layout: HomeLayout,
     onOpenServers: () -> Unit,
     onOpenTaskManager: () -> Unit,
+    onCustomize: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    HomeContent(state, username, serverLabel, route, layout, onOpenServers, onOpenTaskManager, onCustomize)
+}
+
+/** Home for the readings in [state]. */
+@Composable
+internal fun HomeContent(
+    state: DashboardState,
+    username: String,
+    serverLabel: String,
+    route: ServerRoute,
+    layout: HomeLayout,
+    onOpenServers: () -> Unit,
+    onOpenTaskManager: () -> Unit,
+    onCustomize: () -> Unit,
+) {
     val stats = state.stats
     // Read again with each reading, so a Hearth left open all day, as a tablet's home screen is, keeps up with the clock.
     val hello = greeting(Calendar.getInstance().get(Calendar.HOUR_OF_DAY))
@@ -282,43 +305,96 @@ fun DashboardScreen(
 
             val drives = state.drives.orEmpty()
             // A widget this server has no reading for is left out, and the ones around it close up.
-            val sections = homeSections(widgets.filter { it.hasReading(stats, drives) })
-            if (sections.isEmpty()) {
-                Text(
-                    "Nothing is on Home. Add widgets in Settings › Appearance › Customize Home.",
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 32.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                )
+            val shown = layout.only { it.hasReading(stats, drives) }
+            if (shown.widgets.isEmpty()) {
+                NothingOnHome(nothingChosen = layout.widgets.isEmpty(), onCustomize)
+                return@Column
             }
-            val card: @Composable (HomeWidget) -> Unit = { widget ->
-                when (widget) {
-                    HomeWidget.ProcessorGraph -> CpuCard(stats, state.cpuHistory, onOpenTaskManager)
-                    HomeWidget.Network -> NetworkCard(state)
-                    HomeWidget.MemoryBar -> MemoryCard(stats)
-                    HomeWidget.Drives -> if (drives.isNotEmpty()) StorageCard(drives, stats.disk) else stats.disk?.let { StorageTotalCard(it) }
-                    else -> Unit // tiles are drawn by StatTiles
-                }
+            val widget: @Composable (HomeWidget, HomeSize, Modifier) -> Unit = { widget, size, modifier ->
+                HomeWidgetView(widget, size, state, stats, drives, onOpenTaskManager, modifier)
             }
-            sections.forEach { section ->
+            homeSections(shown).forEach { section ->
                 when {
-                    section.tiles -> StatTiles(stats, section.widgets, onOpenTaskManager)
+                    section.tiles -> TileRows(section.widgets, widget)
                     // Side by side: the first half of the cards down the left, the rest down the right.
                     twoColumns && section.widgets.size > 1 -> Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         val left = (section.widgets.size + 1) / 2
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                            section.widgets.take(left).forEach { card(it) }
+                            section.widgets.take(left).forEach { widget(it, shown.sizeOf(it), Modifier.fillMaxWidth()) }
                         }
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                            section.widgets.drop(left).forEach { card(it) }
+                            section.widgets.drop(left).forEach { widget(it, shown.sizeOf(it), Modifier.fillMaxWidth()) }
                         }
                     }
-                    else -> section.widgets.forEach { card(it) }
+                    else -> section.widgets.forEach { widget(it, shown.sizeOf(it), Modifier.fillMaxWidth()) }
                 }
             }
-            Spacer(Modifier.height(8.dp))
+            TextButton(onClick = onCustomize, Modifier.align(Alignment.CenterHorizontally)) {
+                Icon(Icons.Rounded.DashboardCustomize, null, Modifier.size(18.dp))
+                Text("Customize Home", Modifier.padding(start = 8.dp))
+            }
         }
+    }
+}
+
+/** Home with no widgets to show: either none were chosen, or the server has no reading for the ones that were. */
+@Composable
+private fun NothingOnHome(nothingChosen: Boolean, onCustomize: () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Text(
+            if (nothingChosen) "Nothing is on Home yet." else "This server has no readings for the widgets on Home.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+        FilledTonalButton(onClick = onCustomize) {
+            Icon(Icons.Rounded.DashboardCustomize, null, Modifier.size(18.dp))
+            Text("Add widgets", Modifier.padding(start = 8.dp))
+        }
+    }
+}
+
+/** One of Home's widgets at [size], in the space [modifier] gives it. */
+@Composable
+private fun HomeWidgetView(
+    widget: HomeWidget,
+    size: HomeSize,
+    state: DashboardState,
+    stats: SystemStats,
+    drives: List<Drive>,
+    onOpenTaskManager: () -> Unit,
+    modifier: Modifier,
+) {
+    val c = MaterialTheme.hearth
+    val small = size == HomeSize.Small
+    when (widget) {
+        HomeWidget.CpuTile -> UsageWidget(
+            small, "CPU", cpuName(stats.cpuModel), formatCpuTotal(stats.cpuPercent), stats.cpuPercent, c.cpu, modifier,
+            caption = if (stats.cpuCores > 0) "${stats.cpuCores} cores" else null,
+            onClick = onOpenTaskManager,
+        )
+        HomeWidget.TemperatureTile -> stats.cpuTempC?.let { TemperatureWidget(small, it, modifier) }
+        HomeWidget.MemoryTile -> UsageWidget(
+            small, "Memory", "${formatBytes(stats.memUsed)} of ${formatBytes(stats.memTotal)}",
+            "${stats.memPercent.toInt()}%", stats.memPercent, c.memory, modifier,
+        )
+        HomeWidget.StorageTile -> stats.disk?.let { disk ->
+            UsageWidget(
+                small, "Storage", "${formatBytes(disk.usedBytes)} of ${formatBytes(disk.totalBytes)}",
+                "${disk.percent.toInt()}%", disk.percent, c.storage, modifier,
+            )
+        }
+        HomeWidget.ProcessorGraph ->
+            if (small) CpuTile(stats, state.cpuHistory, onOpenTaskManager, modifier)
+            else CpuCard(stats, state.cpuHistory, tall = size == HomeSize.Large, onOpenTaskManager, modifier)
+        HomeWidget.Network ->
+            if (small) NetworkTile(state, modifier) else NetworkCard(state, stacked = size == HomeSize.Large, modifier)
+        HomeWidget.MemoryBar -> MemoryCard(stats, modifier)
+        HomeWidget.Drives -> if (drives.isNotEmpty()) StorageCard(drives, stats.disk, modifier) else stats.disk?.let { StorageTotalCard(it, modifier) }
     }
 }
 
@@ -398,13 +474,32 @@ private fun ConnectionBar(address: String, route: ServerRoute, link: Link, onOpe
     }
 }
 
-/** Tapping it opens the Task manager, which has the same graph over a longer time and what each app uses. */
+/**
+ * Tapping it opens the Task manager, which has the same graph over a longer time and what each app uses.
+ * A [tall] one gives the graph more than twice the height, and a label on its middle line.
+ */
 @Composable
-private fun CpuCard(stats: SystemStats, history: List<Float>, onOpenTaskManager: () -> Unit) {
-    HearthCard(Modifier.fillMaxWidth(), onClick = onOpenTaskManager) {
+private fun CpuCard(stats: SystemStats, history: List<Float>, tall: Boolean, onOpenTaskManager: () -> Unit, modifier: Modifier) {
+    HearthCard(modifier, onClick = onOpenTaskManager) {
         Column(Modifier.padding(start = 20.dp, top = 20.dp, end = 12.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             ProcessorHeader(stats) { Chevron() }
-            UsageChart(history, HOME_HISTORY, MaterialTheme.hearth.cpu, Modifier.fillMaxWidth().padding(end = 8.dp).height(80.dp))
+            UsageChart(
+                history, HOME_HISTORY, MaterialTheme.hearth.cpu,
+                Modifier.fillMaxWidth().padding(end = 8.dp).height(if (tall) 184.dp else 80.dp),
+                labelMiddle = tall,
+            )
+        }
+    }
+}
+
+/** The processor graph as a small tile: the load now, over as much of the graph as fits. */
+@Composable
+private fun CpuTile(stats: SystemStats, history: List<Float>, onOpenTaskManager: () -> Unit, modifier: Modifier) {
+    HearthCard(modifier, onClick = onOpenTaskManager) {
+        Column(Modifier.weight(1f).fillMaxWidth().padding(TilePadding)) {
+            SectionLabel("Processor")
+            Text(formatCpuTotal(stats.cpuPercent), Modifier.padding(top = 2.dp), style = MaterialTheme.typography.headlineMedium, maxLines = 1)
+            UsageChart(history, HOME_HISTORY, MaterialTheme.hearth.cpu, Modifier.fillMaxWidth().weight(1f).padding(top = 8.dp).heightIn(min = 56.dp))
         }
     }
 }
@@ -433,15 +528,21 @@ internal fun ProcessorHeader(stats: SystemStats, trailing: @Composable () -> Uni
     }
 }
 
+/** Download and upload side by side, or [stacked] one over the other with a taller, wider graph each. */
 @Composable
-private fun NetworkCard(state: DashboardState) {
+private fun NetworkCard(state: DashboardState, stacked: Boolean, modifier: Modifier) {
     val c = MaterialTheme.hearth
-    HearthCard(Modifier.fillMaxWidth()) {
+    HearthCard(modifier) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             SectionLabel("Network")
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                RateColumn("Download", state.rxRate, state.rxHistory, c.download, Icons.Rounded.ArrowDownward, Modifier.weight(1f))
-                RateColumn("Upload", state.txRate, state.txHistory, c.upload, Icons.Rounded.ArrowUpward, Modifier.weight(1f))
+            if (stacked) {
+                RateColumn("Download", state.rxRate, state.rxHistory, c.download, Icons.Rounded.ArrowDownward, Modifier.fillMaxWidth(), graph = 64.dp)
+                RateColumn("Upload", state.txRate, state.txHistory, c.upload, Icons.Rounded.ArrowUpward, Modifier.fillMaxWidth(), graph = 64.dp)
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    RateColumn("Download", state.rxRate, state.rxHistory, c.download, Icons.Rounded.ArrowDownward, Modifier.weight(1f))
+                    RateColumn("Upload", state.txRate, state.txHistory, c.upload, Icons.Rounded.ArrowUpward, Modifier.weight(1f))
+                }
             }
         }
     }
@@ -453,8 +554,9 @@ private fun RateColumn(
     rate: Long,
     history: List<Float>,
     color: Color,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     modifier: Modifier,
+    graph: Dp = 44.dp,
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -462,7 +564,35 @@ private fun RateColumn(
             Text(label, Modifier.padding(start = 4.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Text(formatRate(rate), style = MaterialTheme.typography.titleLarge)
-        Sparkline(history, color, Modifier.fillMaxWidth().height(44.dp), slots = HOME_HISTORY)
+        Sparkline(history, color, Modifier.fillMaxWidth().height(graph), slots = HOME_HISTORY)
+    }
+}
+
+/** The network as a small tile: the two speeds, each over its graph. */
+@Composable
+private fun NetworkTile(state: DashboardState, modifier: Modifier) {
+    val c = MaterialTheme.hearth
+    val described = modifier.clearAndSetSemantics {
+        contentDescription = "Network, download ${formatRate(state.rxRate)}, upload ${formatRate(state.txRate)}"
+    }
+    HearthCard(described) {
+        Column(Modifier.weight(1f).fillMaxWidth().padding(TilePadding), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            SectionLabel("Network")
+            TileRate(state.rxRate, state.rxHistory, c.download, Icons.Rounded.ArrowDownward)
+            TileRate(state.txRate, state.txHistory, c.upload, Icons.Rounded.ArrowUpward)
+        }
+    }
+}
+
+/** One direction on the small network tile, taking half of what's left of its height. */
+@Composable
+private fun ColumnScope.TileRate(rate: Long, history: List<Float>, color: Color, icon: ImageVector) {
+    Column(Modifier.weight(1f).fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null, Modifier.size(16.dp), tint = color)
+            Text(formatRate(rate), Modifier.padding(start = 4.dp), style = MaterialTheme.typography.titleMedium, maxLines = 1)
+        }
+        Sparkline(history, color, Modifier.fillMaxWidth().weight(1f).padding(top = 2.dp).heightIn(min = 16.dp), slots = HOME_HISTORY)
     }
 }
 
@@ -483,8 +613,8 @@ internal fun MetricValue(value: String, unit: String? = null) {
 }
 
 @Composable
-private fun MemoryCard(stats: SystemStats) {
-    HearthCard(Modifier.fillMaxWidth()) {
+private fun MemoryCard(stats: SystemStats, modifier: Modifier) {
+    HearthCard(modifier) {
         Column(Modifier.padding(CardPadding)) {
             UsedOf("Memory", stats.memUsed, stats.memTotal, MaterialTheme.hearth.memory, "${stats.memPercent.toInt()}% used")
         }
@@ -493,8 +623,8 @@ private fun MemoryCard(stats: SystemStats) {
 
 /** The Drives widget on servers that can't list each drive: the system disk's total. */
 @Composable
-private fun StorageTotalCard(disk: DiskStats) {
-    HearthCard(Modifier.fillMaxWidth()) {
+private fun StorageTotalCard(disk: DiskStats, modifier: Modifier) {
+    HearthCard(modifier) {
         Column(Modifier.padding(CardPadding)) {
             UsedOf("Storage", disk.usedBytes, disk.totalBytes, MaterialTheme.hearth.storage, "${disk.percent.toInt()}% used")
         }

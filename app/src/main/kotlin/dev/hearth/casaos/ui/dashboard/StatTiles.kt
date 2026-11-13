@@ -27,16 +27,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.hearth.casaos.data.HomeSize
 import dev.hearth.casaos.data.HomeWidget
-import dev.hearth.casaos.data.SystemStats
+import dev.hearth.casaos.data.tileRows
 import dev.hearth.casaos.ui.components.HearthCard
 import dev.hearth.casaos.ui.components.RingGauge
 import dev.hearth.casaos.ui.components.SectionLabel
-import dev.hearth.casaos.ui.components.formatBytes
 import dev.hearth.casaos.ui.theme.hearth
 
 private val TileGap = 12.dp
-private val TilePadding = 16.dp
+internal val TilePadding = 16.dp
+
+/** The padding at the sides of a medium widget, the same as the cards it sits among. */
+private val StripPadding = 20.dp
 
 /** From this width the tiles go four across; narrower than that, each would be too small for its figures. */
 private val FourTilesWidth = 636.dp
@@ -63,48 +66,60 @@ internal fun cpuName(model: String): String = when (model.trim().lowercase()) {
 }
 
 /**
- * A run of Home's square tiles, in the order given: processor, its temperature, memory or storage. They
- * go two to a row, or four on a wide screen, and tiles short of a full row share it between them.
+ * A run of Home's small widgets, in the order given. They go two to a row, or four on a wide screen, and
+ * widgets short of a full row share it between them. One with a row to itself is drawn at medium size.
+ * [widget] draws one of them at the size and in the space it's given.
  */
 @Composable
-internal fun StatTiles(stats: SystemStats, widgets: List<HomeWidget>, onOpenTaskManager: () -> Unit) {
-    val c = MaterialTheme.hearth
-    val tiles = widgets.mapNotNull<HomeWidget, @Composable (Modifier) -> Unit> { widget ->
-        when (widget) {
-            HomeWidget.CpuTile -> { modifier ->
-                UsageTile(
-                    "CPU", cpuName(stats.cpuModel), formatCpuTotal(stats.cpuPercent), stats.cpuPercent, c.cpu, modifier,
-                    caption = if (stats.cpuCores > 0) "${stats.cpuCores} cores" else null,
-                    onClick = onOpenTaskManager,
-                )
-            }
-            HomeWidget.TemperatureTile -> stats.cpuTempC?.let { temp -> { modifier -> TemperatureTile(temp, modifier) } }
-            HomeWidget.MemoryTile -> { modifier ->
-                UsageTile(
-                    "Memory", "${formatBytes(stats.memUsed)} of ${formatBytes(stats.memTotal)}",
-                    "${stats.memPercent.toInt()}%", stats.memPercent, c.memory, modifier,
-                )
-            }
-            HomeWidget.StorageTile -> stats.disk?.let { disk ->
-                { modifier ->
-                    UsageTile(
-                        "Storage", "${formatBytes(disk.usedBytes)} of ${formatBytes(disk.totalBytes)}",
-                        "${disk.percent.toInt()}%", disk.percent, c.storage, modifier,
-                    )
-                }
-            }
-            else -> null // cards are drawn by the page
-        }
-    }
+internal fun TileRows(widgets: List<HomeWidget>, widget: @Composable (HomeWidget, HomeSize, Modifier) -> Unit) {
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val columns = if (maxWidth >= FourTilesWidth) 4 else 2
         val side = minOf((maxWidth - TileGap * (columns - 1)) / columns, MaxTileHeight)
         Column(verticalArrangement = Arrangement.spacedBy(TileGap)) {
-            tiles.chunked(columns).forEach { row ->
-                // The row is as tall as its tallest tile, so large text grows both tiles rather than one.
-                Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(TileGap)) {
-                    row.forEach { tile -> tile(Modifier.weight(1f).fillMaxHeight().heightIn(min = side)) }
+            tileRows(widgets, columns).forEach { (row, size) ->
+                if (size != HomeSize.Small) {
+                    widget(row[0], size, Modifier.fillMaxWidth())
+                } else {
+                    // The row is as tall as its tallest tile, so large text grows both tiles rather than one.
+                    Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(TileGap)) {
+                        row.forEach { widget(it, size, Modifier.weight(1f).fillMaxHeight().heightIn(min = side)) }
+                    }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * The processor's load, memory or storage as a ring: a square tile when [small], and otherwise a strip as
+ * wide as the page. [caption] is a second detail, such as the number of cores.
+ */
+@Composable
+internal fun UsageWidget(
+    small: Boolean,
+    label: String,
+    detail: String,
+    value: String,
+    percent: Double,
+    color: Color,
+    modifier: Modifier,
+    caption: String? = null,
+    onClick: (() -> Unit)? = null,
+) {
+    if (small) {
+        UsageTile(label, detail, value, percent, color, modifier, caption, onClick)
+    } else {
+        val details = listOfNotNull(detail.ifBlank { null }, caption).joinToString(" · ")
+        HearthCard(modifier, onClick = onClick) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = StripPadding, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    SectionLabel(label)
+                    if (details.isNotEmpty()) {
+                        Text(details, Modifier.padding(top = 2.dp), style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                Text(value, Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.headlineMedium, maxLines = 1)
+                RingGauge((percent / 100).toFloat(), color, size = 48.dp, stroke = 6.dp)
             }
         }
     }
@@ -143,15 +158,56 @@ private fun UsageTile(
     }
 }
 
-/** The processor's temperature, large, on a glow that goes from green to amber to red as it warms up. */
+/** The colour for a processor at [tempC]: green, then amber, then red as it warms up. */
 @Composable
-private fun TemperatureTile(tempC: Int, modifier: Modifier) {
+private fun heatTint(tempC: Int): Color {
     val c = MaterialTheme.hearth
     val tint by animateColorAsState(
         when (heat(tempC)) { Heat.Cool -> c.good; Heat.Warm -> c.warn; Heat.Hot -> c.bad },
         label = "heat",
     )
-    HearthCard(modifier.clearAndSetSemantics { contentDescription = "CPU temperature, $tempC degrees Celsius" }) {
+    return tint
+}
+
+/**
+ * The processor's temperature, large, on a glow that goes from green to amber to red as it warms up: a
+ * square tile when [small], and otherwise a strip as wide as the page.
+ */
+@Composable
+internal fun TemperatureWidget(small: Boolean, tempC: Int, modifier: Modifier) {
+    val tint = heatTint(tempC)
+    val described = modifier.clearAndSetSemantics { contentDescription = "CPU temperature, $tempC degrees Celsius" }
+    if (small) {
+        TemperatureTile(tempC, tint, described)
+        return
+    }
+    HearthCard(described) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                // Strongest under the figure, gone by the other end.
+                .drawBehind { drawRect(Brush.horizontalGradient(listOf(Color.Transparent, tint.copy(alpha = 0.08f), tint.copy(alpha = 0.32f)))) }
+                .padding(horizontal = StripPadding, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                SectionLabel("CPU")
+                Text("Temperature", Modifier.padding(top = 2.dp), style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Text(
+                "$tempC",
+                style = MaterialTheme.typography.displaySmall.copy(fontSize = 40.sp, lineHeight = 48.sp, fontWeight = FontWeight.Medium),
+                color = tint,
+                maxLines = 1,
+            )
+            Text("°C", Modifier.padding(start = 6.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun TemperatureTile(tempC: Int, tint: Color, modifier: Modifier) {
+    HearthCard(modifier) {
         Column(
             Modifier
                 .weight(1f)

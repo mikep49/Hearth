@@ -12,6 +12,16 @@ enum class OpenAppsIn(val label: String) { Hearth("Hearth"), Browser("Browser") 
 class PrefsStore(context: Context) {
     private val prefs = context.getSharedPreferences("prefs", Context.MODE_PRIVATE)
 
+    private val _nickname = MutableStateFlow(prefs.getString(KEY_NICKNAME, "").orEmpty())
+
+    /** The name used around Hearth. Blank uses the current server's CasaOS username. */
+    val nickname: StateFlow<String> = _nickname.asStateFlow()
+
+    fun setNickname(value: String) {
+        prefs.edit().putString(KEY_NICKNAME, value).apply()
+        _nickname.value = value
+    }
+
     private val _openAppsIn = MutableStateFlow(
         OpenAppsIn.entries.firstOrNull { it.name == prefs.getString(KEY_OPEN_IN, null) } ?: OpenAppsIn.Hearth,
     )
@@ -115,6 +125,7 @@ class PrefsStore(context: Context) {
         set(value) = prefs.edit().putFloat(KEY_TERMINAL_FONT, value).apply()
 
     companion object {
+        private const val KEY_NICKNAME = "nickname"
         const val DEFAULT_TERMINAL_FONT_SP = 12f
         private const val KEY_TERMINAL_FONT = "terminal_font_sp"
         private const val KEY_HOME_WIDGETS = "home_widgets"

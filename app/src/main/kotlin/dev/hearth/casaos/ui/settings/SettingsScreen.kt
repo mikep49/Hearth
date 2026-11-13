@@ -97,6 +97,10 @@ class SettingsViewModel(
 
     fun setTheme(settings: ThemeSettings) = themeStore.update(settings)
 
+    val nickname: StateFlow<String> = prefs.nickname
+
+    fun setNickname(value: String) = prefs.setNickname(value)
+
     /** How each home screen widget is set up, by app widget id. */
     val widgetOptions: StateFlow<Map<Int, WidgetOptions>> = widgetOptions.options
 
@@ -193,6 +197,8 @@ fun SettingsScreen(
 ) {
     val version by viewModel.version.collectAsStateWithLifecycle()
     val theme by viewModel.theme.collectAsStateWithLifecycle()
+    val nickname by viewModel.nickname.collectAsStateWithLifecycle()
+    val name = nickname.trim().ifBlank { username }
     val openAppsIn by viewModel.openAppsIn.collectAsStateWithLifecycle()
     val lockEnabled by viewModel.lockEnabled.collectAsStateWithLifecycle()
     val alerts by viewModel.alerts.collectAsStateWithLifecycle()
@@ -211,15 +217,19 @@ fun SettingsScreen(
         // Who's signed in where; tapping it switches server.
         ListGroup(Modifier.padding(top = 4.dp)) {
             ListRow(
-                username.ifBlank { "Signed in" },
-                subtitle = listOfNotNull(serverLabel, version?.let { "CasaOS $it" }).joinToString(" · "),
+                name.ifBlank { "Signed in" },
+                subtitle = listOfNotNull(
+                    username.takeIf { name != username && it.isNotBlank() },
+                    serverLabel,
+                    version?.let { "CasaOS $it" },
+                ).joinToString(" · "),
                 leading = {
                     Box(
                         Modifier.size(48.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            username.firstOrNull()?.uppercase() ?: "?",
+                            name.firstOrNull()?.uppercase() ?: "?",
                             style = MaterialTheme.typography.titleLarge,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                         )

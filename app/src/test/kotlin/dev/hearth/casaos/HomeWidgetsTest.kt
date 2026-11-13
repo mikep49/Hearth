@@ -153,6 +153,15 @@ class HomeWidgetsTest {
         assertEquals(setOf("b"), back.own.keys)
     }
 
+    @Test fun `undoing giving up an own layout brings back that layout, not the shared one`() {
+        val mine = HomeLayout(listOf(Drives, CpuTile), mapOf(CpuTile to Medium))
+        val layouts = HomeLayouts(shared = HomeLayout(listOf(Network))).owning("a", true).with("a", mine)
+        // What Customize Home's Undo does: turn the switch back on, then put back the layout it had.
+        val undone = layouts.owning("a", false).owning("a", true).with("a", mine)
+        assertEquals(layouts, undone)
+        assertEquals("only turning it back on starts again from the shared one", listOf(Network), layouts.owning("a", false).owning("a", true).of("a").widgets)
+    }
+
     @Test fun `dragging a widget onto another takes its place`() {
         val home = listOf(CpuTile, MemoryTile, Network, Drives)
         assertEquals(listOf(MemoryTile, Network, CpuTile, Drives), home.moved(CpuTile, Network))

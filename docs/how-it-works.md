@@ -119,6 +119,7 @@ Hearth runs on Android 10 or later, phones and tablets.
 ### Themes
 
 - Everything about the look is on one page, Settings › Appearance.
+- **Nickname** sets the name in the Home greeting and Settings profile. It is saved on the phone for every server and survives sign-out. Leave it blank to use the current server's CasaOS username.
 - System, Light or Dark.
 - Six accents: Ember, Ocean, Forest, Violet, Rose, and Dynamic, which uses your wallpaper colors on Android 12+.
 - A pure black mode for OLED screens.

@@ -245,6 +245,7 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
     }
     val openAppsIn by container.prefs.openAppsIn.collectAsStateWithLifecycle()
     val homeWidgets by container.prefs.homeWidgets.collectAsStateWithLifecycle()
+    val nickname by container.prefs.nickname.collectAsStateWithLifecycle()
     // An app's web UI open inside Hearth, drawn over the tabs so they keep their state underneath.
     var webApp by rememberSaveable { mutableStateOf<String?>(null) }
     var webUrl by rememberSaveable { mutableStateOf<String?>(null) }
@@ -348,7 +349,7 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
                             WhileVisible { vm.poll() }
                             val route = remember(session.baseUrl) { serverRoute(session.baseUrl.toHttpUrl().host) }
                             DashboardScreen(
-                                vm, session.username, label, route, homeWidgets,
+                                vm, nickname.trim().ifBlank { session.username }, label, route, homeWidgets,
                                 onOpenServers = { serversOpen = true },
                                 onOpenTaskManager = { taskManagerFor = session.id },
                             )

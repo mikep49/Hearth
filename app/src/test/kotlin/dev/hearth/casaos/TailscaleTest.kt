@@ -10,6 +10,7 @@ import dev.hearth.casaos.data.TailscalePath
 import dev.hearth.casaos.data.TailscaleSource
 import dev.hearth.casaos.data.isTailscaleAddress
 import dev.hearth.casaos.data.parseTailscaleStatus
+import dev.hearth.casaos.data.lookUpServerRoute
 import dev.hearth.casaos.data.serverRoute
 import dev.hearth.casaos.data.tailscaleContainer
 import dev.hearth.casaos.data.tailscaleError
@@ -163,6 +164,24 @@ class TailscaleParsingTest {
         assertEquals(ServerRoute.LocalNetwork, serverRoute("nas", listOf("192.168.1.20")))
         assertEquals(ServerRoute.Other, serverRoute("172.32.0.5"))
         assertEquals(ServerRoute.Other, serverRoute("home.example.com", listOf("203.0.113.5")))
+    }
+
+    @Test fun `looks a name up only when the name doesn't say how it's reached`() = runBlocking {
+        val looked = mutableListOf<String>()
+        fun dns(vararg addresses: String): (String) -> List<String> = { name -> looked += name; addresses.toList() }
+
+        assertEquals(ServerRoute.Tailscale, lookUpServerRoute("casaos", dns("100.101.102.103")))
+        assertEquals(ServerRoute.LocalNetwork, lookUpServerRoute("nas.lan", dns("192.168.1.20")))
+        assertEquals(ServerRoute.Other, lookUpServerRoute("home.example.com", dns("203.0.113.5")))
+        assertEquals(listOf("casaos", "nas.lan", "home.example.com"), looked)
+
+        looked.clear()
+        assertEquals(ServerRoute.LocalNetwork, lookUpServerRoute("casaos.local", dns("100.101.102.103")))
+        assertEquals(ServerRoute.Tailscale, lookUpServerRoute("casaos.tail1234.ts.net", dns()))
+        assertEquals(ServerRoute.Other, lookUpServerRoute("203.0.113.5", dns("192.168.1.20")))
+        assertEquals("names and addresses that already say aren't looked up", emptyList<String>(), looked)
+
+        assertEquals("a failed lookup falls back to the name", ServerRoute.Other, lookUpServerRoute("casaos") { throw java.net.UnknownHostException(it) })
     }
 
     @Test fun `picks the Tailscale container out of docker ps`() {

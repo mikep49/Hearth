@@ -134,6 +134,9 @@ import dev.hearth.casaos.data.FileEntry
 import dev.hearth.casaos.data.FileIndex
 import dev.hearth.casaos.data.FileSort
 import dev.hearth.casaos.data.FolderListing
+import dev.hearth.casaos.data.GalleryMonth
+import dev.hearth.casaos.data.galleryLooksIn
+import dev.hearth.casaos.data.galleryMonths
 import dev.hearth.casaos.data.PhoneFiles
 import dev.hearth.casaos.data.PickedFile
 import dev.hearth.casaos.data.PrefsStore
@@ -213,6 +216,21 @@ data class FilesState(
     val pendingUpload: PendingUpload? = null,
 ) {
     val canGoUp get() = path != ROOT && path != "/"
+}
+
+/** The gallery: every photo in the folder at [root] and the folders inside it. */
+data class GalleryState(
+    val root: String,
+    val months: List<GalleryMonth> = emptyList(),
+    /** True while the folders are being read, the first time or for a refresh. */
+    val scanning: Boolean = true,
+    val foldersScanned: Int = 0,
+    /** True when there were too many files to look through them all. */
+    val truncated: Boolean = false,
+    val error: String? = null,
+) {
+    /** All the photos in the order they show, which is also the order the full-screen view swipes through. */
+    val photos: List<FileEntry> = months.flatMap { it.photos }
 }
 
 private fun join(dir: String, name: String) = dir.trimEnd('/') + "/" + name
@@ -334,6 +352,54 @@ class FilesViewModel(
         val listing = _state.value.listing
         if (listing != null && listing.path == dir) return listing.entries.map { it.name }.toSet()
         return _index.value?.entries.orEmpty().filter { parentOf(it.path) == dir }.map { it.name }.toSet()
+    }
+
+    // endregion
+
+    // region gallery
+
+    private val _gallery = MutableStateFlow<GalleryState?>(null)
+
+    /** The gallery, while it's open. */
+    val gallery: StateFlow<GalleryState?> = _gallery.asStateFlow()
+    private var galleryJob: Job? = null
+
+    /** Shows the photos in the open folder and the folders inside it. */
+    fun openGallery() = loadGallery(_state.value.path)
+
+    fun reloadGallery() {
+        loadGallery(_gallery.value?.root ?: return)
+    }
+
+    fun closeGallery() {
+        galleryJob?.cancel()
+        _gallery.value = null
+    }
+
+    /**
+     * Finds the photos under [root] by walking its folders, as search does. Nothing shows until the walk is
+     * done: photos turn up in folder order, so a list filled in as they arrive would keep shifting.
+     */
+    private fun loadGallery(root: String) {
+        galleryJob?.cancel()
+        // A refresh keeps the photos already showing until the new ones are ready.
+        val showing = _gallery.value?.takeIf { it.root == root }
+        _gallery.value = (showing ?: GalleryState(root)).copy(scanning = true, error = null)
+        val showHidden = sort.value.showHidden
+        galleryJob = viewModelScope.launch {
+            try {
+                val found = walkFolders(
+                    root, client::folder,
+                    descend = { galleryLooksIn(it, ROOT, showHidden) },
+                    onProgress = { partial -> _gallery.update { it?.copy(foldersScanned = partial.foldersScanned) } },
+                )
+                val months = withContext(Dispatchers.Default) { galleryMonths(found.entries, showHidden) }
+                _gallery.update { it?.copy(months = months, scanning = false, foldersScanned = found.foldersScanned, truncated = found.truncated) }
+            } catch (e: CasaException) {
+                _gallery.update { it?.copy(scanning = false, error = e.message) }
+                if (showing != null && showing.months.isNotEmpty()) _messages.emit("Couldn't refresh the gallery: ${e.message}")
+            }
+        }
     }
 
     // endregion
@@ -491,6 +557,8 @@ class FilesViewModel(
         viewModelScope.launch {
             if (change("Couldn't delete") { client.delete(entries.map { it.path }) }) {
                 patchIndex { it.without(entries.map { e -> e.path }) }
+                val paths = entries.mapTo(HashSet()) { it.path }
+                _gallery.update { it?.copy(months = it.months.without(paths)) }
                 _messages.emit(if (entries.size == 1) "Deleted ${entries[0].name}" else "Deleted ${plural(entries.size, "item")}")
                 // Search results can come from any folder, including ones above the open folder.
                 val here = _state.value.path
@@ -572,6 +640,7 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState, locked: 
     val index by viewModel.index.collectAsStateWithLifecycle()
     val sort by viewModel.sort.collectAsStateWithLifecycle()
     val thumbnails by viewModel.thumbnails.collectAsStateWithLifecycle()
+    val gallery by viewModel.gallery.collectAsStateWithLifecycle()
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
     var dialog by remember { mutableStateOf<FileDialog?>(null) }
@@ -612,6 +681,7 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState, locked: 
     BackHandler(enabled = state.canGoUp) { viewModel.up() }
     // Registered later, so it wins: back clears a search before going up a folder.
     BackHandler(enabled = query.isNotEmpty()) { query = "" }
+    BackHandler(enabled = gallery != null) { viewModel.closeGallery() }
     BackHandler(enabled = selecting) { selected = emptyMap() }
     LaunchedEffect(viewModel) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
     // Only while Hearth is in front and unlocked: Android ignores the picker from the background, and over the
@@ -658,7 +728,31 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState, locked: 
     }
 
     Box(Modifier.fillMaxSize()) {
-        ReadableGutter(min = 20.dp) { side ->
+        val open = gallery
+        if (open != null) ReadableGutter(min = 20.dp) { side ->
+            Column(Modifier.fillMaxSize()) {
+                GalleryBar(
+                    open, folderName(open.root), side,
+                    selectedCount = selected.size,
+                    onBack = { selected = emptyMap(); viewModel.closeGallery() },
+                    onSelectAll = { selected = selected + open.photos.associateBy { it.path } },
+                    onClearSelection = { selected = emptyMap() },
+                )
+                state.transfer?.let { TransferBar(it, side, onCancel = viewModel::cancelTransfer) }
+                GalleryGrid(
+                    open, folderName(open.root), side,
+                    thumbnailUrl = { if (hasThumbnail(it)) viewModel.fileUrl(it) else null },
+                    selecting = selecting,
+                    isSelected = { it.path in selected },
+                    // Lambdas, not references to the functions: Compose takes two references to be the same
+                    // callback, and would keep the one made before anything was ticked.
+                    onOpen = { openEntry(it) },
+                    onSelect = { toggle(it) },
+                    onRefresh = viewModel::reloadGallery,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        } else ReadableGutter(min = 20.dp) { side ->
             Column(Modifier.fillMaxSize()) {
                 Column(Modifier.padding(start = side, end = side, top = 12.dp, bottom = 8.dp)) {
                     ScreenHeader(
@@ -672,6 +766,7 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState, locked: 
                             }) { Icon(Icons.Rounded.SelectAll, "Select all") }
                             IconButton(onClick = { selected = emptyMap() }) { Icon(Icons.Rounded.Close, "Clear selection") }
                         } else {
+                            IconButton(onClick = viewModel::openGallery) { Icon(Icons.Rounded.PhotoLibrary, "Show photos as a gallery") }
                             // Shows the view a tap switches to, as file managers do.
                             IconButton(onClick = { viewModel.setThumbnails(!thumbnails) }) {
                                 if (thumbnails) Icon(Icons.AutoMirrored.Rounded.ViewList, "Show as a list")
@@ -814,13 +909,14 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState, locked: 
         }
 
         if (selecting) {
+            // Copying or moving out of the gallery goes back to the folders, to pick where the photos go.
             SelectionActions(
-                onCopy = { viewModel.cut(takeSelection(), move = false) },
-                onMove = { viewModel.cut(takeSelection(), move = true) },
+                onCopy = { viewModel.cut(takeSelection(), move = false); viewModel.closeGallery() },
+                onMove = { viewModel.cut(takeSelection(), move = true); viewModel.closeGallery() },
                 onDelete = { dialog = FileDialog.Delete(selected.values.toList().withoutNested()) },
                 modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 12.dp, vertical = 20.dp),
             )
-        } else Box(Modifier.align(Alignment.BottomEnd).padding(20.dp)) {
+        } else if (open == null) Box(Modifier.align(Alignment.BottomEnd).padding(20.dp)) {
             FloatingActionButton(onClick = { addMenu = true }) { Icon(Icons.Rounded.Add, "Upload or create a folder") }
             DropdownMenu(expanded = addMenu, onDismissRequest = { addMenu = false }) {
                 DropdownMenuItem(
@@ -882,9 +978,11 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState, locked: 
 
     state.pendingUpload?.let { UploadConflictDialog(it, onChoice = viewModel::resolveUpload) }
 
-    // A preview can be opened from the folder or from search results anywhere on the server.
+    // A preview can be opened from the gallery, from the folder or from search results anywhere on the server.
     val previewEntry = previewPath?.let { p ->
-        state.listing?.entries?.firstOrNull { it.path == p } ?: index?.entries?.firstOrNull { it.path == p }
+        gallery?.photos?.firstOrNull { it.path == p }
+            ?: state.listing?.entries?.firstOrNull { it.path == p }
+            ?: index?.entries?.firstOrNull { it.path == p }
     }
     if (previewEntry != null) {
         FilePreview(
@@ -892,6 +990,8 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState, locked: 
             viewModel = viewModel,
             transfer = state.transfer,
             onClose = { previewPath = null },
+            // From the gallery, swiping goes on to the photos either side.
+            album = gallery?.photos.orEmpty(),
         )
     }
 }
@@ -1217,15 +1317,7 @@ private fun FileTile(
                 // Over a photo, the corner controls are white on a dark spot so they show on any picture.
                 val spot = if (pictured) Color.Black.copy(alpha = 0.4f) else Color.Transparent
                 if (selecting) {
-                    Box(Modifier.align(Alignment.TopEnd).size(TileCorner), Alignment.Center) {
-                        if (selected) {
-                            Box(Modifier.size(24.dp).background(scheme.primary, CircleShape), Alignment.Center) {
-                                Icon(Icons.Rounded.Check, null, Modifier.size(16.dp), tint = scheme.onPrimary)
-                            }
-                        } else {
-                            Box(Modifier.size(24.dp).background(spot, CircleShape).border(2.dp, if (pictured) Color.White else scheme.outline, CircleShape))
-                        }
-                    }
+                    Box(Modifier.align(Alignment.TopEnd).size(TileCorner), Alignment.Center) { TickMark(selected, pictured) }
                 } else {
                     Box(
                         Modifier.align(Alignment.TopEnd).size(TileCorner).clip(CircleShape).clickable(role = Role.Button) { menu = true },
@@ -1270,11 +1362,28 @@ private fun FileTile(
 private val TileCorner = 44.dp
 
 /**
- * The top of a [FileTile]: the photo at [url], cropped to fill, or the item's icon if it has no picture to
- * show. [onPictured] is called once the photo is on screen.
+ * The circle in the corner of a tile or gallery photo while items are being ticked: filled once [selected].
+ * Over a photo ([pictured]) the empty circle is white on a dark spot, so it shows on any picture.
  */
 @Composable
-private fun Thumbnail(entry: FileEntry, url: String?, pictured: Boolean, onPictured: () -> Unit, modifier: Modifier = Modifier) {
+internal fun TickMark(selected: Boolean, pictured: Boolean) {
+    val scheme = MaterialTheme.colorScheme
+    if (selected) {
+        Box(Modifier.size(24.dp).background(scheme.primary, CircleShape), Alignment.Center) {
+            Icon(Icons.Rounded.Check, null, Modifier.size(16.dp), tint = scheme.onPrimary)
+        }
+    } else {
+        val spot = if (pictured) Color.Black.copy(alpha = 0.4f) else Color.Transparent
+        Box(Modifier.size(24.dp).background(spot, CircleShape).border(2.dp, if (pictured) Color.White else scheme.outline, CircleShape))
+    }
+}
+
+/**
+ * The top of a [FileTile], and a photo in the gallery: the photo at [url], cropped to fill, or the item's
+ * icon if it has no picture to show. [onPictured] is called once the photo is on screen.
+ */
+@Composable
+internal fun Thumbnail(entry: FileEntry, url: String?, pictured: Boolean, onPictured: () -> Unit, modifier: Modifier = Modifier) {
     val scheme = MaterialTheme.colorScheme
     // Folders carry the accent, as in the list.
     val tint = if (entry.isDir) scheme.primary else scheme.onSurfaceVariant

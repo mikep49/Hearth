@@ -116,7 +116,7 @@ fun SecuritySection(
             "Lock Terminal",
             checked = terminalLocked,
             onCheckedChange = { toggle(it, onTerminalLockedChange) },
-            subtitle = "Asks each time you open it",
+            subtitle = "Asks when you connect or return",
             icon = Icons.Rounded.Terminal,
             enabled = canLock || terminalLocked,
         )

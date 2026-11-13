@@ -1,6 +1,15 @@
 package dev.hearth.casaos.data
 
 import android.content.Context
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+
+/**
+ * What the Saved logins page shows of one server's SSH login: [address] is `user@host`, with the port if it
+ * isn't 22. Never the password or the key itself. [server] is the CasaOS server's host it's saved under.
+ */
+data class SavedSshLogin(val server: String, val address: String, val hasPassword: Boolean, val hasKey: Boolean)
 
 /** SSH sign-in details for one CasaOS server. */
 data class SshProfile(
@@ -25,6 +34,10 @@ data class SshProfile(
  */
 class SshProfileStore(context: Context, private val box: Secrets = SecretBox()) : HostKeyStore {
     private val prefs = context.getSharedPreferences("ssh", Context.MODE_PRIVATE)
+    private val _forgotten = MutableSharedFlow<String>(extraBufferCapacity = 8)
+
+    /** Each server [forget] was called for. */
+    val forgotten: SharedFlow<String> = _forgotten.asSharedFlow()
 
     /** [server] is the CasaOS server's host; the SSH host defaults to it. */
     fun load(server: String): SshProfile {
@@ -83,6 +96,30 @@ class SshProfileStore(context: Context, private val box: Secrets = SecretBox()) 
         }.apply()
     }
 
+    /** What's saved for signing in to each of [servers] over SSH, leaving out those with nothing saved. */
+    fun saved(servers: List<String>): List<SavedSshLogin> = servers.mapNotNull { server ->
+        val p = load(server)
+        if (p.username.isBlank() && p.password == null && p.key == null) return@mapNotNull null
+        val host = if (p.port == 22) p.host else "${p.host}:${p.port}"
+        SavedSshLogin(
+            server = server,
+            address = if (p.username.isBlank()) host else "${p.username}@$host",
+            hasPassword = p.password != null,
+            hasKey = p.key != null,
+        )
+    }
+
+    /**
+     * Forgets everything saved for signing in to [server] over SSH: the address, the username, the password and
+     * the key. The server's identity stays trusted. An open terminal hears of it through [forgotten].
+     */
+    fun forget(server: String) {
+        prefs.edit().apply {
+            (PROFILE_FIELDS + KEY_FIELDS).forEach { remove("$server/$it") }
+        }.apply()
+        _forgotten.tryEmit(server)
+    }
+
     override fun hostKey(id: String): String? = prefs.getString("hostkey/$id", null)
 
     override fun trust(id: String, keyBase64: String) {
@@ -90,6 +127,7 @@ class SshProfileStore(context: Context, private val box: Secrets = SecretBox()) 
     }
 
     private companion object {
+        val PROFILE_FIELDS = listOf("host", "port", "user", "password", "use_key")
         val KEY_FIELDS = listOf("key", "key_public", "key_passphrase")
     }
 }

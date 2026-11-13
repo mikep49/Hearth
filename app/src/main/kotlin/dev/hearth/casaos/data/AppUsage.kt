@@ -1,9 +1,6 @@
 package dev.hearth.casaos.data
 
 import androidx.compose.runtime.Immutable
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.withContext
 
 /** One running container as `docker stats` reports it. [cpuPercent] is Docker's figure: 100 means one full core. */
 data class ContainerUsage(val name: String, val project: String?, val cpuPercent: Double, val memBytes: Long)
@@ -21,101 +18,21 @@ data class AppUsage(
     val containers: List<ContainerUsage>,
 )
 
-/** Why per-app usage can't be shown. [needsSignIn] means the fix is signing in on the Terminal tab. */
-class UsageUnavailable(message: String, val needsSignIn: Boolean = false) : Exception(message)
-
 /**
  * CasaOS's API only reports whole-server totals, so per-app figures come from Docker over SSH, using the
  * password or key the user saved on the Terminal tab. Keeps one login open between samples; [close] it when done.
  */
-class AppUsageSource(
-    private val profile: () -> SshProfile,
-    private val hostKeys: HostKeyStore,
-    private val connect: suspend (SshProfile, SshAuth, HostKeyStore) -> SshRunner = { p, auth, keys ->
-        SshRunner.open(p.host, p.port, p.username, auth, keys)
-    },
-) {
-    private var runner: SshRunner? = null
-    private var openedWith: SshProfile? = null
+class AppUsageSource(profile: () -> SshProfile, hostKeys: HostKeyStore) {
+    private val ssh = SavedSsh(profile, hostKeys, "see what each app uses")
 
-    /** Set once plain `docker` is refused: the user isn't in the docker group, so commands go through sudo. */
-    private var useSudo = false
-
-    /** Throws [UsageUnavailable]. */
-    suspend fun sample(): List<ContainerUsage> {
-        val p = profile()
-        val auth = p.savedAuth
-        if (p.username.isBlank() || auth == null) {
-            close()
-            throw UsageUnavailable(
-                "Sign in on the Terminal tab with an SSH key, or with \"Remember password\" on, to see what each app uses.",
-                needsSignIn = true,
-            )
-        }
-        val ssh = runnerFor(p, auth)
-        try {
-            val owners = docker(ssh, auth, "ps --format '{{.Names}}|{{.Label \"com.docker.compose.project\"}}'")
-            val stats = docker(ssh, auth, "stats --no-stream --format '{{.Name}}|{{.CPUPerc}}|{{.MemUsage}}'")
-            return parseDockerUsage(owners, stats)
-        } catch (e: SshException) {
-            close() // the login dropped: start a fresh one next time
-            throw UsageUnavailable(e.message ?: "Lost the SSH connection")
-        }
+    /** Throws [SshUnavailable]. */
+    suspend fun sample(): List<ContainerUsage> = ssh.read {
+        val owners = docker("ps --format '{{.Names}}|{{.Label \"com.docker.compose.project\"}}'")
+        val stats = docker("stats --no-stream --format '{{.Name}}|{{.CPUPerc}}|{{.MemUsage}}'")
+        parseDockerUsage(owners, stats)
     }
 
-    private suspend fun runnerFor(p: SshProfile, auth: SshAuth): SshRunner {
-        runner?.let { if (it.isOpen && openedWith == p) return it }
-        close()
-        val opened = try {
-            connect(p, auth, hostKeys)
-        } catch (e: SshException.UnknownHost) {
-            throw UsageUnavailable("Open the Terminal tab once to confirm this server's identity.", needsSignIn = true)
-        } catch (e: SshException.HostKeyChanged) {
-            throw UsageUnavailable("The server's identity has changed. Check it on the Terminal tab.", needsSignIn = true)
-        } catch (e: SshException.Auth) {
-            val saved = if (auth is SshAuth.Key) "SSH key" else "SSH password"
-            throw UsageUnavailable("The saved $saved didn't work. Sign in again on the Terminal tab.", needsSignIn = true)
-        } catch (e: SshException) {
-            throw UsageUnavailable(e.message ?: "Couldn't connect over SSH")
-        }
-        runner = opened
-        openedWith = p
-        useSudo = false
-        return opened
-    }
-
-    private suspend fun docker(ssh: SshRunner, auth: SshAuth, args: String): String {
-        if (!useSudo) {
-            val r = ssh.run("docker $args")
-            if (r.exitCode == 0) return r.stdout
-            if (r.exitCode == 127) throw UsageUnavailable("Docker isn't installed on this server.")
-            if (!r.stderr.contains("permission denied", ignoreCase = true)) throw UsageUnavailable(dockerError(r))
-            useSudo = true
-        }
-        val r = when (auth) {
-            // -S reads the password from input; -p '' keeps the prompt out of the output.
-            is SshAuth.Password -> ssh.run("sudo -S -p '' docker $args", stdin = auth.password + "\n")
-            // A key gives sudo no password to check, so this only works where sudo doesn't ask for one.
-            is SshAuth.Key -> ssh.run("sudo -n docker $args")
-        }
-        if (r.exitCode == 0) return r.stdout
-        throw UsageUnavailable(
-            when (auth) {
-                is SshAuth.Password -> "Your SSH user isn't allowed to read Docker's stats. Sign in as an admin user on the Terminal tab."
-                is SshAuth.Key -> "Your SSH user isn't allowed to read Docker's stats. Add it to the docker group in the terminal, then sign in again: sudo usermod -aG docker \$USER"
-            },
-        )
-    }
-
-    private fun dockerError(r: SshRunner.Result) =
-        r.stderr.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() }?.let { "Docker: $it" } ?: "Docker didn't answer"
-
-    suspend fun close() {
-        val r = runner ?: return
-        runner = null
-        openedWith = null
-        withContext(NonCancellable + Dispatchers.IO) { r.close() }
-    }
+    suspend fun close() = ssh.close()
 }
 
 /**

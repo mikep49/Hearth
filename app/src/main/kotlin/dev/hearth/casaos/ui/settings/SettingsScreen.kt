@@ -53,6 +53,7 @@ import dev.hearth.casaos.data.CasaClient
 import dev.hearth.casaos.data.LockAfter
 import dev.hearth.casaos.data.CasaException
 import dev.hearth.casaos.data.OpenAppsIn
+import dev.hearth.casaos.data.PhoneTailscaleReader
 import dev.hearth.casaos.data.PowerAction
 import dev.hearth.casaos.data.PrefsStore
 import dev.hearth.casaos.data.SessionStore
@@ -179,6 +180,8 @@ fun SettingsScreen(
     onOpenAppearance: () -> Unit,
     onOpenNotifications: () -> Unit,
     onOpenSecurity: () -> Unit,
+    tailscale: PhoneTailscaleReader,
+    onOpenTailscale: () -> Unit,
 ) {
     val version by viewModel.version.collectAsStateWithLifecycle()
     val theme by viewModel.theme.collectAsStateWithLifecycle()
@@ -188,7 +191,7 @@ fun SettingsScreen(
     val showInFiles by viewModel.showInFiles.collectAsStateWithLifecycle()
     var confirm by remember { mutableStateOf<PowerAction?>(null) }
     var confirmSignOut by remember { mutableStateOf(false) }
-    // The Appearance, Notifications and Security & privacy pages cover this one; the last two show messages themselves while open.
+    // The Appearance, Notifications, Security & privacy and Tailscale pages cover this one; the middle two show messages themselves while open.
     if (!pageOpen) LaunchedEffect(viewModel) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
 
     Column(
@@ -280,6 +283,10 @@ fun SettingsScreen(
                     onClick = onOpenSecurity,
                 )
             }
+        }
+
+        Section("Network") {
+            ListGroup { TailscaleRow(tailscale, onOpenTailscale) }
         }
 
         Section("Server") {

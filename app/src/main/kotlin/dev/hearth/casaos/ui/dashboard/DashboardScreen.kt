@@ -47,7 +47,7 @@ import dev.hearth.casaos.data.CasaException
 import dev.hearth.casaos.data.ContainerUsage
 import dev.hearth.casaos.data.Drive
 import dev.hearth.casaos.data.InstalledApp
-import dev.hearth.casaos.data.UsageUnavailable
+import dev.hearth.casaos.data.SshUnavailable
 import dev.hearth.casaos.data.groupUsage
 import dev.hearth.casaos.data.SystemStats
 import dev.hearth.casaos.ui.components.CardPadding
@@ -113,7 +113,7 @@ sealed interface AppsUsageState {
 }
 
 /** A failed reading keeps the last list on screen; with nothing to show, it replaces it. */
-internal fun AppsUsageState.failed(e: UsageUnavailable): AppsUsageState =
+internal fun AppsUsageState.failed(e: SshUnavailable): AppsUsageState =
     if (this is AppsUsageState.Ready && !e.needsSignIn) copy(error = e.message)
     else AppsUsageState.Unavailable(e.message.orEmpty(), e.needsSignIn)
 
@@ -199,7 +199,7 @@ class DashboardViewModel(
                     val containers = usage.sample()
                     val apps = installedApps(containers)
                     _state.update { it.copy(apps = AppsUsageState.Ready(groupUsage(containers, apps))) }
-                } catch (e: UsageUnavailable) {
+                } catch (e: SshUnavailable) {
                     _state.update { it.copy(apps = it.apps.failed(e)) }
                 }
                 // `docker stats` itself takes about two seconds, so this refreshes every five or so.

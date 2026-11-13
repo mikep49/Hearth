@@ -9,7 +9,7 @@ import dev.hearth.casaos.data.InstalledApp
 import dev.hearth.casaos.data.SshKey
 import dev.hearth.casaos.data.SshKeys
 import dev.hearth.casaos.data.SshProfile
-import dev.hearth.casaos.data.UsageUnavailable
+import dev.hearth.casaos.data.SshUnavailable
 import dev.hearth.casaos.data.groupUsage
 import dev.hearth.casaos.data.parseDockerSize
 import dev.hearth.casaos.data.parseDockerUsage
@@ -103,11 +103,11 @@ class AppUsageParsingTest {
 
     @Test fun `a failed reading keeps the last list, but sign-in problems replace it`() {
         val ready = AppsUsageState.Ready(listOf(AppUsage("a", "A", null, 1.0, 1, emptyList())))
-        val stale = ready.failed(UsageUnavailable("Connection lost"))
+        val stale = ready.failed(SshUnavailable("Connection lost"))
         assertEquals(AppsUsageState.Ready(ready.apps, "Connection lost"), stale)
-        val signIn = ready.failed(UsageUnavailable("Sign in", needsSignIn = true))
+        val signIn = ready.failed(SshUnavailable("Sign in", needsSignIn = true))
         assertEquals(AppsUsageState.Unavailable("Sign in", needsSignIn = true), signIn)
-        assertEquals(AppsUsageState.Unavailable("x", false), AppsUsageState.Loading.failed(UsageUnavailable("x")))
+        assertEquals(AppsUsageState.Unavailable("x", false), AppsUsageState.Loading.failed(SshUnavailable("x")))
     }
 }
 
@@ -145,7 +145,7 @@ class AppUsageSourceTest {
     private fun source(saved: () -> SshProfile = { profile() }) = AppUsageSource(saved, keys)
 
     private fun trust() {
-        val e = expect<UsageUnavailable> { runBlocking { source().sample() } }
+        val e = expect<SshUnavailable> { runBlocking { source().sample() } }
         assertTrue("an unverified server sends the user to the Terminal tab", e.needsSignIn)
         val id = "127.0.0.1:${server.port}"
         // What the Terminal tab stores once the user accepts the fingerprint.
@@ -154,7 +154,7 @@ class AppUsageSourceTest {
     }
 
     @Test fun `no saved password asks the user to sign in on the Terminal tab`() {
-        val e = expect<UsageUnavailable> { runBlocking { source { profile(password = null) }.sample() } }
+        val e = expect<SshUnavailable> { runBlocking { source { profile(password = null) }.sample() } }
         assertTrue(e.needsSignIn)
         assertTrue("nothing was run", commands.isEmpty())
     }
@@ -185,7 +185,7 @@ class AppUsageSourceTest {
 
     @Test fun `a wrong saved password asks the user to sign in again`() {
         trust()
-        val e = expect<UsageUnavailable> { runBlocking { source { profile(password = "old") }.sample() } }
+        val e = expect<SshUnavailable> { runBlocking { source { profile(password = "old") }.sample() } }
         assertTrue(e.needsSignIn)
     }
 
@@ -199,14 +199,14 @@ class AppUsageSourceTest {
     }
 
     @Test fun `a saved key is only used when it is the chosen way to sign in`() {
-        val e = expect<UsageUnavailable> { runBlocking { source { keyProfile(useKey = false) }.sample() } }
+        val e = expect<SshUnavailable> { runBlocking { source { keyProfile(useKey = false) }.sample() } }
         assertTrue(e.needsSignIn)
         assertTrue("nothing was run", commands.isEmpty())
     }
 
     @Test fun `a key the server doesn't take asks the user to sign in again`() {
         trust()
-        val e = expect<UsageUnavailable> { runBlocking { source { keyProfile(SshKeys.generate()) }.sample() } }
+        val e = expect<SshUnavailable> { runBlocking { source { keyProfile(SshKeys.generate()) }.sample() } }
         assertTrue(e.needsSignIn)
         assertTrue("SSH key" in e.message.orEmpty())
     }
@@ -215,7 +215,7 @@ class AppUsageSourceTest {
         trust()
         inDockerGroup = false
         val s = source { keyProfile() }
-        val e = expect<UsageUnavailable> { runBlocking { s.sample() } }
+        val e = expect<SshUnavailable> { runBlocking { s.sample() } }
         assertTrue("says how to fix it", "docker group" in e.message.orEmpty())
         assertTrue(commands.last().startsWith("sudo -n docker ps"))
 

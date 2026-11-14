@@ -65,6 +65,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -73,16 +75,21 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollDispatcher
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.toOffset
 import androidx.compose.ui.zIndex
@@ -102,6 +109,8 @@ import dev.hearth.casaos.ui.components.SwitchRow
 import dev.hearth.casaos.ui.components.hearthTopBarColors
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 private val HomeWidget.icon: ImageVector
@@ -147,11 +156,21 @@ fun CustomizeHomeRow(shown: List<HomeWidget>, own: Boolean, onOpen: () -> Unit) 
 private val Side = 20.dp
 private val Gap = 12.dp
 
+/** How near the top or bottom of the page a carried widget's finger has to come for the page to scroll. */
+private val ScrollEdge = 64.dp
+
+/** How fast the page scrolls, a second, with the finger at the very edge or past it. */
+private val ScrollSpeed = 600.dp
+
+/** Takes no part in nested scrolling itself, so the grid's own scrolls pass through it to the page as before. */
+private val PassThrough = object : NestedScrollConnection {}
+
 /**
  * Customize Home, opened from Home and from Settings › Appearance: Home's widgets at the sizes they have
  * there, small ones two to a row and the rest across it. Holding one picks it up to drag it somewhere
- * else, its size button gives it more or less room, its minus button takes it off Home, and the ones
- * taken off wait underneath to be put back. [onChange] saves each change as it's made.
+ * else, and holding it near the top or bottom scrolls the page. Its size button gives it more or less
+ * room, its minus button takes it off Home, and the ones taken off wait underneath to be put back.
+ * [onChange] saves each change as it's made.
  *
  * [layout] is the one servers share unless this server ([serverLabel]) has its own, which is what
  * [ownLayout] says and the switch at the top changes through [onOwnLayout]. Null leaves the switch out,
@@ -234,14 +253,20 @@ fun CustomizeHomeScreen(
         },
     ) { padding ->
         ReadableGutter(Side) { side ->
-            // Items are placed from inside the padding, and touches are measured from the grid's corner.
-            drag.origin = with(LocalDensity.current) { Offset(side.toPx(), 12.dp.toPx()) }
+            with(LocalDensity.current) {
+                // Items are placed from inside the padding, and touches are measured from the grid's corner.
+                drag.origin = Offset(side.toPx(), 12.dp.toPx())
+                drag.edge = ScrollEdge.toPx()
+                drag.fastest = ScrollSpeed.toPx()
+            }
+            drag.slop = LocalViewConfiguration.current.touchSlop
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
                 state = grid,
                 modifier = Modifier
                     .padding(padding)
                     .fillMaxSize()
+                    .nestedScroll(PassThrough, drag.nested)
                     .pointerInput(drag) {
                         detectDragGesturesAfterLongPress(
                             onDragStart = { at -> if (drag.start(at)) haptic.performHapticFeedback(HapticFeedbackType.LongPress) },
@@ -253,7 +278,7 @@ fun CustomizeHomeScreen(
                 contentPadding = PaddingValues(start = side, end = side, top = 12.dp, bottom = 24.dp),
                 horizontalArrangement = Arrangement.spacedBy(Gap),
                 verticalArrangement = Arrangement.spacedBy(Gap),
-                // A widget being carried shouldn't take the page with it.
+                // A widget being carried shouldn't take the page with it, though holding it near an edge scrolls.
                 userScrollEnabled = drag.carried == null,
             ) {
                 if (ownLayout != null) {
@@ -437,7 +462,8 @@ private fun LazyGridItemScope.Carried(drag: WidgetDrag, widget: HomeWidget, cont
 
 /**
  * Carrying a widget round the grid. The grid lays the widgets out in their order; this follows the finger,
- * and calls [onMove] when the finger comes over another widget, to take that one's place.
+ * and calls [onMove] when the finger comes over another widget, to take that one's place. Held near the
+ * top or bottom of the grid, the finger scrolls it, so a widget can go anywhere in one drag.
  */
 @Stable
 private class WidgetDrag(
@@ -447,6 +473,18 @@ private class WidgetDrag(
 ) {
     /** Where the grid measures its items from, within itself: the corner inside its padding. */
     var origin = Offset.Zero
+
+    /** In pixels, how near the top or bottom of the grid the finger has to be for it to scroll. */
+    var edge = 0f
+
+    /** In pixels a second, how fast the grid scrolls with the finger at an edge or past it. */
+    var fastest = 0f
+
+    /** In pixels, how far a finger can wander before it counts as moving. */
+    var slop = 0f
+
+    /** Tells the page round the grid about the scrolling, as a scroll by hand would, so the top bar shows widgets under it. */
+    val nested = NestedScrollDispatcher()
 
     /** The widget being carried. */
     var carried by mutableStateOf<HomeWidget?>(null)
@@ -468,6 +506,18 @@ private class WidgetDrag(
      */
     private val passed = mutableSetOf<HomeWidget>()
 
+    /**
+     * The highest and lowest the finger has been on the grid since it picked the widget up. A widget picked
+     * up near an edge shouldn't set the page scrolling until the finger goes on towards that edge.
+     */
+    private var topmost = 0f
+    private var bottommost = 0f
+
+    /** The finger took a widget's place, and the grid hasn't laid that out yet. */
+    private var unplaced = false
+
+    private var scrolling: Job? = null
+
     private val widgets get() = grid.layoutInfo.visibleItemsInfo.filter { it.key is HomeWidget }
 
     private fun LazyGridItemInfo.under(point: Offset) =
@@ -483,25 +533,107 @@ private class WidgetDrag(
         val hit = widgets.firstOrNull { it.under(point) } ?: return false
         finger = point
         grip = point - hit.offset.toOffset()
+        topmost = at.y
+        bottommost = at.y
         passed.clear()
         settling = null
         carried = hit.key as HomeWidget
+        scrolling?.cancel()
+        scrolling = scope.launch { scrollNearEdges() }
         return true
     }
 
     fun drag(by: Offset) {
-        val widget = carried ?: return
+        if (carried == null) return
         finger += by
+        val y = finger.y + origin.y
+        topmost = minOf(topmost, y)
+        bottommost = maxOf(bottommost, y)
+        if (takePlaceUnderFinger()) unplaced = true
+    }
+
+    /** Moves the carried widget to the place of the one under the finger, if there's one it hasn't just passed. */
+    private fun takePlaceUnderFinger(): Boolean {
+        val widget = carried ?: return false
         val over = widgets.filter { it.under(finger) }.map { it.key as HomeWidget }
         passed.retainAll(over.toSet())
-        val target = over.firstOrNull { it != widget && it !in passed } ?: return
+        val target = over.firstOrNull { it != widget && it !in passed } ?: return false
         passed += target
         onMove(widget, target)
+        return true
+    }
+
+    /**
+     * How fast the grid should scroll, in pixels a second, positive to go down the page: the nearer the
+     * finger to the top or bottom, the faster, up to [fastest] at the edge.
+     */
+    private fun pace(): Float {
+        if (carried == null) return 0f
+        val height = grid.layoutInfo.viewportSize.height.toFloat()
+        // Each edge takes at most a quarter of a short grid, leaving room in the middle to move a widget without scrolling.
+        val zone = minOf(edge, height / 4)
+        if (zone <= 0f) return 0f
+        val y = finger.y + origin.y
+        // Picked up near an edge, the finger has to go on towards it by more than a shake for the page to move.
+        val down = (y - maxOf(height - zone, topmost + slop)) / zone
+        val up = (minOf(zone, bottommost - slop) - y) / zone
+        return when {
+            down > 0f && grid.canScrollForward && !showingPastWidgets() -> fastest * down.coerceAtMost(1f)
+            up > 0f && grid.canScrollBackward -> -fastest * up.coerceAtMost(1f)
+            else -> 0f
+        }
+    }
+
+    /**
+     * Whether what comes after the widgets is in view, so the last of them is too. Scrolling on would take
+     * the carried widget out of view behind it, as there's nothing further on for it to take the place of.
+     */
+    private fun showingPastWidgets(): Boolean {
+        val items = grid.layoutInfo.visibleItemsInfo
+        val last = items.lastOrNull { it.key is HomeWidget } ?: return true
+        return items.any { it.index > last.index }
+    }
+
+    /** Scrolls the grid while the finger is near an edge, a frame at a time, until the widget is let go. */
+    private suspend fun scrollNearEdges() {
+        while (true) {
+            snapshotFlow { pace() }.first { it != 0f }
+            var then = withFrameNanos { it }
+            do {
+                val now = withFrameNanos { it }
+                if (unplaced) {
+                    // Scrolling before the grid lays out the new order can lose its place in the list; it scrolls next frame.
+                    unplaced = false
+                } else {
+                    // A slow frame mustn't send the page so far that a widget goes by between looks under the finger.
+                    val seconds = ((now - then) / 1_000_000_000f).coerceAtMost(0.05f)
+                    scrollBy(pace(), seconds)
+                    then = now
+                }
+            } while (pace() != 0f)
+        }
+    }
+
+    /** Scrolls the grid [seconds] at [speed], and tells the page round it. */
+    private suspend fun scrollBy(speed: Float, seconds: Float) {
+        val step = speed * seconds
+        val scrolled = grid.dispatchRawDelta(step)
+        // Nested scrolling measures the way the content moves, the other way to the grid's own scrolling.
+        nested.dispatchPostScroll(Offset(0f, -scrolled), Offset(0f, scrolled - step), NestedScrollSource.UserInput)
+        if (scrolled != step) {
+            // Run into the end, as a fling would. That's how the top bar knows it's back at the top, as
+            // moving widgets of other heights above it throws out its count of how far the page has scrolled.
+            nested.dispatchPostFling(Velocity.Zero, Velocity(0f, -speed))
+        }
+        // Other widgets go by under a finger that's held still.
+        takePlaceUnderFinger()
     }
 
     fun end() {
         val widget = carried ?: return
         val from = offset
+        scrolling?.cancel()
+        scrolling = null
         carried = null
         settling = widget
         // Undispatched, so the widget is at [from] before the next frame is drawn rather than jumping home first.

@@ -7,7 +7,9 @@ import dev.hearth.casaos.data.HomeSection
 import dev.hearth.casaos.data.HomeSize.Large
 import dev.hearth.casaos.data.HomeSize.Medium
 import dev.hearth.casaos.data.HomeSize.Small
+import dev.hearth.casaos.data.AppState
 import dev.hearth.casaos.data.HomeWidget
+import dev.hearth.casaos.data.HomeWidget.AppShortcuts
 import dev.hearth.casaos.data.HomeWidget.CpuTile
 import dev.hearth.casaos.data.HomeWidget.Drives
 import dev.hearth.casaos.data.HomeWidget.MemoryBar
@@ -16,6 +18,7 @@ import dev.hearth.casaos.data.HomeWidget.Network
 import dev.hearth.casaos.data.HomeWidget.ProcessorGraph
 import dev.hearth.casaos.data.HomeWidget.StorageTile
 import dev.hearth.casaos.data.HomeWidget.TemperatureTile
+import dev.hearth.casaos.data.InstalledApp
 import dev.hearth.casaos.data.SystemStats
 import dev.hearth.casaos.data.homeSections
 import dev.hearth.casaos.data.homeSizes
@@ -35,7 +38,7 @@ class HomeWidgetsTest {
     @Test fun `home starts with every widget, small ones first`() {
         assertEquals(HomeWidget.entries, homeWidgets(null, null))
         assertEquals(
-            listOf(Small, Small, Small, Small, Medium, Medium, Medium, Medium),
+            listOf(Small, Small, Small, Small, Medium, Medium, Medium, Medium, Medium),
             HomeWidget.Default.map { HomeLayout.Default.sizeOf(it) },
         )
     }
@@ -43,15 +46,15 @@ class HomeWidgetsTest {
     @Test fun `a saved layout keeps its order and what was removed`() {
         assertEquals(
             listOf(Network, CpuTile, MemoryTile),
-            homeWidgets("Network,CpuTile,MemoryTile", "TemperatureTile,StorageTile,ProcessorGraph,MemoryBar,Drives"),
+            homeWidgets("Network,CpuTile,MemoryTile", "TemperatureTile,StorageTile,ProcessorGraph,MemoryBar,Drives,AppShortcuts"),
         )
         assertEquals("everything removed", emptyList<HomeWidget>(), homeWidgets("", HomeWidget.entries.joinToString(",") { it.name }))
     }
 
     @Test fun `a widget added in a later version shows up at the end`() {
-        // Saved before Drives and MemoryBar existed: neither shown nor removed.
+        // Saved before Drives, MemoryBar and AppShortcuts existed: neither shown nor removed.
         assertEquals(
-            listOf(Network, CpuTile, MemoryBar, Drives),
+            listOf(Network, CpuTile, MemoryBar, Drives, AppShortcuts),
             homeWidgets("Network,CpuTile", "TemperatureTile,MemoryTile,StorageTile,ProcessorGraph"),
         )
     }
@@ -59,7 +62,7 @@ class HomeWidgetsTest {
     @Test fun `names that no longer exist and repeats are dropped`() {
         assertEquals(
             listOf(CpuTile, Network),
-            homeWidgets("CpuTile,Gone,CpuTile,Network", "TemperatureTile,MemoryTile,StorageTile,ProcessorGraph,MemoryBar,Drives,Gone"),
+            homeWidgets("CpuTile,Gone,CpuTile,Network", "TemperatureTile,MemoryTile,StorageTile,ProcessorGraph,MemoryBar,Drives,AppShortcuts,Gone"),
         )
     }
 
@@ -248,17 +251,22 @@ class HomeWidgetsTest {
             disk = null, netRxBytes = 0, netTxBytes = 0, sampledAtMs = 0,
         )
         assertEquals(
-            listOf(CpuTile, MemoryTile, ProcessorGraph, Network, MemoryBar),
+            listOf(CpuTile, MemoryTile, ProcessorGraph, Network, MemoryBar, AppShortcuts),
             HomeLayout.Default.only { it.hasReading(bare, emptyList()) }.widgets,
         )
         val full = bare.copy(cpuTempC = 40, disk = DiskStats(totalBytes = 10, usedBytes = 5))
         assertEquals("the Drives widget falls back to the system disk's total", HomeLayout.Default, HomeLayout.Default.only { it.hasReading(full, emptyList()) })
+
+        val app = InstalledApp("jellyfin", "Jellyfin", null, null, null, AppState.Running, "running", false, "8096", "/", "http")
+        assertTrue("App shortcuts shows while the apps are read", AppShortcuts.hasReading(full, emptyList(), shortcuts = null))
+        assertTrue(AppShortcuts.hasReading(full, emptyList(), shortcuts = listOf(app)))
+        assertFalse("no apps to open", AppShortcuts.hasReading(full, emptyList(), shortcuts = emptyList()))
     }
 
     @Test fun `the settings row says how much is on Home`() {
-        assertEquals("All 8 widgets", homeWidgetsSummary(HomeWidget.Default))
-        assertEquals("3 of 8 widgets", homeWidgetsSummary(listOf(CpuTile, Network, Drives)))
+        assertEquals("All 9 widgets", homeWidgetsSummary(HomeWidget.Default))
+        assertEquals("3 of 9 widgets", homeWidgetsSummary(listOf(CpuTile, Network, Drives)))
         assertEquals("Nothing on Home", homeWidgetsSummary(emptyList()))
-        assertEquals("3 of 8 widgets · this server only", homeWidgetsSummary(listOf(CpuTile, Network, Drives), own = true))
+        assertEquals("3 of 9 widgets · this server only", homeWidgetsSummary(listOf(CpuTile, Network, Drives), own = true))
     }
 }

@@ -73,6 +73,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -83,6 +84,9 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import dev.hearth.casaos.alerts.AlertNotifications
 import dev.hearth.casaos.data.AppUsageSource
+import dev.hearth.casaos.data.InstalledApp
+import dev.hearth.casaos.data.OpenAppsIn
+import dev.hearth.casaos.data.shortcutApps
 import dev.hearth.casaos.data.TailscaleSource
 import dev.hearth.casaos.data.ServerProfile
 import dev.hearth.casaos.data.Session
@@ -279,11 +283,26 @@ private fun MainShell(
     val openAppsIn by container.prefs.openAppsIn.collectAsStateWithLifecycle()
     val homeLayouts by container.prefs.homeLayouts.collectAsStateWithLifecycle()
     val homeLayout = homeLayouts.of(session.id)
+    val appShortcuts by container.prefs.appShortcuts.collectAsStateWithLifecycle()
+    val shortcuts = appShortcuts[session.id]
     val nickname by container.prefs.nickname.collectAsStateWithLifecycle()
     // An app's web UI open inside Hearth, drawn over the tabs so they keep their state underneath.
     var webApp by rememberSaveable { mutableStateOf<String?>(null) }
     var webUrl by rememberSaveable { mutableStateOf<String?>(null) }
     var webIcon by rememberSaveable { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
+
+    /** Opens [app]'s web page at [url] where Settings says: inside Hearth, or in the browser. */
+    fun openApp(app: InstalledApp, url: String) {
+        when (openAppsIn) {
+            OpenAppsIn.Hearth -> {
+                webApp = app.name
+                webIcon = app.iconUrl
+                webUrl = url
+            }
+            OpenAppsIn.Browser -> context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+    }
     // Pages drawn over everything, the tab bar or rail too, so they get the room: an app's settings,
     // version and logs, and the App Store.
     var settingsAppId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -402,10 +421,16 @@ private fun MainShell(
                             val vm: DashboardViewModel = viewModel(key = "dash$key", factory = dashboardFactory)
                             WhileVisible { vm.poll() }
                             DashboardScreen(
-                                vm, nickname.trim().ifBlank { session.username }, label, route, homeLayout,
+                                vm, nickname.trim().ifBlank { session.username }, label, session.baseUrl, route, homeLayout,
+                                shortcuts, snackbar,
                                 onOpenServers = { serversOpen = true },
                                 onOpenTaskManager = { taskManagerFor = session.id },
                                 onCustomize = { customizeHomeOpen = true },
+                                onOpenApp = { app, url ->
+                                    haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                                    openApp(app, url)
+                                },
+                                onOpenApps = { onTab(Tab.Apps.ordinal) },
                             )
                         }
                         Tab.Apps -> {
@@ -542,6 +567,9 @@ private fun MainShell(
                 ownLayout = own.takeIf { profiles.size > 1 || own },
                 onOwnLayout = { container.prefs.setOwnHomeLayout(session.id, it) },
                 serverLabel = label,
+                shortcuts = shortcuts,
+                onShortcuts = { container.prefs.setAppShortcuts(session.id, it) },
+                loadApps = { shortcutApps(client.apps(), chosen = null, session.baseUrl) },
             )
         }
 

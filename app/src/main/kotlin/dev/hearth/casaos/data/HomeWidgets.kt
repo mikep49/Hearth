@@ -27,7 +27,8 @@ enum class HomeWidget(
     ProcessorGraph("Processor graph", "Load over the last two minutes", listOf(Small, Medium, Large), Medium),
     Network("Network", "Download and upload speeds", listOf(Small, Medium, Large), Medium),
     MemoryBar("Memory bar", "Memory in use, as a bar", listOf(Medium)),
-    Drives("Drives", "Each drive's health and free space", listOf(Medium));
+    Drives("Drives", "Each drive's health and free space", listOf(Medium)),
+    AppShortcuts("App shortcuts", "Your apps, to open with a tap", listOf(Small, Medium, Large), Medium);
 
     /** Whether there's more than one size to pick from. */
     val resizable: Boolean get() = sizes.size > 1

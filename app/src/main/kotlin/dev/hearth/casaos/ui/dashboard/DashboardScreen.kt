@@ -30,10 +30,14 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,6 +54,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewModelScope
+import dev.hearth.casaos.data.AppAction
+import dev.hearth.casaos.data.AppState
 import dev.hearth.casaos.data.AppUsage
 import dev.hearth.casaos.data.AppUsageSource
 import dev.hearth.casaos.data.CasaClient
@@ -64,6 +71,8 @@ import dev.hearth.casaos.data.InstalledApp
 import dev.hearth.casaos.data.ServerRoute
 import dev.hearth.casaos.data.SshUnavailable
 import dev.hearth.casaos.data.groupUsage
+import dev.hearth.casaos.data.shortcutApps
+import dev.hearth.casaos.data.webUrl
 import dev.hearth.casaos.data.homeSections
 import dev.hearth.casaos.data.SystemStats
 import dev.hearth.casaos.ui.components.CardPadding
@@ -84,8 +93,11 @@ import java.util.Calendar
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
@@ -101,6 +113,8 @@ private const val APPS_POLL_MS = 3_000L
 private const val APPS_LIST_MS = 60_000L
 /** Each reading runs smartctl on every drive, and health and free space change slowly. */
 private const val DRIVES_POLL_MS = 60_000L
+/** Apps start and stop now and then, and the App shortcuts widget only greys out the stopped ones. */
+private const val SHORTCUTS_POLL_MS = 10_000L
 
 data class DashboardState(
     val stats: SystemStats? = null,
@@ -113,6 +127,10 @@ data class DashboardState(
     val apps: AppsUsageState = AppsUsageState.Loading,
     /** Null until the first reading, and on servers without the disks API. */
     val drives: List<Drive>? = null,
+    /** The server's apps, for the App shortcuts widget, which is the only time they're read. Null until then. */
+    val installed: List<InstalledApp>? = null,
+    /** Apps started from the App shortcuts widget that haven't finished starting. */
+    val starting: Set<String> = emptySet(),
 )
 
 /** The Task manager's list of apps, which comes over SSH and so can be unavailable while the server totals still work. */
@@ -169,6 +187,18 @@ class DashboardViewModel(
         taskManagerOpen.value = open
     }
 
+    /** The server's apps are only read while Home has the App shortcuts widget on it. */
+    private val shortcutsShown = MutableStateFlow(false)
+
+    fun setShortcutsShown(shown: Boolean) {
+        shortcutsShown.value = shown
+    }
+
+    private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
+
+    /** What went wrong starting an app, for a message at the bottom of the screen. */
+    val messages: SharedFlow<String> = _messages.asSharedFlow()
+
     /** Installed apps, for names and icons. Refreshed now and then, and when an unknown app shows up. */
     private var installed: List<InstalledApp>? = null
     private var installedAtMs = 0L
@@ -179,6 +209,43 @@ class DashboardViewModel(
         launch { pollDrives() }
         // Closing the Task manager stops the per-app readings and closes their SSH login.
         launch { taskManagerOpen.collectLatest { open -> if (open) pollApps() } }
+        launch { shortcutsShown.collectLatest { shown -> if (shown) pollShortcuts() } }
+    }
+
+    private suspend fun pollShortcuts() {
+        while (true) {
+            readApps()
+            delay(SHORTCUTS_POLL_MS)
+        }
+    }
+
+    /** Reads the server's apps for the App shortcuts widget. A failed reading keeps the last list. */
+    private suspend fun readApps() {
+        try {
+            val apps = client.apps()
+            // The Task manager names apps from the same list.
+            installed = apps
+            installedAtMs = System.currentTimeMillis()
+            _state.update { it.copy(installed = apps) }
+        } catch (e: CasaException) {
+            // The server banner already reports a connection problem.
+        }
+    }
+
+    /** Starts [app], tapped on the App shortcuts widget while it was stopped. */
+    fun start(app: InstalledApp) {
+        if (app.id in _state.value.starting) return
+        _state.update { it.copy(starting = it.starting + app.id) }
+        viewModelScope.launch {
+            try {
+                client.setAppStatus(app.id, AppAction.Start)
+                readApps()
+            } catch (e: CasaException) {
+                _messages.emit("Couldn't start ${app.name}: ${e.message}")
+            } finally {
+                _state.update { it.copy(starting = it.starting - app.id) }
+            }
+        }
     }
 
     private suspend fun pollServer() {
@@ -240,23 +307,59 @@ class DashboardViewModel(
 /**
  * [route] is how Hearth reaches the server, which picks the icon beside its address. [layout] is what the
  * page shows under that, in order and at what size, as arranged in Customize Home, which [onCustomize] opens.
+ * [shortcuts] are the apps chosen for the App shortcuts widget there, null until any are. [onOpenApp] opens a
+ * running app's web page, and [onOpenApps] goes to the Apps tab, for the apps that don't fit on the widget.
  */
 @Composable
 fun DashboardScreen(
     viewModel: DashboardViewModel,
     username: String,
     serverLabel: String,
+    serverBaseUrl: String,
     route: ServerRoute,
     layout: HomeLayout,
+    shortcuts: List<String>?,
+    snackbar: SnackbarHostState,
     onOpenServers: () -> Unit,
     onOpenTaskManager: () -> Unit,
     onCustomize: () -> Unit,
+    onOpenApp: (app: InstalledApp, url: String) -> Unit,
+    onOpenApps: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    HomeContent(state, username, serverLabel, route, layout, onOpenServers, onOpenTaskManager, onCustomize)
+    val scope = rememberCoroutineScope()
+    val shortcutsShown = HomeWidget.AppShortcuts in layout.widgets
+    LaunchedEffect(viewModel, shortcutsShown) { viewModel.setShortcutsShown(shortcutsShown) }
+    LaunchedEffect(viewModel) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
+    HomeContent(
+        state, username, serverLabel, route, layout, onOpenServers, onOpenTaskManager, onCustomize,
+        shortcuts = state.installed?.let { shortcutApps(it, shortcuts, serverBaseUrl) },
+        onShortcut = { app ->
+            val url = app.webUrl(serverBaseUrl)
+            if (app.state == AppState.Running && url != null) {
+                onOpenApp(app, url)
+            } else if (app.id !in state.starting) {
+                // Opening a stopped app would only show an error page, so it's offered a start instead.
+                scope.launch {
+                    snackbar.currentSnackbarData?.dismiss()
+                    val stopped = app.state == AppState.Stopped
+                    val result = snackbar.showSnackbar(
+                        if (stopped) "${app.name} is stopped" else "${app.name} isn't running",
+                        actionLabel = if (stopped) "Start" else null,
+                        withDismissAction = true,
+                    )
+                    if (result == SnackbarResult.ActionPerformed) viewModel.start(app)
+                }
+            }
+        },
+        onMoreShortcuts = onOpenApps,
+    )
 }
 
-/** Home for the readings in [state]. */
+/**
+ * Home for the readings in [state]. [shortcuts] are the apps the App shortcuts widget shows, null until
+ * they're read; [onShortcut] is a tap on one, and [onMoreShortcuts] a tap on the button for those that don't fit.
+ */
 @Composable
 internal fun HomeContent(
     state: DashboardState,
@@ -267,6 +370,9 @@ internal fun HomeContent(
     onOpenServers: () -> Unit,
     onOpenTaskManager: () -> Unit,
     onCustomize: () -> Unit,
+    shortcuts: List<InstalledApp>? = null,
+    onShortcut: (InstalledApp) -> Unit = {},
+    onMoreShortcuts: () -> Unit = {},
 ) {
     val stats = state.stats
     // Read again with each reading, so a Hearth left open all day, as a tablet's home screen is, keeps up with the clock.
@@ -305,13 +411,14 @@ internal fun HomeContent(
 
             val drives = state.drives.orEmpty()
             // A widget this server has no reading for is left out, and the ones around it close up.
-            val shown = layout.only { it.hasReading(stats, drives) }
+            val shown = layout.only { it.hasReading(stats, drives, shortcuts) }
             if (shown.widgets.isEmpty()) {
                 NothingOnHome(nothingChosen = layout.widgets.isEmpty(), onCustomize)
                 return@Column
             }
             val widget: @Composable (HomeWidget, HomeSize, Modifier) -> Unit = { widget, size, modifier ->
-                HomeWidgetView(widget, size, state, stats, drives, onOpenTaskManager, modifier)
+                if (widget == HomeWidget.AppShortcuts) AppShortcutsWidget(size, shortcuts, state.starting, onShortcut, onMoreShortcuts, modifier)
+                else HomeWidgetView(widget, size, state, stats, drives, onOpenTaskManager, modifier)
             }
             homeSections(shown).forEach { section ->
                 when {
@@ -395,14 +502,20 @@ private fun HomeWidgetView(
             if (small) NetworkTile(state, modifier) else NetworkCard(state, stacked = size == HomeSize.Large, modifier)
         HomeWidget.MemoryBar -> MemoryCard(stats, modifier)
         HomeWidget.Drives -> if (drives.isNotEmpty()) StorageCard(drives, stats.disk, modifier) else stats.disk?.let { StorageTotalCard(it, modifier) }
+        // Drawn by [AppShortcutsWidget], which takes what the readings don't have.
+        HomeWidget.AppShortcuts -> Unit
     }
 }
 
-/** Whether this server has anything for the widget to show. */
-internal fun HomeWidget.hasReading(stats: SystemStats, drives: List<Drive>): Boolean = when (this) {
+/**
+ * Whether this server has anything for the widget to show. [shortcuts] are the apps for App shortcuts, which
+ * shows while they're being read and is left out if there are none.
+ */
+internal fun HomeWidget.hasReading(stats: SystemStats, drives: List<Drive>, shortcuts: List<InstalledApp>? = null): Boolean = when (this) {
     HomeWidget.TemperatureTile -> stats.cpuTempC != null
     HomeWidget.StorageTile -> stats.disk != null
     HomeWidget.Drives -> drives.isNotEmpty() || stats.disk != null
+    HomeWidget.AppShortcuts -> shortcuts == null || shortcuts.isNotEmpty()
     else -> true
 }
 

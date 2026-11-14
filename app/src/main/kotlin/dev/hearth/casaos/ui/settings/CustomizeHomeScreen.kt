@@ -7,11 +7,13 @@ import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -28,10 +30,14 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.AddCircleOutline
+import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.DashboardCustomize
 import androidx.compose.material.icons.rounded.DeveloperBoard
 import androidx.compose.material.icons.rounded.DeviceThermostat
@@ -43,10 +49,12 @@ import androidx.compose.material.icons.rounded.ShowChart
 import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.SwapVert
 import androidx.compose.material.icons.rounded.UnfoldMore
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -57,18 +65,23 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
@@ -93,9 +106,14 @@ import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.toOffset
 import androidx.compose.ui.zIndex
+import dev.hearth.casaos.data.AppState
+import dev.hearth.casaos.data.CasaException
 import dev.hearth.casaos.data.HomeLayout
 import dev.hearth.casaos.data.HomeSize
 import dev.hearth.casaos.data.HomeWidget
+import dev.hearth.casaos.data.InstalledApp
+import dev.hearth.casaos.data.toggledShortcut
+import dev.hearth.casaos.ui.components.AppIcon
 import dev.hearth.casaos.ui.components.BackButton
 import dev.hearth.casaos.ui.components.CardRadius
 import dev.hearth.casaos.ui.components.Chevron
@@ -123,6 +141,7 @@ private val HomeWidget.icon: ImageVector
         HomeWidget.Network -> Icons.Rounded.SwapVert
         HomeWidget.MemoryBar -> Icons.Rounded.LinearScale
         HomeWidget.Drives -> Icons.Rounded.Dns
+        HomeWidget.AppShortcuts -> Icons.Rounded.Apps
     }
 
 /**
@@ -175,6 +194,10 @@ private val PassThrough = object : NestedScrollConnection {}
  * [layout] is the one servers share unless this server ([serverLabel]) has its own, which is what
  * [ownLayout] says and the switch at the top changes through [onOwnLayout]. Null leaves the switch out,
  * for when there's no other server to differ from.
+ *
+ * The App shortcuts widget's Choose apps button lists this server's apps that have a web page, from
+ * [loadApps], to pick the ones it shows. [shortcuts] are the ones picked, null until any are, and
+ * [onShortcuts] changes them. Each server keeps its own, whichever layout it shows.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -186,6 +209,9 @@ fun CustomizeHomeScreen(
     ownLayout: Boolean? = null,
     onOwnLayout: (Boolean) -> Unit = {},
     serverLabel: String = "",
+    shortcuts: List<String>? = null,
+    onShortcuts: (List<String>?) -> Unit = {},
+    loadApps: suspend () -> List<InstalledApp> = { emptyList() },
 ) {
     val shown = layout.widgets
     val hidden = HomeWidget.entries.filter { it !in shown }
@@ -194,6 +220,7 @@ fun CustomizeHomeScreen(
     val latest by rememberUpdatedState(layout)
     val change by rememberUpdatedState(onChange)
     val changeOwn by rememberUpdatedState(onOwnLayout)
+    var choosingApps by rememberSaveable { mutableStateOf(false) }
 
     BackHandler(onBack = onClose)
 
@@ -325,6 +352,7 @@ fun CustomizeHomeScreen(
                             onShift = { by -> edit(layout.shifted(widget, by)) },
                             first = widget == shown.first(),
                             last = widget == shown.last(),
+                            onChooseApps = if (widget == HomeWidget.AppShortcuts) ({ choosingApps = true }) else null,
                         )
                     }
                 }
@@ -354,6 +382,111 @@ fun CustomizeHomeScreen(
             }
         }
     }
+
+    if (choosingApps) {
+        ChooseAppsSheet(
+            chosen = shortcuts,
+            loadApps = loadApps,
+            onToggle = { openable, id ->
+                snackbar.currentSnackbarData?.dismiss()
+                onShortcuts(toggledShortcut(shortcuts, openable, id))
+            },
+            onShowAll = {
+                val before = shortcuts
+                choosingApps = false
+                onShortcuts(null)
+                offerUndo("Showing all apps") { onShortcuts(before) }
+            },
+            onDismiss = { choosingApps = false },
+        )
+    }
+}
+
+/**
+ * The list Choose apps opens: this server's apps with a web page, from [loadApps], each ticked if the App
+ * shortcuts widget shows it, with its place there. While none have been [chosen] the widget shows them all,
+ * so all are ticked. [onToggle] puts an app on the widget or takes it off, and [onShowAll] goes back to all.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ChooseAppsSheet(
+    chosen: List<String>?,
+    loadApps: suspend () -> List<InstalledApp>,
+    onToggle: (openable: List<InstalledApp>, id: String) -> Unit,
+    onShowAll: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var apps by remember { mutableStateOf<List<InstalledApp>?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var tries by remember { mutableIntStateOf(0) }
+    LaunchedEffect(tries) {
+        error = null
+        try {
+            apps = loadApps()
+        } catch (e: CasaException) {
+            error = e.message ?: "Couldn't reach your server"
+        }
+    }
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Column(
+            Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(Modifier.padding(start = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("App shortcuts", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
+                TextButton(onClick = onShowAll, enabled = chosen != null) { Text("Show all") }
+            }
+            val list = apps
+            when {
+                list == null && error == null -> Box(Modifier.fillMaxWidth().padding(vertical = 32.dp), Alignment.Center) { CircularProgressIndicator() }
+                list == null -> {
+                    GroupFootnote("Couldn't load this server's apps: $error")
+                    TextButton(onClick = { tries++ }, Modifier.padding(start = 4.dp)) { Text("Try again") }
+                }
+                list.isEmpty() -> GroupFootnote("None of this server's apps has a web page to open.")
+                else -> {
+                    // Where each ticked app is on the widget, counting only the apps still here.
+                    val picked = chosen?.filter { id -> list.any { it.id == id } } ?: list.map { it.id }
+                    ListGroup {
+                        list.forEach { app ->
+                            val place = picked.indexOf(app.id)
+                            val stopped = app.state != AppState.Running
+                            ListRow(
+                                app.name,
+                                subtitle = if (stopped) "Stopped" else null,
+                                leading = { AppIcon(app.iconUrl, app.name, Modifier.alpha(if (stopped) 0.45f else 1f), size = 40.dp, grayscale = stopped) },
+                                trailing = { PlaceMark(place) },
+                                toggle = (place >= 0) to { _ -> onToggle(list, app.id) },
+                                toggleRole = Role.Checkbox,
+                            )
+                        }
+                    }
+                    GroupFootnote(
+                        if (chosen == null) "Home shows every app here until you choose, and apps you install later too. Untick the ones you don't want."
+                        else "Home shows the ticked apps in the order you ticked them. Each server keeps its own.",
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** A ticked app's [place] on the widget, counting from 1, in a filled circle; an empty circle if it isn't on it (-1). */
+@Composable
+private fun PlaceMark(place: Int) {
+    val scheme = MaterialTheme.colorScheme
+    val circle = Modifier.padding(end = 8.dp).size(28.dp).clip(CircleShape)
+    if (place >= 0) {
+        Box(circle.background(scheme.primary), Alignment.Center) {
+            Text("${place + 1}", style = MaterialTheme.typography.labelLarge, color = scheme.onPrimary, maxLines = 1)
+        }
+    } else {
+        Box(circle.border(2.dp, scheme.outline, CircleShape))
+    }
 }
 
 /**
@@ -371,6 +504,7 @@ private fun PlacedWidget(
     onShift: (Int) -> Unit,
     first: Boolean,
     last: Boolean,
+    onChooseApps: (() -> Unit)? = null,
 ) {
     val scheme = MaterialTheme.colorScheme
     val scale by animateFloatAsState(if (lifted) 1.04f else 1f, label = "lift")
@@ -393,7 +527,12 @@ private fun PlacedWidget(
         }
         // Under the name: the size, which a tap changes, or what the widget shows if it comes in one size only.
         val detail: @Composable () -> Unit = {
-            if (widget.resizable) {
+            if (onChooseApps != null) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    SizeButton(widget, size, onResize)
+                    PillButton("Choose apps", Icons.AutoMirrored.Rounded.KeyboardArrowRight, onClickLabel = "choose apps", onClick = onChooseApps)
+                }
+            } else if (widget.resizable) {
                 SizeButton(widget, size, onResize)
             } else {
                 Text(widget.about, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -429,19 +568,35 @@ private fun PlacedWidget(
 /** The pill under a widget's name that says its size. Tapping it gives the widget the next size up, then back to the smallest. */
 @Composable
 private fun SizeButton(widget: HomeWidget, size: HomeSize, onResize: () -> Unit) {
+    PillButton(
+        size.label, Icons.Rounded.UnfoldMore, onClickLabel = "change size", onClick = onResize,
+        iconTurn = 45f, description = "${widget.label} size, ${size.label}",
+    )
+}
+
+/** A pill under a widget's name: [text] with a small [icon] after it, turned [iconTurn] degrees, in the accent colour. */
+@Composable
+private fun PillButton(
+    text: String,
+    icon: ImageVector,
+    onClickLabel: String,
+    onClick: () -> Unit,
+    iconTurn: Float = 0f,
+    description: String? = null,
+) {
     val scheme = MaterialTheme.colorScheme
     Row(
         Modifier
             .clip(CircleShape)
             .background(scheme.primary.copy(alpha = 0.14f))
-            .clickable(onClickLabel = "change size", role = Role.Button, onClick = onResize)
-            .semantics { contentDescription = "${widget.label} size, ${size.label}" }
+            .clickable(onClickLabel = onClickLabel, role = Role.Button, onClick = onClick)
+            .semantics { if (description != null) contentDescription = description }
             .heightIn(min = 32.dp)
             .padding(start = 12.dp, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(size.label, style = MaterialTheme.typography.labelLarge, color = scheme.primary, maxLines = 1)
-        Icon(Icons.Rounded.UnfoldMore, null, Modifier.padding(start = 2.dp).size(16.dp).rotate(45f), tint = scheme.primary)
+        Text(text, style = MaterialTheme.typography.labelLarge, color = scheme.primary, maxLines = 1)
+        Icon(icon, null, Modifier.padding(start = 2.dp).size(16.dp).rotate(iconTurn), tint = scheme.primary)
     }
 }
 

@@ -27,7 +27,7 @@ Sign in with your server's address (for example `192.168.1.20` or `casaos.local`
 
 | | |
 | --- | --- |
-| **Home** | Live CPU, temperature, memory, network and storage, arranged and sized the way you like, with every drive's health and a Task manager showing what each app uses |
+| **Home** | Live CPU, temperature, memory, network and storage, arranged and sized the way you like, with every drive's health, a Task manager showing what each app uses and shortcuts to the apps you pick |
 | **Apps** | Start, stop, restart and update apps, change their settings or version, and read their logs live |
 | **App Store** | Browse and install apps from your server's stores |
 | **Files** | Browse, preview, upload, download, share and search everything on the server, as a list, as thumbnails or as a photo gallery. Optionally, your servers in Android's Files app too |

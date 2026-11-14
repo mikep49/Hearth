@@ -172,6 +172,30 @@ class PrefsStore(context: Context) {
         _homeLayouts.value = next
     }
 
+    private val _appShortcuts = MutableStateFlow(
+        prefs.all.keys.filter { it.startsWith("$KEY_APP_SHORTCUTS/") }
+            .associate { key -> key.substringAfter('/') to shortcuts(prefs.getString(key, null)).orEmpty() },
+    )
+
+    /**
+     * The apps chosen for the App shortcuts widget on Home, by server id, in the order they were chosen. Apps
+     * differ from server to server, so each keeps its own choice. A server not here hasn't chosen any yet.
+     */
+    val appShortcuts: StateFlow<Map<String, List<String>>> = _appShortcuts.asStateFlow()
+
+    /** Chooses [server]'s app shortcuts. Null goes back to showing all its apps. */
+    fun setAppShortcuts(server: String, ids: List<String>?) {
+        if (_appShortcuts.value[server] == ids) return
+        val key = "$KEY_APP_SHORTCUTS/$server"
+        if (ids == null) {
+            prefs.edit().remove(key).apply()
+            _appShortcuts.value -= server
+        } else {
+            prefs.edit().putString(key, savedShortcuts(ids)).apply()
+            _appShortcuts.value += server to ids
+        }
+    }
+
     /** The terminal's text size in sp, as last set by pinching or from its menu. Read once when a terminal opens. */
     var terminalFontSp: Float
         get() = prefs.getFloat(KEY_TERMINAL_FONT, DEFAULT_TERMINAL_FONT_SP)
@@ -184,6 +208,7 @@ class PrefsStore(context: Context) {
         private const val KEY_HOME_WIDGETS = "home_widgets"
         private const val KEY_HOME_HIDDEN = "home_widgets_hidden"
         private const val KEY_HOME_SIZES = "home_widget_sizes"
+        private const val KEY_APP_SHORTCUTS = "app_shortcuts"
         private const val KEY_STRICT_BROWSER = "strict_browser"
         private const val KEY_SHOW_IN_FILES = "show_in_files"
         private const val KEY_ALERTS = "alerts"

@@ -296,10 +296,12 @@ fun ListRow(
     onLongClick: (() -> Unit)? = null,
     /** Turns the whole row into a switch, for rows whose trailing content is a [Switch] with no click of its own. */
     toggle: Pair<Boolean, (Boolean) -> Unit>? = null,
+    /** What a [toggle] row is to accessibility services: a switch, or a checkbox for a row in a list to pick from. */
+    toggleRole: Role = Role.Switch,
 ) {
     val alpha = if (enabled) 1f else 0.45f
     val click = when {
-        toggle != null -> Modifier.toggleable(toggle.first, enabled = enabled, role = Role.Switch, onValueChange = toggle.second)
+        toggle != null -> Modifier.toggleable(toggle.first, enabled = enabled, role = toggleRole, onValueChange = toggle.second)
         onLongClick != null -> Modifier.combinedClickable(enabled = enabled, onClick = onClick ?: {}, onLongClick = onLongClick)
         onClick != null -> Modifier.clickable(enabled = enabled, onClick = onClick)
         else -> Modifier

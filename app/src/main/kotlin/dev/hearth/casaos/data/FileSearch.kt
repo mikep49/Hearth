@@ -97,18 +97,19 @@ fun List<FileEntry>.withoutNested(): List<FileEntry> {
 }
 
 /** Follows a rename of [oldPath] to [newPath], including everything inside a renamed folder. */
-fun FileIndex.renamed(oldPath: String, newPath: String): FileIndex {
+fun FileIndex.renamed(oldPath: String, newPath: String): FileIndex = copy(entries = entries.renamed(oldPath, newPath))
+
+/** Follows a rename of [oldPath] to [newPath], including everything inside a renamed folder. */
+fun List<FileEntry>.renamed(oldPath: String, newPath: String): List<FileEntry> {
     val oldPrefix = oldPath.trimEnd('/') + "/"
     val newName = newPath.trimEnd('/').substringAfterLast('/')
-    return copy(
-        entries = entries.map { e ->
-            when {
-                e.path == oldPath -> e.copy(name = newName, path = newPath)
-                e.path.startsWith(oldPrefix) -> e.copy(path = newPath.trimEnd('/') + "/" + e.path.removePrefix(oldPrefix))
-                else -> e
-            }
-        },
-    )
+    return map { e ->
+        when {
+            e.path == oldPath -> e.copy(name = newName, path = newPath)
+            e.path.startsWith(oldPrefix) -> e.copy(path = newPath.trimEnd('/') + "/" + e.path.removePrefix(oldPrefix))
+            else -> e
+        }
+    }
 }
 
 data class SearchHits(val entries: List<FileEntry>, /** All matches, of which [entries] are the best. */ val total: Int)

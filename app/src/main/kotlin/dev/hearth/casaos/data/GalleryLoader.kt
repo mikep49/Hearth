@@ -75,11 +75,14 @@ class GalleryLoader(
     private var job: Job? = null
     private var walk: Job? = null
 
-    /** Counts changes Hearth couldn't follow: one made while a walk runs may be missing from what it finds. */
+    /** Counts changes Hearth couldn't follow: one made while a look runs may be missing from what it finds. */
     private var changes = 0
 
-    /** Photos deleted while the walk under way runs, which it may still find. */
-    private var deletedDuringWalk: MutableSet<String>? = null
+    /**
+     * Deletes and renames made while the look under way runs, in order. What it finds may be from before them,
+     * so they're made again on it.
+     */
+    private var madeDuringLook: MutableList<(List<GalleryMonth>) -> List<GalleryMonth>>? = null
 
     /** Shows the photos in the folder at [root] and the folders inside it, looking through them if need be. */
     fun open(root: String, showHidden: Boolean) {
@@ -99,10 +102,18 @@ class GalleryLoader(
         }
         _state.value = known?.state(root, scanning = true) ?: GalleryState(root)
         if (snapshot == null) return look(key)
+        val changesBefore = changes
+        val made = followChanges()
         job = scope.launch {
-            val months = withContext(work) { snapshot.index.galleryPhotos(root, top, showHidden)?.let { galleryMonths(it, showHidden) } }
+            val months = try {
+                withContext(work) { snapshot.index.galleryPhotos(root, top, showHidden)?.let { galleryMonths(it, showHidden) } }
+                    ?.let { made.fold(it) { months, change -> change(months) } }
+            } finally {
+                stopFollowing(made)
+            }
             if (months != null) {
-                val picked = Found(months, foldersScanned = 0, truncated = false, snapshot.at, snapshot.upToDate)
+                val upToDate = snapshot.upToDate && changes == changesBefore
+                val picked = Found(months, foldersScanned = 0, truncated = false, snapshot.at, upToDate)
                 remember(key, picked)
                 if (picked.freshAt(clock())) {
                     _state.value = picked.state(root, scanning = false)
@@ -130,8 +141,8 @@ class GalleryLoader(
 
     /** Drops photos deleted on the server, and those in deleted folders, from what's showing and remembered. */
     fun deleted(paths: Set<String>) {
-        deletedDuringWalk?.addAll(paths)
         val gone = paths.mapTo(HashSet()) { it.trimEnd('/') }
+        madeDuringLook?.add { it.without(gone) }
         found.entries.removeAll { atOrUnder(it.key.root, gone) }
         for (e in found.entries) e.setValue(e.value.copy(months = e.value.months.without(gone)))
         _state.update { it?.copy(months = it.months.without(gone)) }
@@ -143,6 +154,7 @@ class GalleryLoader(
      */
     fun renamed(oldPath: String, newPath: String) {
         changes++
+        madeDuringLook?.add { it.renamed(oldPath, newPath) }
         val old = setOf(oldPath.trimEnd('/'))
         // Photos found in the renamed folder, or below it, are under another path now.
         found.entries.removeAll { atOrUnder(it.key.root, old) }
@@ -175,7 +187,7 @@ class GalleryLoader(
         _state.update { it?.copy(scanning = true, error = null) }
         val started = clock()
         val changesBefore = changes
-        val deleted = HashSet<String>().also { deletedDuringWalk = it }
+        val made = followChanges()
         walk = scope.launch {
             try {
                 val walked = walkFolders(
@@ -187,7 +199,8 @@ class GalleryLoader(
                         _state.update { s -> if (s == null || s.months.isNotEmpty()) s else s.copy(foldersScanned = p.foldersScanned) }
                     },
                 )
-                val months = withContext(work) { galleryMonths(walked.entries, key.showHidden) }.without(deleted)
+                val months = withContext(work) { galleryMonths(walked.entries, key.showHidden) }
+                    .let { made.fold(it) { months, change -> change(months) } }
                 ensureActive()
                 val result = Found(months, walked.foldersScanned, walked.truncated, started, upToDate = changes == changesBefore)
                 remember(key, result)
@@ -197,10 +210,17 @@ class GalleryLoader(
                 _state.update { it?.copy(scanning = false, error = e.message) }
                 if (_state.value?.months?.isNotEmpty() == true) onError("Couldn't refresh the gallery: ${e.message}")
             } finally {
-                if (deletedDuringWalk === deleted) deletedDuringWalk = null
+                stopFollowing(made)
             }
         }
         job = walk
+    }
+
+    /** Starts noting deletes and renames for a look that's starting, in place of the one before. */
+    private fun followChanges() = ArrayList<(List<GalleryMonth>) -> List<GalleryMonth>>().also { madeDuringLook = it }
+
+    private fun stopFollowing(made: List<(List<GalleryMonth>) -> List<GalleryMonth>>) {
+        if (madeDuringLook === made) madeDuringLook = null
     }
 
     /** Keeps [value] for [key], letting go of the folders opened longest ago once there are too many photos. */

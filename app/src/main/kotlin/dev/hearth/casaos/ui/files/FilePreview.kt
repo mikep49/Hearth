@@ -189,7 +189,11 @@ private fun ImagePreview(url: String, name: String, showing: Boolean = true) {
         model = url,
         contentDescription = name,
         contentScale = ContentScale.Fit,
-        onSuccess = { image = it.painter.intrinsicSize },
+        onSuccess = {
+            image = it.painter.intrinsicSize
+            // A zoom made while the photo loaded was kept within the whole box, which the photo may not fill.
+            zoom = zoom.clamped(box, image)
+        },
         onError = { failed = true },
         modifier = Modifier
             .fillMaxSize()

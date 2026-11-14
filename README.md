@@ -27,28 +27,26 @@ Sign in with your server's address (for example `192.168.1.20` or `casaos.local`
 
 | | |
 | --- | --- |
-| **Home** | Live CPU, memory, network and storage, a Task manager with how much each app uses, and every drive with its health and free space |
+| **Home** | Live CPU, temperature, memory, network and storage, arranged and sized the way you like, with every drive's health and a Task manager showing what each app uses |
 | **Apps** | Start, stop, restart and update apps, change their settings or version, and read their logs live |
 | **App Store** | Browse and install apps from your server's stores |
-| **Files** | Browse, preview, upload, download, share and search everything on the server |
-| **Android Files** | Optional: your servers in the Files app's side menu, and in other apps' file pickers |
+| **Files** | Browse, preview, upload, download, share and search everything on the server, as a list, as thumbnails or as a photo gallery. Optionally, your servers in Android's Files app too |
 | **Terminal** | An SSH shell with password or key sign-in, copy and paste, extra keys and a one-tap server update |
+| **Servers** | Save several servers and switch between them |
 | **Tailscale** | See whether you reach the server through Tailscale, with the server's Tailscale address and the other devices on your tailnet |
 | **Alerts** | Optional notifications when a server goes offline, storage is nearly full, an app stops or an update is out |
-| **Servers** | Save several servers and switch between them |
 | **Lock** | Optional fingerprint, face or PIN lock, for all of Hearth or just the terminal and apps |
 | **Widget** | Your server's stats on the home screen |
 | **Themes** | System, light or dark, pure black, six accent colors, and an Android or One UI style |
-| **Tablets** | A side rail and wider layouts on big screens and in landscape |
-| **Home screen** | Optional: Hearth as the home screen of a tablet kept just for your server |
+| **Tablets** | A side rail and wider layouts on big screens, and optionally Hearth as the home screen of a tablet kept just for your server |
 
-![The Appearance page, the Android style, a light theme and a pure black theme](docs/screenshots/themes.png)
+![The Task manager, the photo gallery, Customize Home and the Appearance page, each in a different theme](docs/screenshots/more.png)
 
 ## Security
 
 CasaOS uses plain HTTP by default, so your password isn't encrypted on the network. Use Hearth on your home network, or connect through a VPN such as Tailscale or WireGuard when you're away.
 
-Your logins are stored encrypted on the phone, and the terminal uses SSH, which is always encrypted.
+Your logins are stored encrypted on the phone and left out of backups, and the terminal uses SSH, which is always encrypted.
 
 ## Build it yourself
 

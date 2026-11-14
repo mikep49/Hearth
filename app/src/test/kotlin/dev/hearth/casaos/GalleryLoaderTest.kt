@@ -8,10 +8,13 @@ import dev.hearth.casaos.data.GALLERY_FRESH_MS
 import dev.hearth.casaos.data.GalleryLoader
 import dev.hearth.casaos.data.IndexSnapshot
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -51,13 +54,18 @@ class GalleryLoaderTest {
         return tree[path]?.let { FolderListing(path, it) } ?: throw CasaException.Server(404, "Not found")
     }
 
-    private fun TestScope.loader(): GalleryLoader {
+    /** [work] sorts photos into months: by default straight away, or, given a [StandardTestDispatcher], when the test lets it. */
+    private fun TestScope.loader(work: CoroutineDispatcher? = null): GalleryLoader {
         val dispatcher = UnconfinedTestDispatcher(testScheduler)
         return GalleryLoader(
             CoroutineScope(backgroundScope.coroutineContext + dispatcher), ::list, "/DATA",
-            index = { index }, clock = { now }, onError = { errors += it }, work = dispatcher,
+            index = { index }, clock = { now }, onError = { errors += it }, work = work ?: dispatcher,
         )
     }
+
+    /** A search index of the whole [tree], built just now. */
+    private fun recentIndex() =
+        IndexSnapshot(FileIndex("/DATA", tree.values.flatten(), foldersScanned = 5, done = true), at = now, upToDate = true)
 
     private fun GalleryLoader.paths() = state.value?.photos?.map { it.path }
 
@@ -226,6 +234,51 @@ class GalleryLoaderTest {
         // The walk listed the folder before the photo went.
         gate!!.complete(Unit)
         assertEquals(listOf("/DATA/Gallery/Trips/b.jpg"), g.paths())
+    }
+
+    @Test fun `a photo renamed while it looks shows under its new name when the look is done`() = runTest {
+        val g = loader()
+        g.visit()
+        now += GALLERY_FRESH_MS
+        gate = CompletableDeferred()
+        g.open("/DATA", showHidden = false)
+        g.renamed("/DATA/Gallery/a.jpg", "/DATA/Gallery/beach.jpg")
+        // The walk listed the folder before the photo was renamed.
+        gate!!.complete(Unit)
+        assertEquals(listOf("/DATA/Gallery/Trips/b.jpg", "/DATA/Gallery/beach.jpg"), g.paths()?.sorted())
+    }
+
+    @Test fun `a photo deleted while the search index is read doesn't come back`() = runTest {
+        index = recentIndex()
+        val work = StandardTestDispatcher(testScheduler)
+        val g = loader(work)
+        g.open("/DATA", showHidden = false)
+        g.deleted(setOf("/DATA/Gallery/a.jpg"))
+        runCurrent()
+        assertEquals(listOf("/DATA/Gallery/Trips/b.jpg"), g.paths())
+        assertEquals(false, g.scanning())
+        // Nor when it's opened again, from what it remembers.
+        g.close()
+        g.open("/DATA", showHidden = false)
+        runCurrent()
+        assertEquals(listOf("/DATA/Gallery/Trips/b.jpg"), g.paths())
+        assertTrue(listed.isEmpty())
+    }
+
+    @Test fun `a photo renamed while the search index is read shows under its new name, and it looks again`() = runTest {
+        index = recentIndex()
+        val work = StandardTestDispatcher(testScheduler)
+        val g = loader(work)
+        g.open("/DATA", showHidden = false)
+        g.renamed("/DATA/Gallery/a.jpg", "/DATA/Gallery/beach.jpg")
+        gate = CompletableDeferred()
+        runCurrent()
+        assertEquals(listOf("/DATA/Gallery/Trips/b.jpg", "/DATA/Gallery/beach.jpg"), g.paths()?.sorted())
+        // The new name could make it a hidden photo, so the folders are looked through.
+        assertEquals(true, g.scanning())
+        assertEquals(listOf("/DATA"), listed)
+        gate!!.complete(Unit)
+        runCurrent()
     }
 
     @Test fun `a deleted folder's photos are gone the next time, without looking again`() = runTest {

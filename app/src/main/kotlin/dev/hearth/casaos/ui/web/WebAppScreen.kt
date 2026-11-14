@@ -121,6 +121,14 @@ fun WebAppScreen(
         onDispose { lifecycle.removeObserver(observer) }
     }
 
+    // Closing the app normally reaches the logins when its view is released. After its page stopped there's no
+    // view left to release, so it's done here, or the app would stay signed in with logins not remembered.
+    DisposableEffect(url) {
+        onDispose {
+            if (stopped != null && activity?.isChangingConfigurations != true) logins.closed(url)
+        }
+    }
+
     BackHandler {
         val view = webView
         if (view != null && view.canGoBack()) view.goBack() else onClose()

@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.ui.unit.dp
 import dev.hearth.casaos.data.FileEntry
+import dev.hearth.casaos.data.GalleryState
 import dev.hearth.casaos.data.INDEX_MAX_ENTRIES
 import dev.hearth.casaos.files.PhotoThumbnail
 import dev.hearth.casaos.ui.components.BackButton

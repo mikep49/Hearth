@@ -4,6 +4,7 @@ import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
+import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -136,9 +137,9 @@ import dev.hearth.casaos.data.FileEntry
 import dev.hearth.casaos.data.FileIndex
 import dev.hearth.casaos.data.FileSort
 import dev.hearth.casaos.data.FolderListing
-import dev.hearth.casaos.data.GalleryMonth
-import dev.hearth.casaos.data.galleryLooksIn
-import dev.hearth.casaos.data.galleryMonths
+import dev.hearth.casaos.data.GalleryLoader
+import dev.hearth.casaos.data.GalleryState
+import dev.hearth.casaos.data.IndexSnapshot
 import dev.hearth.casaos.data.PhoneFiles
 import dev.hearth.casaos.data.PickedFile
 import dev.hearth.casaos.data.PrefsStore
@@ -220,21 +221,6 @@ data class FilesState(
     val canGoUp get() = path != ROOT && path != "/"
 }
 
-/** The gallery: every photo in the folder at [root] and the folders inside it. */
-data class GalleryState(
-    val root: String,
-    val months: List<GalleryMonth> = emptyList(),
-    /** True while the folders are being read, the first time or for a refresh. */
-    val scanning: Boolean = true,
-    val foldersScanned: Int = 0,
-    /** True when there were too many files to look through them all. */
-    val truncated: Boolean = false,
-    val error: String? = null,
-) {
-    /** All the photos in the order they show, which is also the order the full-screen view swipes through. */
-    val photos: List<FileEntry> = months.flatMap { it.photos }
-}
-
 private fun join(dir: String, name: String) = dir.trimEnd('/') + "/" + name
 private fun parentOf(path: String) = path.trimEnd('/').substringBeforeLast('/').ifEmpty { "/" }
 private fun plural(n: Int, one: String, many: String = one + "s") = if (n == 1) "1 $one" else "$n $many"
@@ -286,6 +272,8 @@ class FilesViewModel(
     private var indexJob: Job? = null
     /** Set when files may have changed since the index was built; the next search rebuilds it. */
     private var indexStale = false
+    /** When the walk behind the index began, once one has finished: null while there's only part of one. */
+    private var indexAt: Long? = null
 
     val sort: StateFlow<FileSort> = prefs.fileSort
 
@@ -318,9 +306,16 @@ class FilesViewModel(
 
     fun up() { if (_state.value.canGoUp) open(parentOf(_state.value.path)) }
 
+    /** Reads the open folder again, as the user asked. Files may have changed anywhere, so search and the gallery look again too. */
     fun reload() {
-        indexStale = true
+        filesChanged()
         open(_state.value.path)
+    }
+
+    /** Files changed in ways Hearth can't follow: the next search, and the gallery, look through the folders again. */
+    private fun filesChanged() {
+        indexStale = true
+        galleryLoader.outdated()
     }
 
     // region search
@@ -334,9 +329,11 @@ class FilesViewModel(
         val previous = _index.value
         // While rebuilding, keep showing the old results instead of a partial list that grows back.
         if (previous != null) _index.value = previous.copy(done = false)
+        val started = SystemClock.elapsedRealtime()
         indexJob = viewModelScope.launch {
             try {
                 _index.value = walkFolders(ROOT, client::folder) { partial -> if (previous == null) _index.value = partial }
+                indexAt = started
             } catch (e: CasaException) {
                 _index.update { it?.copy(done = true) }
                 indexStale = true
@@ -358,58 +355,39 @@ class FilesViewModel(
         return _index.value?.entries.orEmpty().filter { parentOf(it.path) == dir }.map { it.name }.toSet()
     }
 
+    /** The index, for the gallery to take photos from, once a walk has finished building it. */
+    private fun indexSnapshot(): IndexSnapshot? {
+        val index = _index.value ?: return null
+        val at = indexAt ?: return null
+        return IndexSnapshot(index, at, upToDate = !indexStale)
+    }
+
     // endregion
 
     // region gallery
 
-    private val _gallery = MutableStateFlow<GalleryState?>(null)
+    /** Remembers the photos it finds, and takes them from the search index when it can, to save walking the folders. */
+    private val galleryLoader = GalleryLoader(
+        viewModelScope, client::folder, ROOT,
+        index = ::indexSnapshot,
+        clock = SystemClock::elapsedRealtime,
+        onError = { _messages.tryEmit(it) },
+    )
 
     /** The gallery, while it's open. */
-    val gallery: StateFlow<GalleryState?> = _gallery.asStateFlow()
-    private var galleryJob: Job? = null
+    val gallery: StateFlow<GalleryState?> = galleryLoader.state
 
     /** Shows the photos in the open folder and the folders inside it. */
-    fun openGallery() = loadGallery(_state.value.path)
+    fun openGallery() = galleryLoader.open(_state.value.path, sort.value.showHidden)
 
-    fun reloadGallery() {
-        loadGallery(_gallery.value?.root ?: return)
-    }
+    fun reloadGallery() = galleryLoader.refresh()
 
-    fun closeGallery() {
-        galleryJob?.cancel()
-        _gallery.value = null
-    }
-
-    /**
-     * Finds the photos under [root] by walking its folders, as search does. Nothing shows until the walk is
-     * done: photos turn up in folder order, so a list filled in as they arrive would keep shifting.
-     */
-    private fun loadGallery(root: String) {
-        galleryJob?.cancel()
-        // A refresh keeps the photos already showing until the new ones are ready.
-        val showing = _gallery.value?.takeIf { it.root == root }
-        _gallery.value = (showing ?: GalleryState(root)).copy(scanning = true, error = null)
-        val showHidden = sort.value.showHidden
-        galleryJob = viewModelScope.launch {
-            try {
-                val found = walkFolders(
-                    root, client::folder,
-                    descend = { galleryLooksIn(it, ROOT, showHidden) },
-                    onProgress = { partial -> _gallery.update { it?.copy(foldersScanned = partial.foldersScanned) } },
-                )
-                val months = withContext(Dispatchers.Default) { galleryMonths(found.entries, showHidden) }
-                _gallery.update { it?.copy(months = months, scanning = false, foldersScanned = found.foldersScanned, truncated = found.truncated) }
-            } catch (e: CasaException) {
-                _gallery.update { it?.copy(scanning = false, error = e.message) }
-                if (showing != null && showing.months.isNotEmpty()) _messages.emit("Couldn't refresh the gallery: ${e.message}")
-            }
-        }
-    }
+    fun closeGallery() = galleryLoader.close()
 
     // endregion
 
-    /** Reloads only if the user is still looking at [dir]. */
-    private fun reloadIfShowing(dir: String) { if (_state.value.path == dir) reload() }
+    /** Reads [dir] again if the user is still looking at it. */
+    private fun reloadIfShowing(dir: String) { if (_state.value.path == dir) open(dir) }
 
     // region transfers
 
@@ -505,7 +483,7 @@ class FilesViewModel(
                     }
                 }
             } finally {
-                indexStale = true
+                filesChanged()
                 reloadIfShowing(dir)
             }
             val done = plan.size - failed.size
@@ -537,6 +515,7 @@ class FilesViewModel(
         val dir = _state.value.path
         viewModelScope.launch {
             if (change("Couldn't create the folder") { client.createFolder(join(dir, name.trim())) }) {
+                // A new folder is empty, so the gallery has nothing to look for in it.
                 indexStale = true
                 reloadIfShowing(dir)
             }
@@ -551,6 +530,7 @@ class FilesViewModel(
             val newPath = join(dir, name)
             if (change("Couldn't rename ${entry.name}") { client.rename(entry.path, newPath) }) {
                 patchIndex { it.renamed(entry.path, newPath) }
+                galleryLoader.renamed(entry.path, newPath)
                 reloadIfShowing(dir)
             }
         }
@@ -561,14 +541,13 @@ class FilesViewModel(
         viewModelScope.launch {
             if (change("Couldn't delete") { client.delete(entries.map { it.path }) }) {
                 patchIndex { it.without(entries.map { e -> e.path }) }
-                val paths = entries.mapTo(HashSet()) { it.path }
-                _gallery.update { it?.copy(months = it.months.without(paths)) }
+                galleryLoader.deleted(entries.mapTo(HashSet()) { it.path })
                 _messages.emit(if (entries.size == 1) "Deleted ${entries[0].name}" else "Deleted ${plural(entries.size, "item")}")
                 // Search results can come from any folder, including ones above the open folder.
                 val here = _state.value.path
                 val gone = entries.firstOrNull { here == it.path || here.startsWith(it.path.trimEnd('/') + "/") }
                 if (gone != null) open(parentOf(gone.path))
-                else if (entries.any { parentOf(it.path) == here }) reload()
+                else if (entries.any { parentOf(it.path) == here }) open(here)
             }
         }
     }
@@ -601,7 +580,7 @@ class FilesViewModel(
                 client.transfer(clip.entries.map { it.path }, dest, move = clip.move)
             }
             if (!ok) return@launch
-            indexStale = true
+            filesChanged()
             // The server does the work in the background: give small items a moment to land before reloading.
             _messages.emit(if (clip.move) "Moving $what here" else "Copying $what here. Big folders take a while; pull down to refresh.")
             delay(800)

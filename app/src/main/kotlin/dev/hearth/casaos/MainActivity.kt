@@ -124,10 +124,18 @@ import dev.hearth.casaos.ui.theme.HearthTheme
 import dev.hearth.casaos.ui.theme.isDark
 import dev.hearth.casaos.ui.web.WebAppScreen
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 // A FragmentActivity because the system unlock prompt needs one. Open for HomeActivity, the same app as the home screen.
 open class MainActivity : FragmentActivity() {
+    /** Home pressed while the home screen was showing. */
+    private val homePressed = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
+    /** Out of sight since it was last in front, such as behind another app. */
+    private var hidden = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -146,7 +154,7 @@ open class MainActivity : FragmentActivity() {
             // Back has nowhere to go from the home screen, and closing it would only make Android start it again.
             // Pages opened over it still close with Back: their handlers come after this one.
             if (homeScreen) BackHandler {}
-            HearthTheme(theme) { ClearOfCutout { LockGate(container.lock) { Root(container, homeScreen) } } }
+            HearthTheme(theme) { ClearOfCutout { LockGate(container.lock) { Root(container, homeScreen, homePressed) } } }
         }
     }
 
@@ -157,8 +165,16 @@ open class MainActivity : FragmentActivity() {
         (application as HearthApp).container.launcher.settle(this)
     }
 
+    override fun onResume() {
+        super.onResume()
+        hidden = false
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        // As on other home screens, Home goes back to the main page. Pressed in another app it only brings Hearth
+        // back as it was left; pressed again, Hearth goes to Home.
+        if (this is HomeActivity && !hidden && intent.hasCategory(Intent.CATEGORY_HOME)) homePressed.tryEmit(Unit)
         openFrom(intent)
     }
 
@@ -171,13 +187,17 @@ open class MainActivity : FragmentActivity() {
 
     override fun onStop() {
         super.onStop()
+        hidden = true
         if (!isChangingConfigurations) (application as HearthApp).container.refreshWidgets()
     }
 }
 
-/** The sign-in page, or the app once signed in. [homeScreen]: this is the tablet's home screen. */
+/**
+ * The sign-in page, or the app once signed in. [homeScreen]: this is the tablet's home screen, and
+ * [homePressed] fires when Home is pressed on it.
+ */
 @Composable
-private fun Root(container: AppContainer, homeScreen: Boolean) {
+private fun Root(container: AppContainer, homeScreen: Boolean, homePressed: Flow<Unit>) {
     val session by container.session.session.collectAsStateWithLifecycle()
     val profiles by container.session.profiles.collectAsStateWithLifecycle()
     // Kept out here so switching servers stays on the same tab; a fresh sign-in starts at Home.
@@ -207,7 +227,7 @@ private fun Root(container: AppContainer, homeScreen: Boolean) {
                 onAndroidSettings = if (homeScreen) ({ container.launcher.openAndroidSettings(context) }) else null,
             )
         } else {
-            MainShell(container, s, profiles, tab) { tab = it }
+            MainShell(container, s, profiles, tab, homePressed) { tab = it }
         }
     }
 }
@@ -226,7 +246,14 @@ private enum class Tab(val label: String, val icon: ImageVector, val selectedIco
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun MainShell(container: AppContainer, session: Session, profiles: List<ServerProfile>, tab: Int, onTab: (Int) -> Unit) {
+private fun MainShell(
+    container: AppContainer,
+    session: Session,
+    profiles: List<ServerProfile>,
+    tab: Int,
+    homePressed: Flow<Unit>,
+    onTab: (Int) -> Unit,
+) {
     val snackbar = remember { SnackbarHostState() }
     val haptic = LocalHapticFeedback.current
     // Keyed by account so switching servers never shows the previous one's data. Each server's screens get
@@ -276,6 +303,26 @@ private fun MainShell(container: AppContainer, session: Session, profiles: List<
     // The Task manager, kept as the server it was opened for, so it closes if another server takes over.
     var taskManagerFor by rememberSaveable { mutableStateOf<String?>(null) }
     LaunchedEffect(tab) { if (Tab.entries[tab] != Tab.Dashboard) taskManagerFor = null }
+    // Home on the home screen closes whatever is open, an app inside Hearth too, and shows the Home tab.
+    LaunchedEffect(homePressed) {
+        homePressed.collect {
+            webUrl = null; webApp = null; webIcon = null
+            settingsAppId = null; settingsAppName = null
+            versionAppId = null; versionAppName = null
+            logsAppId = null; logsAppName = null
+            storeOpen = false
+            loginsOpen = false
+            securityOpen = false
+            notificationsOpen = false
+            appearanceOpen = false
+            customizeHomeOpen = false
+            tailscaleOpen = false
+            taskManagerFor = null
+            serversOpen = false
+            adding = false
+            onTab(Tab.Dashboard.ordinal)
+        }
+    }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         // Tablets, and phones on their side, get a rail down the side instead of the bar along the bottom.

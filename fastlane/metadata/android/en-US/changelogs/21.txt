@@ -1,0 +1,8 @@
+• Home: resize widgets, and give each server its own layout
+• Customize Home opens from Home, scrolls while you drag, and has Undo
+• Photos zoom where you touch, and swipe on at the edge
+• Thumbnails use the preview inside each photo, with a mobile data setting
+• The gallery shows its photos at once when opened again
+• Home on Hearth's home screen goes back to the Home tab
+• Hearth stays open when an app's page crashes
+• Logins stay out of phone-to-phone transfers

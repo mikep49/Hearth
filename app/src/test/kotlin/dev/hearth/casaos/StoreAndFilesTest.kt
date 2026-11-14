@@ -67,11 +67,13 @@ class StoreAndFilesTest {
         assertNull(previewKind("report.pdf"))
     }
 
-    @Test fun `only photos small enough to download get a thumbnail`() {
+    @Test fun `photos get a thumbnail when one can be made from their preview or without downloading too much`() {
         fun entry(name: String, size: Long, isDir: Boolean = false) = FileEntry(name, "/DATA/$name", isDir, size, null)
         assertTrue(hasThumbnail(entry("IMG_001.JPG", 4_000_000)))
         assertTrue(hasThumbnail(entry("scan.png", THUMBNAIL_MAX_BYTES)))
-        assertFalse(hasThumbnail(entry("panorama.jpg", THUMBNAIL_MAX_BYTES + 1)))
+        // Too big to download whole, but a JPEG's preview is in its first few KB.
+        assertTrue(hasThumbnail(entry("panorama.jpg", THUMBNAIL_MAX_BYTES + 1)))
+        assertFalse(hasThumbnail(entry("panorama.png", THUMBNAIL_MAX_BYTES + 1)))
         assertFalse(hasThumbnail(entry("empty.jpg", 0)))
         assertFalse(hasThumbnail(entry("clip.mp4", 4_000_000)))
         assertFalse(hasThumbnail(entry("notes.txt", 100)))

@@ -59,6 +59,7 @@ import dev.hearth.casaos.data.PhoneTailscaleReader
 import dev.hearth.casaos.data.PowerAction
 import dev.hearth.casaos.data.PrefsStore
 import dev.hearth.casaos.data.SessionStore
+import dev.hearth.casaos.data.ThumbnailDownload
 import androidx.compose.ui.text.style.TextAlign
 import dev.hearth.casaos.ui.components.Chevron
 import dev.hearth.casaos.ui.components.ListGroup
@@ -151,6 +152,10 @@ class SettingsViewModel(
 
     fun setShowInFiles(value: Boolean) = prefs.setShowInFiles(value)
 
+    val mobileThumbnails: StateFlow<ThumbnailDownload> = prefs.mobileThumbnails
+
+    fun setMobileThumbnails(value: ThumbnailDownload) = prefs.setMobileThumbnails(value)
+
     fun setLockAfter(value: LockAfter) = lock.setLockAfter(value)
 
     fun showError(message: String) {
@@ -203,6 +208,7 @@ fun SettingsScreen(
     val lockEnabled by viewModel.lockEnabled.collectAsStateWithLifecycle()
     val alerts by viewModel.alerts.collectAsStateWithLifecycle()
     val showInFiles by viewModel.showInFiles.collectAsStateWithLifecycle()
+    val mobileThumbnails by viewModel.mobileThumbnails.collectAsStateWithLifecycle()
     var confirm by remember { mutableStateOf<PowerAction?>(null) }
     var confirmSignOut by remember { mutableStateOf(false) }
     // The Appearance, Notifications, Security & privacy and Tailscale pages cover this one; the middle two show messages themselves while open.
@@ -265,6 +271,10 @@ fun SettingsScreen(
                     onClick = onOpenLogins,
                 )
             }
+        }
+
+        Section("Files") {
+            MobileThumbnailsSection(mobileThumbnails, viewModel::setMobileThumbnails)
         }
 
         // Where Hearth shows up in Android itself, outside its own screens.

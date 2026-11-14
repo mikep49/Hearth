@@ -6,11 +6,8 @@ import android.content.pm.PackageManager
 import android.content.res.AssetFileDescriptor
 import android.database.Cursor
 import android.database.MatrixCursor
-import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.Matrix
 import android.graphics.Point
-import android.media.ExifInterface
 import android.os.Bundle
 import android.os.CancellationSignal
 import android.os.Handler
@@ -36,12 +33,17 @@ import dev.hearth.casaos.data.DocumentRef
 import dev.hearth.casaos.data.FileEntry
 import dev.hearth.casaos.data.RangeReader
 import dev.hearth.casaos.data.THUMBNAIL_MAX_BYTES
+import dev.hearth.casaos.data.ThumbnailDownload
+import dev.hearth.casaos.data.ThumbnailSource
 import dev.hearth.casaos.data.cleanFileName
+import dev.hearth.casaos.data.fetchThumbnailSource
 import dev.hearth.casaos.data.isHidden
 import dev.hearth.casaos.data.mimeTypeOf
 import dev.hearth.casaos.data.modifiedMillis
 import dev.hearth.casaos.data.rootSummaries
 import dev.hearth.casaos.data.serverLabel
+import dev.hearth.casaos.data.sharpEnough
+import dev.hearth.casaos.data.thumbnailPossible
 import dev.hearth.casaos.data.uniqueName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -89,7 +91,7 @@ class ServerDocumentsProvider : DocumentsProvider() {
     /** New files the server doesn't have yet (only if making an empty one there failed), by document id. */
     private val pending = ConcurrentHashMap<String, FileEntry>()
 
-    /** Thumbnails download the whole photo, so only a few at once. */
+    /** Thumbnails can download whole photos, so only a few at once. */
     private val thumbnailSlots = Semaphore(2)
 
     /** Runs the callbacks for files other apps close after writing. */
@@ -320,55 +322,80 @@ class ServerDocumentsProvider : DocumentsProvider() {
     override fun openDocumentThumbnail(documentId: String, sizeHint: Point, signal: CancellationSignal?): AssetFileDescriptor {
         val ref = ref(documentId)
         val entry = entry(ref)
-        if (entry.isDir || entry.size !in 1..THUMBNAIL_MAX_BYTES) throw FileNotFoundException("No thumbnail")
-        val dir = thumbnailDir(appContext).apply { mkdirs() }
-        val file = File(dir, sha1("${ref.id}|${entry.size}|${entry.modified}"))
-        if (!file.exists()) {
+        if (!thumbnailPossible(entry)) throw FileNotFoundException("No thumbnail")
+        val want = maxOf(sizeHint.x, sizeHint.y, 1)
+        val name = sha1("${ref.id}|${entry.size}|${entry.modified}")
+        val dir = thumbnailDir(appContext)
+        // One drawn from the whole photo, or else one from the small preview inside it.
+        val fromPhoto = File(dir, name)
+        val fromPreview = File(dir, "$name.preview")
+        fun ready(): File? = when {
+            fromPhoto.exists() -> fromPhoto
+            fromPreview.exists() && previewWillDo(fromPreview, entry, want) -> fromPreview
+            else -> null
+        }
+        val file = ready() ?: run {
             thumbnailSlots.acquire()
             try {
-                if (!file.exists()) makeThumbnail(ref, entry, sizeHint, file, signal)
+                ready() ?: try {
+                    makeThumbnail(ref, entry, want, fromPhoto, fromPreview, signal)
+                } catch (e: FileNotFoundException) {
+                    null // offline, say: the preview's thumbnail will do
+                } ?: fromPreview.takeIf { it.exists() }
             } finally {
                 thumbnailSlots.release()
             }
-        }
+        } ?: throw FileNotFoundException("No thumbnail")
         return AssetFileDescriptor(ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY), 0, AssetFileDescriptor.UNKNOWN_LENGTH)
     }
 
-    /** CasaOS has no thumbnails, so this downloads the photo and shrinks it to about [sizeHint]. */
-    private fun makeThumbnail(ref: DocumentRef, entry: FileEntry, sizeHint: Point, file: File, signal: CancellationSignal?) {
-        val bytes = blocking(signal) { client(ref).readStart(ref.path, entry.size.toInt()) }
+    /** Whether a thumbnail drawn from [entry]'s preview will do: it's sharp enough, or nothing sharper may be downloaded. */
+    private fun previewWillDo(file: File, entry: FileEntry, want: Int): Boolean {
+        if (container.thumbnailDownload.value != ThumbnailDownload.Whole || entry.size > THUMBNAIL_MAX_BYTES) return true
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) throw FileNotFoundException("Not an image")
-        val want = maxOf(sizeHint.x, sizeHint.y, 1)
-        var sample = 1
-        while (minOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= want) sample *= 2
-        val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
-            ?: throw FileNotFoundException("Not an image")
-        val degrees = runCatching {
-            when (ExifInterface(ByteArrayInputStream(bytes)).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
-                ExifInterface.ORIENTATION_ROTATE_90 -> 90f
-                ExifInterface.ORIENTATION_ROTATE_180 -> 180f
-                ExifInterface.ORIENTATION_ROTATE_270 -> 270f
-                else -> 0f
-            }
-        }.getOrDefault(0f)
-        val bitmap = if (degrees == 0f) decoded
-        else Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, Matrix().apply { postRotate(degrees) }, true)
-        val dir = file.parentFile ?: return
-        val temp = File.createTempFile("thumb", null, dir)
+        BitmapFactory.decodeFile(file.path, bounds)
+        return sharpEnough(bounds.outWidth, bounds.outHeight, want)
+    }
+
+    /**
+     * Draws [entry]'s thumbnail, about [want] pixels across, into [fromPhoto] or [fromPreview] depending on what
+     * it was drawn from, downloading no more than Settings allows (see [AppContainer.thumbnailDownload]).
+     * Returns the file, or null if there was nothing to draw it from.
+     */
+    private fun makeThumbnail(
+        ref: DocumentRef,
+        entry: FileEntry,
+        want: Int,
+        fromPhoto: File,
+        fromPreview: File,
+        signal: CancellationSignal?,
+    ): File? {
+        val download = container.thumbnailDownload.value
+        if (download == ThumbnailDownload.Off) return null
+        val photo = File.createTempFile("photo", null, thumbnailPhotoDir(appContext).apply { mkdirs() })
         try {
-            temp.outputStream().use {
-                // PNG keeps transparency; photos are much smaller as JPEG.
-                bitmap.compress(if (bitmap.hasAlpha()) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG, 85, it)
+            val client = client(ref)
+            val source = blocking(signal) { fetchThumbnailSource(client.http, client.fileUrl(ref.path), entry, want, download, photo) }
+                ?: return null
+            val drawn = drawThumbnail(source, want) ?: throw FileNotFoundException("Not an image")
+            val file = if (source is ThumbnailSource.Photo) fromPhoto else fromPreview
+            val dir = file.parentFile ?: return null
+            dir.mkdirs()
+            val temp = File.createTempFile("thumb", null, dir)
+            try {
+                temp.writeBytes(drawn.bitmap.thumbnailBytes())
+                if (!temp.renameTo(file)) throw FileNotFoundException("Couldn't save the thumbnail")
+            } finally {
+                temp.delete()
             }
-            if (!temp.renameTo(file)) throw FileNotFoundException("Couldn't save the thumbnail")
+            if (file == fromPhoto) fromPreview.delete()
+            // Keep the newest few hundred; Android can also clear them when the phone runs low on space.
+            val all = dir.listFiles().orEmpty()
+            if (all.size > THUMBNAILS_KEPT) all.sortedBy { it.lastModified() }.take(all.size - THUMBNAILS_KEPT).forEach { it.delete() }
+            return file
         } finally {
-            temp.delete()
+            photo.delete()
         }
-        // Keep the newest few hundred; Android can also clear them when the phone runs low on space.
-        val all = dir.listFiles().orEmpty()
-        if (all.size > THUMBNAILS_KEPT) all.sortedBy { it.lastModified() }.take(all.size - THUMBNAILS_KEPT).forEach { it.delete() }
     }
 
     // endregion
@@ -418,7 +445,7 @@ class ServerDocumentsProvider : DocumentsProvider() {
         var flags = Document.FLAG_SUPPORTS_DELETE or Document.FLAG_SUPPORTS_RENAME or
             Document.FLAG_SUPPORTS_MOVE or Document.FLAG_SUPPORTS_COPY
         flags = flags or if (e.isDir) Document.FLAG_DIR_SUPPORTS_CREATE else Document.FLAG_SUPPORTS_WRITE
-        if (!e.isDir && mime.startsWith("image/") && e.size in 1..THUMBNAIL_MAX_BYTES) flags = flags or Document.FLAG_SUPPORTS_THUMBNAIL
+        if (mime.startsWith("image/") && thumbnailPossible(e)) flags = flags or Document.FLAG_SUPPORTS_THUMBNAIL
         newRow()
             .add(Document.COLUMN_DOCUMENT_ID, ref.id)
             .add(Document.COLUMN_DISPLAY_NAME, e.name)

@@ -21,6 +21,7 @@ import dev.hearth.casaos.data.FileDownloader
 import dev.hearth.casaos.data.ImageRegistry
 import dev.hearth.casaos.data.LanServerFinder
 import dev.hearth.casaos.data.Launcher
+import dev.hearth.casaos.data.MeteredNetwork
 import dev.hearth.casaos.data.PhoneFiles
 import dev.hearth.casaos.data.PhoneTailscaleReader
 import dev.hearth.casaos.data.PrefsStore
@@ -28,13 +29,16 @@ import dev.hearth.casaos.data.SavedUploads
 import dev.hearth.casaos.data.ServerProfile
 import dev.hearth.casaos.data.SessionStore
 import dev.hearth.casaos.data.SshProfileStore
+import dev.hearth.casaos.data.ThumbnailDownload
 import dev.hearth.casaos.data.WebLogins
 import dev.hearth.casaos.data.Transfers
 import dev.hearth.casaos.data.serverLabel
+import dev.hearth.casaos.files.PhotoThumbnailFetcher
 import dev.hearth.casaos.files.SaveUploadWorker
 import dev.hearth.casaos.files.ServerDocumentsProvider
 import dev.hearth.casaos.files.TransferNotifications
 import dev.hearth.casaos.files.TransferService
+import dev.hearth.casaos.files.pruneThumbnailPhotos
 import dev.hearth.casaos.ui.theme.ThemeStore
 import dev.hearth.casaos.widget.PrefsWidgetStorage
 import dev.hearth.casaos.widget.ServerStatsWidgets
@@ -46,10 +50,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectIndexed
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -117,6 +124,14 @@ class AppContainer(private val app: Application) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
+    /** Whether the phone is on mobile data, where thumbnails go easy on data. */
+    private val network = MeteredNetwork(app)
+
+    /** How much of a photo its thumbnail may download right now: anything on Wi-Fi, what Settings allows on mobile data. */
+    val thumbnailDownload: StateFlow<ThumbnailDownload> =
+        combine(network.metered, prefs.mobileThumbnails) { metered, mobile -> ThumbnailDownload.allowed(metered, mobile) }
+            .stateIn(scope, SharingStarted.Eagerly, ThumbnailDownload.allowed(network.metered.value, prefs.mobileThumbnails.value))
+
     /** Downloads and uploads. They belong to the app, not a screen, so they outlive the screen that started them. */
     val transfers = Transfers(
         scope,
@@ -176,6 +191,8 @@ class AppContainer(private val app: Application) {
         }
         // Copies made for "Open with" and "Share" are kept for a day, then go even if nothing else is opened.
         scope.launch(Dispatchers.IO) { PhoneFiles.pruneCache(app) }
+        // Photos left behind when Android ended Hearth partway through drawing their thumbnails.
+        scope.launch(Dispatchers.IO) { pruneThumbnailPhotos(app) }
         // With logins not remembered, an app that was open when Android ended Hearth is signed out now.
         scope.launch { webLogins.clearLeftovers() }
         // The background check runs only while alerts are on.
@@ -259,6 +276,9 @@ class HearthApp : Application(), SingletonImageLoader.Factory {
 
     override fun newImageLoader(context: PlatformContext): ImageLoader =
         ImageLoader.Builder(context)
-            .components { add(OkHttpNetworkFetcherFactory(callFactory = { container.client.http })) }
+            .components {
+                add(OkHttpNetworkFetcherFactory(callFactory = { container.client.http }))
+                add(PhotoThumbnailFetcher.Factory(http = { container.client.http }))
+            }
             .build()
 }

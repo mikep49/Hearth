@@ -49,7 +49,10 @@ Hearth runs on Android 10 or later, phones and tablets.
 
 - Browse `/DATA`. Photos, videos, songs and text files preview inside Hearth. Pinch or double-tap a photo to zoom in where you touch, then drag to look around. Other files open in an app you pick.
 - The sort button orders a folder by name, size or date modified. Tap the same choice again to reverse it. Hidden files (names starting with a dot) are hidden unless you turn on **Show hidden files** there.
-- The button beside it switches between a list and thumbnails, and Hearth remembers the choice. In thumbnails, photos show as small pictures of themselves and everything else keeps its icon. CasaOS doesn't make thumbnails, so Hearth downloads each photo to draw one (photos over 20 MB keep their icon) and keeps them in its cache.
+- The button beside it switches between a list and thumbnails, and Hearth remembers the choice. In thumbnails, photos show as small pictures of themselves and everything else keeps its icon. CasaOS doesn't make thumbnails, so Hearth draws its own and keeps them in its cache, small (tens of KB each) so scrolling back doesn't download them again:
+  - Most cameras and phones save a small preview inside each JPEG, in its first few KB. Hearth reads just the first 72 KB of the photo (an HTTP range request) and uses that preview when it's sharp enough for the tile. Many are only 160×120, which isn't, and one an editing app left the wrong way round isn't used at all.
+  - Otherwise, on Wi-Fi, Hearth downloads the whole photo to draw the thumbnail, up to 20 MB. A bigger JPEG keeps its preview however small, and other photos over 20 MB keep their icon.
+  - On mobile data (or a Wi-Fi network Android counts as metered, like a phone's hotspot), **Thumbnails on mobile data** in Settings, under **Files**, decides. **Small** (the default) uses only the previews inside JPEGs, about 72 KB per photo, so other photos, such as PNGs and HEICs, keep their icons unless they're smaller than that. **Full** behaves as on Wi-Fi, which can download a lot. **Off** downloads nothing, but thumbnails made earlier still show. Through a VPN such as Tailscale it's the network underneath that counts. Coming back to Wi-Fi sharpens the thumbnails mobile data left blurry.
 - The gallery button at the top shows every photo in the open folder and the folders inside it, newest first and grouped by month. Open it at the top of Files for all the photos on the server, or inside a folder for just that folder's. Tap a photo to see it full screen, then swipe sideways for the ones either side. When zoomed in, drag the photo to its edge, then swipe again to move on. Long-press to select photos to copy, move or delete. The month is when the file was last changed (CasaOS doesn't read the date a photo was taken). Hidden folders are skipped unless hidden files are shown, and so is `/DATA/AppData`, where apps keep thousands of covers and icons, unless you open the gallery from inside it. The thumbnails are made as in the thumbnail view, so a big library takes a while to fill in the first time.
 - Each item's ⋮ menu has **Select**, **Open with…**, **Share**, **Download**, **Rename**, **Copy to…**, **Move to…** and **Delete**. Downloads go to `Downloads/Hearth` and don't need storage permission. To copy or move, browse to the destination and tap **Paste here**.
 - To work on several items at once, long-press one (or pick **Select** in its menu), then tap the others. **Select all** is at the top, and **Copy**, **Move** and **Delete** are at the bottom. It works in search results too, so you can gather items from different folders. Back or ✕ clears the selection.
@@ -61,7 +64,7 @@ Hearth runs on Android 10 or later, phones and tablets.
 ### Android Files
 
 - Off until you turn on **Show in Android Files** in Settings, under **Android**. Then each server you're signed in to shows in the Files app's side menu as **Hearth**, with the server's address under it, and in the file pickers other apps open (for example to attach a file, or to choose a backup folder).
-- Browse `/DATA`, open files in other apps, copy files to and from the phone, rename, delete, move and make new folders. Photos get thumbnails. Hidden files follow Hearth's **Show hidden files** choice.
+- Browse `/DATA`, open files in other apps, copy files to and from the phone, rename, delete, move and make new folders. Photos get thumbnails, made the same way as in Hearth and following the same **Thumbnails on mobile data** choice. Hidden files follow Hearth's **Show hidden files** choice.
 - Opening a file doesn't download it first. Hearth reads just the parts the other app asks for (HTTP range requests), so a video can start playing and a zip can be opened without fetching the whole file.
 - Copying or moving within one server happens on the server, like **Paste here** in Hearth. Between two servers, the Files app copies through the phone.
 - A file another app saves to the server is written to the phone first and uploaded when the app closes it. Hearth tries the upload three times. If it still fails, the file is saved to `Downloads/Hearth` on the phone instead, and a message says so.
@@ -161,7 +164,7 @@ Hearth runs on Android 10 or later, phones and tablets.
 | Apps | `GET /v2/app_management/compose`, `PUT .../compose/{id}/status`, `GET .../compose/{id}/logs` |
 | App settings | `GET /v2/app_management/compose/{id}` with `Accept: application/yaml`, `PUT .../compose/{id}?check_port_conflict=true` with the YAML |
 | App version | Switching writes the new tag with the app settings call above. App Store version: `GET /v2/app_management/apps/{id}/stable`; update: `PATCH /v2/app_management/compose/{id}` |
-| Files | `GET /v1/folder?path=`, `GET /v1/file?path=` (with a `Range` header for Android Files); new folder `POST /v1/folder`, rename `PUT /v1/file/name`, delete `DELETE /v1/file`, copy / move `POST /v1/batch/task`, upload `POST /v1/file/upload` (1 MB chunks, like the dashboard) |
+| Files | `GET /v1/folder?path=`, `GET /v1/file?path=` (with a `Range` header for Android Files and for the start of a photo, see Files above); new folder `POST /v1/folder`, rename `PUT /v1/file/name`, delete `DELETE /v1/file`, copy / move `POST /v1/batch/task`, upload `POST /v1/file/upload` (1 MB chunks, like the dashboard) |
 | App Store | `GET /v2/app_management/apps`; install: `GET .../apps/{id}/compose` (YAML), then `POST /v2/app_management/compose?check_port_conflict=true`; uninstall: `DELETE .../compose/{id}?delete_config_folder=` |
 | Power | `PUT /v1/sys/state/{restart\|off}` |
 | Alerts | `GET /v1/sys/utilization` and `GET /v2/app_management/compose` at each check, `GET /v1/disks` and `/v1/disks/usb` at most every 6 hours |
@@ -224,12 +227,15 @@ app/src/main/kotlin/dev/hearth/casaos/
            SavedSsh (runs commands with the saved SSH login), AppUsage (docker stats over SSH),
            Tailscale (the server's `tailscale status` over SSH, and the phone's VPN addresses),
            ServerFinder (finding servers on the Wi-Fi), FileSearch, FileSort, FileDownloader,
+           PhotoThumbnails (a photo's preview from the start of a JPEG, and how much a thumbnail downloads),
+           MeteredNetwork (whether the phone is on mobile data, looking under a VPN),
            AppLogs, AppLock, Alerts (what each background check should notify about),
            Transfers (runs one download or upload at a time for the whole app),
            SavedUploads (keeps what other apps save through Android Files until it's uploaded),
            Launcher (Hearth as the tablet's home screen, which HomeActivity is)
   alerts/  the background check (WorkManager), its schedule and notifications
   files/   ServerDocumentsProvider: servers in Android's Files app (ServerDocuments holds its testable parts),
+           PhotoThumbnails: draws thumbnails, and Coil's fetcher for them in Files and the gallery,
            SaveUploadWorker: has Android restart Hearth to finish uploading those saves (WorkManager),
            TransferService: keeps Hearth alive during a transfer and shows its notification
   widget/  the home screen widget (Glance), its settings screen and saved readings

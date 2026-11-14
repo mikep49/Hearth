@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.ui.unit.dp
 import dev.hearth.casaos.data.FileEntry
 import dev.hearth.casaos.data.INDEX_MAX_ENTRIES
+import dev.hearth.casaos.files.PhotoThumbnail
 import dev.hearth.casaos.ui.components.BackButton
 import dev.hearth.casaos.ui.components.EmptyState
 import dev.hearth.casaos.ui.components.hearthTopBarColors
@@ -126,7 +127,7 @@ internal fun GalleryGrid(
     gallery: GalleryState,
     folder: String,
     side: Dp,
-    thumbnailUrl: (FileEntry) -> String?,
+    thumbnail: (FileEntry) -> PhotoThumbnail?,
     selecting: Boolean,
     isSelected: (FileEntry) -> Boolean,
     onOpen: (FileEntry) -> Unit,
@@ -156,7 +157,7 @@ internal fun GalleryGrid(
                     items(month.photos, key = { it.path }, contentType = { "photo" }) { entry ->
                         GalleryPhoto(
                             entry,
-                            url = thumbnailUrl(entry),
+                            thumbnail = thumbnail(entry),
                             selecting = selecting,
                             selected = isSelected(entry),
                             onClick = { onOpen(entry) },
@@ -205,14 +206,14 @@ internal fun GalleryGrid(
 @Composable
 private fun GalleryPhoto(
     entry: FileEntry,
-    url: String?,
+    thumbnail: PhotoThumbnail?,
     selecting: Boolean,
     selected: Boolean,
     onClick: () -> Unit,
     onSelect: () -> Unit,
 ) {
     // Whether the photo is showing, rather than the icon that stands in for it.
-    var pictured by remember(url) { mutableStateOf(false) }
+    var pictured by remember(thumbnail?.url) { mutableStateOf(false) }
     val haptic = LocalHapticFeedback.current
     Box(
         Modifier
@@ -230,7 +231,7 @@ private fun GalleryPhoto(
                 if (selecting) this.selected = selected
             },
     ) {
-        Thumbnail(entry, url, pictured, onPictured = { pictured = true }, Modifier.matchParentSize())
+        Thumbnail(entry, thumbnail, pictured, onPictured = { pictured = it }, Modifier.matchParentSize())
         if (selected) Box(Modifier.matchParentSize().background(MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)))
         if (selecting) Box(Modifier.align(Alignment.TopEnd).padding(6.dp)) { TickMark(selected, pictured) }
     }

@@ -435,7 +435,7 @@ private fun MainShell(
                                 initializer {
                                     FilesViewModel(
                                         client, container.downloader(client), container.phoneFiles(client), container.prefs,
-                                        container.transfers, inFront = container::inFront,
+                                        container.transfers, inFront = container::inFront, thumbnailDownload = container.thumbnailDownload,
                                     )
                                 }
                             })

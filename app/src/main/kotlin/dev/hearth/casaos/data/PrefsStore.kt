@@ -62,6 +62,21 @@ class PrefsStore(context: Context) {
         _fileThumbnails.value = value
     }
 
+    private val _mobileThumbnails = MutableStateFlow(
+        ThumbnailDownload.entries.firstOrNull { it.name == prefs.getString(KEY_MOBILE_THUMBNAILS, null) } ?: ThumbnailDownload.Preview,
+    )
+
+    /**
+     * How much of a photo thumbnails may download on mobile data, in Files, the gallery and Android Files. On
+     * Wi-Fi they may always download whole photos. One choice for every server.
+     */
+    val mobileThumbnails: StateFlow<ThumbnailDownload> = _mobileThumbnails.asStateFlow()
+
+    fun setMobileThumbnails(value: ThumbnailDownload) {
+        prefs.edit().putString(KEY_MOBILE_THUMBNAILS, value.name).apply()
+        _mobileThumbnails.value = value
+    }
+
     private val _alerts = MutableStateFlow(
         AlertSettings(
             enabled = prefs.getBoolean(KEY_ALERTS, false),
@@ -181,5 +196,6 @@ class PrefsStore(context: Context) {
         private const val KEY_SORT_DESC = "file_sort_descending"
         private const val KEY_SHOW_HIDDEN = "file_show_hidden"
         private const val KEY_FILE_THUMBNAILS = "file_thumbnails"
+        private const val KEY_MOBILE_THUMBNAILS = "mobile_thumbnails"
     }
 }

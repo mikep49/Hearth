@@ -123,12 +123,11 @@ fun previewKind(name: String): PreviewKind? = when (name.substringAfterLast('.',
     else -> if (name.equals("Dockerfile", ignoreCase = true) || name.startsWith(".") && '.' !in name.drop(1)) PreviewKind.Text else null
 }
 
-/** The biggest photo that gets a thumbnail. CasaOS doesn't make thumbnails, so each one takes downloading the whole photo. */
+/** The biggest photo downloaded whole to make a thumbnail, when it has no preview inside that will do. */
 const val THUMBNAIL_MAX_BYTES = 20L * 1024 * 1024
 
-/** Whether Files' thumbnail view shows [entry] as a small picture of itself rather than an icon. */
-fun hasThumbnail(entry: FileEntry): Boolean =
-    !entry.isDir && entry.size in 1..THUMBNAIL_MAX_BYTES && previewKind(entry.name) == PreviewKind.Image
+/** Whether Files' thumbnail view and the gallery try to show [entry] as a small picture of itself rather than an icon. */
+fun hasThumbnail(entry: FileEntry): Boolean = previewKind(entry.name) == PreviewKind.Image && thumbnailPossible(entry)
 
 /** "photo.jpg" → "photo (1).jpg", the first name not in [taken]. */
 fun uniqueName(name: String, taken: Set<String>): String {

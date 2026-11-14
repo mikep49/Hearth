@@ -28,7 +28,9 @@ import androidx.compose.ui.semantics.Role
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import dev.hearth.casaos.data.ThumbnailDownload
 import dev.hearth.casaos.data.hasThumbnail
+import dev.hearth.casaos.files.PhotoThumbnail
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -254,6 +256,8 @@ class FilesViewModel(
     private val transfers: Transfers,
     /** Whether Hearth is on screen, rather than in the background. */
     private val inFront: () -> Boolean,
+    /** How much of a photo its thumbnail may download right now: less on mobile data, as chosen in Settings. */
+    val thumbnailDownload: StateFlow<ThumbnailDownload>,
 ) : ViewModel() {
     private val _state = MutableStateFlow(FilesState())
     val state: StateFlow<FilesState> = _state.asStateFlow()
@@ -611,6 +615,10 @@ class FilesViewModel(
 
     fun fileUrl(entry: FileEntry): String = client.fileUrl(entry.path)
 
+    /** What Coil loads for [entry]'s thumbnail, downloading no more than [download] allows; null for one that keeps its icon. */
+    fun thumbnail(entry: FileEntry, download: ThumbnailDownload): PhotoThumbnail? =
+        if (hasThumbnail(entry)) PhotoThumbnail(fileUrl(entry), entry, download) else null
+
     suspend fun streamHeaders(): Result<Map<String, String>> =
         try { Result.success(client.authHeadersForStreaming()) } catch (e: CasaException) { Result.failure(e) }
 
@@ -640,6 +648,7 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState, locked: 
     val index by viewModel.index.collectAsStateWithLifecycle()
     val sort by viewModel.sort.collectAsStateWithLifecycle()
     val thumbnails by viewModel.thumbnails.collectAsStateWithLifecycle()
+    val thumbnailDownload by viewModel.thumbnailDownload.collectAsStateWithLifecycle()
     val gallery by viewModel.gallery.collectAsStateWithLifecycle()
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
@@ -741,7 +750,7 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState, locked: 
                 state.transfer?.let { TransferBar(it, side, onCancel = viewModel::cancelTransfer) }
                 GalleryGrid(
                     open, folderName(open.root), side,
-                    thumbnailUrl = { if (hasThumbnail(it)) viewModel.fileUrl(it) else null },
+                    thumbnail = { viewModel.thumbnail(it, thumbnailDownload) },
                     selecting = selecting,
                     isSelected = { it.path in selected },
                     // Lambdas, not references to the functions: Compose takes two references to be the same
@@ -833,7 +842,7 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState, locked: 
                                 items(shown, key = { it.path }, contentType = { "tile" }) { entry ->
                                     FileTile(
                                         entry,
-                                        thumbnailUrl = if (hasThumbnail(entry)) viewModel.fileUrl(entry) else null,
+                                        thumbnail = viewModel.thumbnail(entry, thumbnailDownload),
                                         onClick = { openEntry(entry) },
                                         onAction = { onAction(entry, it) },
                                         selecting = selecting,
@@ -852,7 +861,7 @@ fun FilesScreen(viewModel: FilesViewModel, snackbar: SnackbarHostState, locked: 
                                     items(elsewhere.entries, key = { "elsewhere:" + it.path }, contentType = { "tile" }) { entry ->
                                         FileTile(
                                             entry,
-                                            thumbnailUrl = if (hasThumbnail(entry)) viewModel.fileUrl(entry) else null,
+                                            thumbnail = viewModel.thumbnail(entry, thumbnailDownload),
                                             location = locationOf(entry),
                                             onClick = { openEntry(entry) },
                                             onAction = { onAction(entry, it) },
@@ -1288,7 +1297,7 @@ private val TileShape = RoundedCornerShape(20.dp)
 @Composable
 private fun FileTile(
     entry: FileEntry,
-    thumbnailUrl: String?,
+    thumbnail: PhotoThumbnail?,
     onClick: () -> Unit,
     onAction: (FileAction) -> Unit,
     selecting: Boolean,
@@ -1298,7 +1307,7 @@ private fun FileTile(
 ) {
     var menu by remember { mutableStateOf(false) }
     // Whether the photo is showing, rather than the icon that stands in for it.
-    var pictured by remember(thumbnailUrl) { mutableStateOf(false) }
+    var pictured by remember(thumbnail?.url) { mutableStateOf(false) }
     val haptic = LocalHapticFeedback.current
     val scheme = MaterialTheme.colorScheme
     Box {
@@ -1312,7 +1321,7 @@ private fun FileTile(
             },
         ) {
             Box(Modifier.fillMaxWidth().aspectRatio(1f)) {
-                Thumbnail(entry, thumbnailUrl, pictured, onPictured = { pictured = true }, Modifier.matchParentSize())
+                Thumbnail(entry, thumbnail, pictured, onPictured = { pictured = it }, Modifier.matchParentSize())
                 if (selected) Box(Modifier.matchParentSize().background(scheme.primary.copy(alpha = 0.35f)))
                 // Over a photo, the corner controls are white on a dark spot so they show on any picture.
                 val spot = if (pictured) Color.Black.copy(alpha = 0.4f) else Color.Transparent
@@ -1379,11 +1388,17 @@ internal fun TickMark(selected: Boolean, pictured: Boolean) {
 }
 
 /**
- * The top of a [FileTile], and a photo in the gallery: the photo at [url], cropped to fill, or the item's
- * icon if it has no picture to show. [onPictured] is called once the photo is on screen.
+ * The top of a [FileTile], and a photo in the gallery: the photo's [thumbnail], cropped to fill, or the item's
+ * icon if it has no picture to show. [onPictured] says whether the photo is on screen, rather than the icon.
  */
 @Composable
-internal fun Thumbnail(entry: FileEntry, url: String?, pictured: Boolean, onPictured: () -> Unit, modifier: Modifier = Modifier) {
+internal fun Thumbnail(
+    entry: FileEntry,
+    thumbnail: PhotoThumbnail?,
+    pictured: Boolean,
+    onPictured: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val scheme = MaterialTheme.colorScheme
     // Folders carry the accent, as in the list.
     val tint = if (entry.isDir) scheme.primary else scheme.onSurfaceVariant
@@ -1391,15 +1406,14 @@ internal fun Thumbnail(entry: FileEntry, url: String?, pictured: Boolean, onPict
     Box(modifier.background(container), Alignment.Center) {
         // The icon stands in until the photo arrives, and stays if the photo can't be shown.
         if (!pictured) Icon(iconFor(entry), null, Modifier.size(40.dp), tint = tint)
-        if (url != null) {
+        if (thumbnail != null) {
             val context = LocalContext.current
-            val request = remember(url, entry.size, entry.modified) {
-                // The size and date are part of what's cached, so a photo replaced on the server isn't shown as the old one.
-                val version = "${entry.size}|${entry.modified}"
+            val request = remember(thumbnail) {
                 ImageRequest.Builder(context)
-                    .data(url)
-                    .memoryCacheKeyExtra("version", version)
-                    .diskCacheKey("$url|$version")
+                    .data(thumbnail)
+                    .memoryCacheKey(thumbnail.memoryKey)
+                    // Coming onto or off Wi-Fi asks again, which shouldn't blank the photo meanwhile.
+                    .placeholderMemoryCacheKey(thumbnail.otherMemoryKey)
                     .crossfade(true)
                     .build()
             }
@@ -1407,7 +1421,8 @@ internal fun Thumbnail(entry: FileEntry, url: String?, pictured: Boolean, onPict
                 model = request,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                onSuccess = { onPictured() },
+                onSuccess = { onPictured(true) },
+                onError = { onPictured(false) },
                 modifier = Modifier.matchParentSize(),
             )
         }

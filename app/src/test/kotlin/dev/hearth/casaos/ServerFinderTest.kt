@@ -41,12 +41,14 @@ class ServerFinderTest {
         assertEquals(5, subnetHosts(ip("192.168.1.67"), 29).size)
     }
 
-    @Test fun `recognises the CasaOS status reply and page`() {
+    @Test fun `recognises the CasaOS and ReCasaOS status reply and page`() {
         assertTrue(looksLikeCasaStatus("""{"success":200,"message":"ok","data":{"initialized":true,"key":"x"}}"""))
         assertFalse(looksLikeCasaStatus("""{"success":200,"data":{}}"""))
         assertFalse(looksLikeCasaStatus("<html>router</html>"))
         assertFalse(looksLikeCasaStatus(null))
         assertTrue(looksLikeCasaPage("<!DOCTYPE html><html><head><title>CasaOS</title></head></html>"))
+        assertTrue(looksLikeCasaPage("<html><head><title>\n\t\tReCasaOS\n\t</title></head></html>"))
+        assertTrue(looksLikeCasaStatus("""{"success":200,"message":"ok","data":{"initialized":true,"key":"","first_admin":"web","login_style":"classic"}}"""))
         assertFalse(looksLikeCasaPage("<html><head><title>Router login</title></head></html>"))
     }
 

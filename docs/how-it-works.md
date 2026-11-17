@@ -1,11 +1,12 @@
 # How Hearth works
 
-The details behind each feature, how Hearth talks to CasaOS, and what it does to keep your server safe. For a quick overview, see the [README](../README.md).
+The details behind each feature, how Hearth talks to CasaOS and ReCasaOS, and what it does to keep your server safe. For a quick overview, see the [README](../README.md).
 
 Hearth runs on Android 10 or later, phones and tablets.
 
 - [Features in depth](#features-in-depth)
 - [How it talks to CasaOS](#how-it-talks-to-casaos)
+- [ReCasaOS](#recasaos)
 - [Security](#security)
 - [Building](#building)
 - [Code layout](#code-layout)
@@ -15,6 +16,7 @@ Hearth runs on Android 10 or later, phones and tablets.
 ### Servers and sign-in
 
 - Sign in with the server address and your CasaOS login. Tokens are encrypted with an Android Keystore key and refreshed automatically.
+- On a ReCasaOS account with two-factor sign-in, Hearth then asks for the 6-digit code from your authenticator app, or one of your recovery codes (**Use a recovery code**). The code has to be entered within 5 minutes of the password; after that, the password is asked for again.
 - The sign-in page looks for CasaOS servers on your Wi-Fi when it opens, or when you tap **Find servers on this network**. It tries `casaos.local` and every address on the phone's subnet (at most 254) on port 80. Tap a result to fill in the address. If it finds exactly one and you haven't typed anything, it fills it in for you.
 - You can save more than one server. Each one keeps its own encrypted login. Switch servers from the bar under the greeting on Home or from Settings, where you can also add and remove servers. A signed-out server opens the sign-in form already filled in.
 - **Sign out** ends the current login but keeps the server in your list. It also forgets that server's SSH password and key, its widget reading and every login saved in the in-app browser.
@@ -158,28 +160,39 @@ Hearth runs on Android 10 or later, phones and tablets.
 
 | Feature | Endpoint |
 | --- | --- |
-| Login / refresh | `POST /v1/users/login`, `POST /v1/users/refresh` |
-| Finding servers | `GET /v1/users/status` (needs no login), falling back to a `<title>CasaOS` check on `GET /` |
+| Login / refresh | `POST /v1/users/login`, `POST /v1/users/refresh`; ReCasaOS's second step `POST /v1/users/2fa/verify` |
+| Finding servers | `GET /v1/users/status` (needs no login), falling back to a `<title>CasaOS` or `<title>ReCasaOS` check on `GET /` |
 | Stats | `GET /v1/sys/utilization` |
 | Drives | `GET /v1/disks`, `GET /v1/disks/usb` |
-| CasaOS version | `GET /v1/sys/version/current` |
+| Version in Settings | `GET /v1/users/status` to tell ReCasaOS from CasaOS, then `GET /v1/sys/version/current` (CasaOS) or `GET /v1/sys/version` (ReCasaOS's release) |
 | Apps | `GET /v2/app_management/compose`, `PUT .../compose/{id}/status`, `GET .../compose/{id}/logs` |
 | App settings | `GET /v2/app_management/compose/{id}` with `Accept: application/yaml`, `PUT .../compose/{id}?check_port_conflict=true` with the YAML |
 | App version | Switching writes the new tag with the app settings call above. App Store version: `GET /v2/app_management/apps/{id}/stable`; update: `PATCH /v2/app_management/compose/{id}` |
-| Files | `GET /v1/folder?path=`, `GET /v1/file?path=` (with a `Range` header for Android Files and for the start of a photo, see Files above); new folder `POST /v1/folder`, rename `PUT /v1/file/name`, delete `DELETE /v1/file`, copy / move `POST /v1/batch/task`, upload `POST /v1/file/upload` (1 MB chunks, like the dashboard) |
+| Files | `GET /v1/folder?path=`, `GET /v1/file?path=` (with a `Range` header for Android Files and for the start of a photo, see Files above); new folder `POST /v1/folder`, rename `PUT /v1/file/name`, delete `DELETE /v1/batch` with the paths as a JSON list, copy / move `POST /v1/batch/task`, upload `POST /v1/file/upload` (1 MB chunks, like the dashboard) |
 | App Store | `GET /v2/app_management/apps`; install: `GET .../apps/{id}/compose` (YAML), then `POST /v2/app_management/compose?check_port_conflict=true`; uninstall: `DELETE .../compose/{id}?delete_config_folder=` |
 | Power | `PUT /v1/sys/state/{restart\|off}` |
 | Alerts | `GET /v1/sys/utilization` and `GET /v2/app_management/compose` at each check, `GET /v1/disks` and `/v1/disks/usb` at most every 6 hours |
 
-CasaOS expects the raw JWT in the `Authorization` header (no `Bearer`). Endpoints were taken from the CasaOS source and OpenAPI specs.
+CasaOS expects the raw JWT in the `Authorization` header (no `Bearer`). Endpoints were taken from the CasaOS source and OpenAPI specs. A video handed to the player gets its token after a call to `GET /v1/users/current`, which needs signing in, so an expired token is refreshed first.
 
 **Image versions:** CasaOS can't list an image's versions, so the phone asks the image's registry directly. It uses Docker Hub's API (`hub.docker.com/v2/repositories/…/tags`), or the standard registry API (`/v2/<name>/tags/list`, with an anonymous token) for ghcr.io, lscr.io, quay.io and others. Only public images can be listed, and the CasaOS login is never sent to a registry.
 
 **Terminal:** Hearth doesn't use CasaOS's web terminal (`/v1/sys/wsssh`), because that sends the SSH password in the URL over plain HTTP. It connects straight to the server's SSH port with [JSch](https://github.com/mwiede/jsch) (with [Bouncy Castle](https://www.bouncycastle.org/) for Ed25519 keys, which Android lacks before 13) and draws the terminal with Termux's [terminal-emulator](https://github.com/termux/termux-app/tree/master/terminal-emulator) library.
 
+## ReCasaOS
+
+[ReCasaOS](https://github.com/ReCasaOS/CasaOS) is a community continuation of CasaOS, maintained after IceWhale stopped releasing CasaOS in 2025. It keeps CasaOS's API, so Hearth uses the same calls for both. These notes come from its source, checked in November 2026 (release v0.4.95):
+
+- **Same API.** Every call in the table above exists on ReCasaOS with the same request and reply. The app API adds a `409` reply when something else, such as a backup, is working on the app; Hearth shows its message.
+- **Two-factor sign-in.** When it's on, a right password gets an HTTP 200 whose envelope says `10014` ("Two-factor code required") and carries a `pre_auth_token`. Hearth sends that token with the code to `POST /v1/users/2fa/verify` (`code` for the app's six digits, `recovery_code` for anything else), which answers like a normal login. A wrong code is `10015`. Any other `400` means the token ran out, and Hearth asks for the password again.
+- **Accounts that aren't administrators.** ReCasaOS can have several accounts. One with the role "user" may only read a few things: the gateway answers anything else with `403` and `10011`. Most of Hearth won't work for such an account, and Hearth says to sign in with an administrator account.
+- **HTTPS.** ReCasaOS also serves HTTPS on port 443, with a certificate it makes itself. Android doesn't trust that certificate, so sign in with the `http://` address (port 80 is still served) or give the server a certificate from a trusted authority. Hearth explains this when a certificate is refused.
+- **Delete.** ReCasaOS can move deleted files to a trash (`DELETE /v1/batch?to_trash=true`). Hearth deletes for good on both, and says so before it does.
+- **Tokens.** ReCasaOS accepts the raw token or `Bearer <token>`. Hearth keeps sending it raw, which both accept. Access tokens last 3 hours and are refreshed as on CasaOS.
+
 ## Security
 
-- CasaOS has no TLS by default, so Hearth allows plain HTTP (`network_security_config.xml`), and your password crosses the network unencrypted. Stay on your home network, or put the server behind HTTPS or a VPN (Tailscale, WireGuard) for remote use.
+- CasaOS has no TLS by default (and Android doesn't trust ReCasaOS's own certificate, see above), so Hearth allows plain HTTP (`network_security_config.xml`), and your password crosses the network unencrypted. Stay on your home network, or put the server behind HTTPS or a VPN (Tailscale, WireGuard) for remote use.
 - SSH is encrypted end to end. On the first connection, Hearth shows the server's host key fingerprint for you to confirm. It uses the same `SHA256:` format as `ssh-keygen -lf`. If the key changes later, Hearth warns you before connecting.
 - A remembered SSH password and a saved SSH key (with its passphrase) are encrypted like the CasaOS tokens and wiped on sign-out. A key made on the phone never leaves it: only its public half can be copied. Signing out also closes any open shell.
 - Programs on the server can't read or change the phone's clipboard. Text only moves when you copy or paste it.

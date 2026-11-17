@@ -29,6 +29,13 @@ data class UserDto(
 @Serializable
 data class LoginData(val token: TokenDto, val user: UserDto = UserDto())
 
+/** ReCasaOS's answer to a right password when the account also wants a code. */
+@Serializable
+data class PreAuthDto(@SerialName("pre_auth_token") val preAuthToken: String)
+
+/** A sign-in waiting for its second step, at [baseUrl]. [preAuthToken] lasts five minutes. */
+data class TwoFactorChallenge(val baseUrl: String, val username: String, val preAuthToken: String)
+
 data class DiskStats(val totalBytes: Long, val usedBytes: Long) {
     val percent: Double get() = if (totalBytes > 0) usedBytes * 100.0 / totalBytes else 0.0
 }
@@ -116,6 +123,8 @@ sealed class CasaException(message: String, cause: Throwable? = null) : Exceptio
     class Network(message: String, cause: Throwable? = null) : CasaException(message, cause)
     class Server(val code: Int, message: String) : CasaException(message)
     class Parse(message: String, cause: Throwable? = null) : CasaException(message, cause)
+    /** A two-factor sign-in that took too long, so it starts again from the password. */
+    class SignInExpired : CasaException("That took too long. Enter your password again.")
 }
 
 /** An app offered by the App Store. */

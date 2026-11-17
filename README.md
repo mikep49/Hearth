@@ -5,7 +5,7 @@
 <h1 align="center">Hearth</h1>
 
 <p align="center">
-  A native Android app for <a href="https://casaos.io">CasaOS</a>.<br>
+  A native Android app for <a href="https://casaos.io">CasaOS</a> and <a href="https://github.com/ReCasaOS/CasaOS">ReCasaOS</a>.<br>
   Check your server, manage your apps, browse your files and open a terminal, all from your phone.
 </p>
 
@@ -21,7 +21,7 @@ Download the latest APK from [Releases](../../releases/latest) and open it on yo
 
 To get updates as they come out, add Hearth to [Obtainium](https://obtainium.imranr.dev): tap the badge above on your phone, or add `https://github.com/mikep49/Hearth` in Obtainium yourself.
 
-Sign in with your server's address (for example `192.168.1.20` or `casaos.local`) and the same login you use for the CasaOS dashboard. Hearth can also find CasaOS servers on your Wi-Fi for you.
+Sign in with your server's address (for example `192.168.1.20` or `casaos.local`) and the same login you use for the CasaOS dashboard. Hearth can also find CasaOS servers on your Wi-Fi for you. On ReCasaOS, two-factor sign-in works too: Hearth asks for the code after your password.
 
 ## Features
 
@@ -44,7 +44,7 @@ Sign in with your server's address (for example `192.168.1.20` or `casaos.local`
 
 ## Security
 
-CasaOS uses plain HTTP by default, so your password isn't encrypted on the network. Use Hearth on your home network, or connect through a VPN such as Tailscale or WireGuard when you're away.
+CasaOS uses plain HTTP by default, so your password isn't encrypted on the network. Use Hearth on your home network, or connect through a VPN such as Tailscale or WireGuard when you're away. ReCasaOS also serves HTTPS, but with a certificate it makes itself, which Android doesn't trust: use its `http://` address in Hearth, or give it a certificate from a trusted authority.
 
 Your logins are stored encrypted on the phone and left out of backups, and the terminal uses SSH, which is always encrypted.
 
@@ -58,9 +58,9 @@ Open the project in Android Studio and press **Run**, or from the command line:
 
 ## Learn more
 
-[How Hearth works](docs/how-it-works.md) explains each feature in detail, the CasaOS API calls Hearth makes, its security measures, and how to build and test it.
+[How Hearth works](docs/how-it-works.md) explains each feature in detail, the CasaOS API calls Hearth makes and what's different on ReCasaOS, its security measures, and how to build and test it.
 
-Hearth is an unofficial app and isn't affiliated with CasaOS or IceWhale.
+Hearth is an unofficial app and isn't affiliated with CasaOS, IceWhale or ReCasaOS.
 
 ## License
 

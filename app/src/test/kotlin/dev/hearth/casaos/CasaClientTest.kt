@@ -221,7 +221,7 @@ class CasaClientTest {
 
     private val ok = """{"success":200,"message":"ok","data":null}"""
 
-    @Test fun `file actions send what the CasaOS dashboard sends`() = runTest {
+    @Test fun `file actions send what the CasaOS and ReCasaOS dashboards send`() = runTest {
         signedIn()
         repeat(4) { server.enqueue(json(ok)) }
 
@@ -237,7 +237,7 @@ class CasaClientTest {
         }
         client.delete(listOf("/DATA/a", "/DATA/b"))
         server.takeRequest().let {
-            assertEquals("DELETE", it.method); assertEquals("/v1/file", it.path)
+            assertEquals("DELETE", it.method); assertEquals("/v1/batch", it.path)
             assertEquals("""["/DATA/a","/DATA/b"]""", it.body.readUtf8())
         }
         client.transfer(listOf("/DATA/a"), "/DATA/Media", move = true)
@@ -347,6 +347,91 @@ class CasaClientTest {
         server.enqueue(cutShort())
         assertThrows(CasaException.Network::class.java) { runTestBlocking { client.readStart("/DATA/a.txt", 1024) } }
     }
+
+    // region ReCasaOS
+
+    private val twoFactorRequired = """{"success":10014,"message":"Two-factor code required","data":{"pre_auth_token":"P1","expires_at":1}}"""
+
+    @Test fun `a ReCasaOS account with two-factor sign-in asks for a code before signing in`() = runTest {
+        server.enqueue(json(twoFactorRequired))
+        val challenge = client.login(hostPort(), "klaus", "pw")
+
+        assertEquals("P1", challenge?.preAuthToken)
+        assertEquals("http://${hostPort()}", challenge?.baseUrl)
+        assertNull(creds.accessToken)
+        server.takeRequest()
+
+        server.enqueue(json(loginOk))
+        client.verifyTwoFactor(challenge!!, " 123 456 ")
+        server.takeRequest().let {
+            assertEquals("POST", it.method); assertEquals("/v1/users/2fa/verify", it.path)
+            assertNull(it.getHeader("Authorization"))
+            assertEquals("""{"pre_auth_token":"P1","code":"123456"}""", it.body.readUtf8())
+        }
+        assertEquals("A1", creds.accessToken)
+        assertEquals("http://${hostPort()}", creds.baseUrl)
+    }
+
+    @Test fun `a recovery code goes as one`() = runTest {
+        server.enqueue(json(twoFactorRequired)); val challenge = client.login(hostPort(), "klaus", "pw")!!; server.takeRequest()
+        server.enqueue(json(loginOk))
+        client.verifyTwoFactor(challenge, "abcde-2fg7h")
+        assertEquals("""{"pre_auth_token":"P1","recovery_code":"abcde-2fg7h"}""", server.takeRequest().body.readUtf8())
+    }
+
+    @Test fun `a wrong code can be tried again, a stale sign-in can't`() = runTest {
+        server.enqueue(json(twoFactorRequired)); val challenge = client.login(hostPort(), "klaus", "pw")!!; server.takeRequest()
+
+        server.enqueue(json("""{"success":10015,"message":"Two-factor code invalid"}""", 400))
+        val wrong = assertThrows(CasaException.Server::class.java) { runTestBlocking { client.verifyTwoFactor(challenge, "000000") } }
+        assertEquals("That code didn't work. Check it and try again.", wrong.message)
+
+        server.enqueue(json("""{"success":20006,"message":"Verification failure"}""", 400))
+        assertThrows(CasaException.SignInExpired::class.java) { runTestBlocking { client.verifyTwoFactor(challenge, "123456") } }
+
+        server.enqueue(json("""{"success":10012,"message":"Too many login requests"}""", 429))
+        assertEquals(
+            "Too many login requests",
+            assertThrows(CasaException.Server::class.java) { runTestBlocking { client.verifyTwoFactor(challenge, "123456") } }.message,
+        )
+        assertNull(creds.accessToken)
+    }
+
+    @Test fun `an account that isn't an administrator is told so`() = runTest {
+        signedIn()
+        server.enqueue(json("""{"success":10011,"message":"Insufficient permissions"}""", 403))
+        val e = assertThrows(CasaException.Server::class.java) { runTestBlocking { client.apps() } }
+        assertEquals(403, e.code)
+        assertTrue(e.message!!.contains("administrator"))
+        assertTrue(!creds.signedOut)
+    }
+
+    @Test fun `settings name the server's software and version`() = runTest {
+        signedIn()
+        server.enqueue(json("""{"success":200,"message":"ok","data":{"initialized":true,"key":"","gpus":0}}"""))
+        server.enqueue(MockResponse().setBody("0.4.15"))
+        assertEquals("CasaOS 0.4.15", client.versionLabel())
+        assertEquals("/v1/users/status", server.takeRequest().path)
+        assertEquals("/v1/sys/version/current", server.takeRequest().path)
+
+        server.enqueue(json("""{"success":200,"message":"ok","data":{"initialized":true,"key":"","first_admin":"web","gpus":0,"login_style":"classic"}}"""))
+        server.enqueue(json("""{"success":200,"message":"ok","data":{"current_version":"v0.4.95","need_update":false,"version":{}}}"""))
+        assertEquals("ReCasaOS v0.4.95", client.versionLabel())
+        server.takeRequest()
+        assertEquals("/v1/sys/version", server.takeRequest().path)
+    }
+
+    @Test fun `streaming headers come after a call that needs a fresh token`() = runTest {
+        signedIn()
+        server.enqueue(json("""{"message":"expired"}""", 401))
+        server.enqueue(json("""{"success":200,"data":{"access_token":"A2","refresh_token":"R2","expires_at":2}}"""))
+        server.enqueue(json("""{"success":200,"data":{"username":"klaus"}}"""))
+
+        assertEquals(mapOf("Authorization" to "A2"), client.authHeadersForStreaming())
+        assertEquals("/v1/users/current", server.takeRequest().path)
+    }
+
+    // endregion
 
     /** The value of a plain field in a multipart form body. */
     private fun formField(body: String, name: String): String? =

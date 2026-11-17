@@ -112,9 +112,9 @@ internal fun looksLikeCasaStatus(body: String?): Boolean = runCatching {
     (root["data"] as? JsonObject)?.containsKey("initialized") == true
 }.getOrDefault(false)
 
-/** The CasaOS dashboard's page is titled "CasaOS". */
+/** The CasaOS dashboard's page is titled "CasaOS", and ReCasaOS's "ReCasaOS". */
 internal fun looksLikeCasaPage(body: String?): Boolean =
-    body != null && Regex("<title>\\s*CasaOS", RegexOption.IGNORE_CASE).containsMatchIn(body)
+    body != null && Regex("<title>\\s*(Re)?CasaOS", RegexOption.IGNORE_CASE).containsMatchIn(body)
 
 /**
  * The other addresses on [ip]'s subnet, as strings. A subnet bigger than a /24 is cut down to the /24 around

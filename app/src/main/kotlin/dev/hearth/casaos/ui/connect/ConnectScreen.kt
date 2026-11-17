@@ -27,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Radar
 import androidx.compose.material.icons.rounded.Person
@@ -55,6 +56,8 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -79,6 +82,7 @@ import dev.hearth.casaos.data.CasaException
 import dev.hearth.casaos.data.FoundServer
 import dev.hearth.casaos.data.ServerFinder
 import dev.hearth.casaos.data.ServerProfile
+import dev.hearth.casaos.data.TwoFactorChallenge
 import dev.hearth.casaos.data.mergeFound
 import dev.hearth.casaos.ui.components.ListGroup
 import dev.hearth.casaos.ui.components.ListRow
@@ -104,8 +108,11 @@ data class ConnectState(
     val found: List<FoundServer> = emptyList(),
     /** Why the last search came back empty, if it did. */
     val findResult: FindResult? = null,
+    /** Set once the password was right on a ReCasaOS account with two-factor sign-in: the form asks for [code]. */
+    val twoFactor: TwoFactorChallenge? = null,
+    val code: String = "",
 ) {
-    val canSubmit get() = server.isNotBlank() && username.isNotBlank() && password.isNotEmpty() && !loading
+    val canSubmit get() = !loading && if (twoFactor != null) code.isNotBlank() else server.isNotBlank() && username.isNotBlank() && password.isNotEmpty()
 }
 
 enum class FindResult { NoneFound, NotOnWifi }
@@ -155,21 +162,36 @@ class ConnectViewModel(
     fun onServer(v: String) = _state.update { it.copy(server = v, error = null) }
     fun onUsername(v: String) = _state.update { it.copy(username = v, error = null) }
     fun onPassword(v: String) = _state.update { it.copy(password = v, error = null) }
+    fun onCode(v: String) = _state.update { it.copy(code = v, error = null) }
 
+    /** Signs in with the password, or, at the second step, with the code. */
     fun submit() {
         val s = _state.value
         if (!s.canSubmit) return
         _state.update { it.copy(loading = true, error = null) }
         viewModelScope.launch {
             try {
-                client.login(s.server, s.username.trim(), s.password)
-                // On success SessionStore flips and the root composable swaps this screen out.
-                _state.update { it.copy(loading = false, password = "", signedIn = true) }
+                val challenge = if (s.twoFactor != null) {
+                    client.verifyTwoFactor(s.twoFactor, s.code)
+                    null
+                } else {
+                    client.login(s.server, s.username.trim(), s.password)
+                }
+                // Signed in: SessionStore flips and the root composable swaps this screen out.
+                _state.update {
+                    if (challenge != null) it.copy(loading = false, password = "", twoFactor = challenge, code = "")
+                    else it.copy(loading = false, password = "", twoFactor = null, code = "", signedIn = true)
+                }
+            } catch (e: CasaException.SignInExpired) {
+                _state.update { it.copy(loading = false, twoFactor = null, code = "", error = e.message) }
             } catch (e: CasaException) {
-                _state.update { it.copy(loading = false, error = e.message) }
+                _state.update { it.copy(loading = false, code = "", error = e.message) }
             }
         }
     }
+
+    /** Back from the code to the password. */
+    fun cancelTwoFactor() = _state.update { it.copy(twoFactor = null, code = "", error = null) }
 }
 
 /**
@@ -192,6 +214,8 @@ fun ConnectScreen(
         BackHandler(onBack = onClose)
         LaunchedEffect(state.signedIn) { if (state.signedIn) onClose() }
     }
+    // Declared after the one above, so at the code step Back goes to the password first.
+    BackHandler(enabled = state.twoFactor != null, onBack = viewModel::cancelTwoFactor)
     var showPassword by rememberSaveable { mutableStateOf(false) }
     val focus = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
@@ -257,7 +281,10 @@ fun ConnectScreen(
             )
             Spacer(Modifier.height(40.dp))
 
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            val challenge = state.twoFactor
+            if (challenge != null) {
+                TwoFactorStep(challenge, state.code, viewModel::onCode, onSubmit = ::submit, onBack = viewModel::cancelTwoFactor)
+            } else Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 OutlinedTextField(
                     value = state.server,
                     onValueChange = viewModel::onServer,
@@ -321,13 +348,13 @@ fun ConnectScreen(
                 if (state.loading) {
                     CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.5.dp, color = MaterialTheme.colorScheme.onPrimary)
                 } else {
-                    Text("Connect", style = MaterialTheme.typography.titleMedium)
+                    Text(if (challenge != null) "Verify" else "Connect", style = MaterialTheme.typography.titleMedium)
                 }
             }
 
             // Other saved servers: signed-in ones open right away, signed-out ones fill the form in.
             val others = saved.filterNot { it.address.equals(state.server.trim(), ignoreCase = true) && it.username.equals(state.username.trim(), ignoreCase = true) }
-            if (!adding && others.isNotEmpty()) {
+            if (!adding && challenge == null && others.isNotEmpty()) {
                 Spacer(Modifier.height(28.dp))
                 SectionHeader("Your servers", Modifier.fillMaxWidth())
                 Spacer(Modifier.height(8.dp))
@@ -352,6 +379,53 @@ fun ConnectScreen(
             Spacer(Modifier.height(24.dp))
         }
     } }
+}
+
+/**
+ * The second step of signing in to a ReCasaOS account with two-factor sign-in: the code from the authenticator
+ * app, or one of the recovery codes the server handed out when it was turned on.
+ */
+@Composable
+private fun TwoFactorStep(
+    challenge: TwoFactorChallenge,
+    code: String,
+    onCode: (String) -> Unit,
+    onSubmit: () -> Unit,
+    onBack: () -> Unit,
+) {
+    // Recovery codes have letters, so they need the full keyboard; app codes are digits only.
+    var recovery by rememberSaveable { mutableStateOf(false) }
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(recovery) { focus.requestFocus() }
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Text(
+            if (recovery) "Enter one of the recovery codes you saved when you turned on two-factor sign-in for ${challenge.username}. Each one works once."
+            else "Enter the 6-digit code from your authenticator app for ${challenge.username}.",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedTextField(
+            value = code,
+            onValueChange = onCode,
+            modifier = Modifier.fillMaxWidth().focusRequester(focus),
+            label = { Text(if (recovery) "Recovery code" else "Code") },
+            leadingIcon = { Icon(Icons.Rounded.Key, null) },
+            singleLine = true,
+            shape = RoundedCornerShape(16.dp),
+            keyboardOptions = KeyboardOptions(
+                keyboardType = if (recovery) KeyboardType.Ascii else KeyboardType.NumberPassword,
+                autoCorrectEnabled = false,
+                imeAction = ImeAction.Go,
+            ),
+            keyboardActions = KeyboardActions(onGo = { onSubmit() }),
+        )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            TextButton(onClick = onBack) { Text("Back") }
+            TextButton(onClick = { recovery = !recovery; onCode("") }) {
+                Text(if (recovery) "Use the app's code" else "Use a recovery code")
+            }
+        }
+    }
 }
 
 /** The "Find servers" button, and what the last search found. */

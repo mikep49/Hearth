@@ -1,4 +1,4 @@
-Hearth is a native app for CasaOS home servers. Check your server, manage your apps, browse your files and open a terminal, all from your phone.
+Hearth is a native app for CasaOS and ReCasaOS home servers. Check your server, manage your apps, browse your files and open a terminal, all from your phone.
 
 <b>Features</b>
 <ul>

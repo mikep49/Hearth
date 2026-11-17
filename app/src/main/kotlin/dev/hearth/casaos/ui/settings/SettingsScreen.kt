@@ -166,7 +166,7 @@ class SettingsViewModel(
     val messages: SharedFlow<String> = _messages.asSharedFlow()
 
     init {
-        viewModelScope.launch { _version.value = try { client.version() } catch (_: CasaException) { null } }
+        viewModelScope.launch { _version.value = try { client.versionLabel() } catch (_: CasaException) { null } }
     }
 
     fun power(action: PowerAction) {
@@ -227,7 +227,7 @@ fun SettingsScreen(
                 subtitle = listOfNotNull(
                     username.takeIf { name != username && it.isNotBlank() },
                     serverLabel,
-                    version?.let { "CasaOS $it" },
+                    version,
                 ).joinToString(" · "),
                 leading = {
                     Box(

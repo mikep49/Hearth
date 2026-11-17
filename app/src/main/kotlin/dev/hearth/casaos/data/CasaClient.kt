@@ -70,16 +70,52 @@ class CasaClient(
 
     // region auth
 
-    suspend fun login(rawServer: String, username: String, password: String) {
+    /**
+     * Signs in, or returns the challenge to finish with [verifyTwoFactor] when the account has two-factor sign-in
+     * on (ReCasaOS). That answer comes in an HTTP 200 whose envelope says [TWO_FA_REQUIRED] instead of success.
+     */
+    suspend fun login(rawServer: String, username: String, password: String): TwoFactorChallenge? {
         val base = normalizeBaseUrl(rawServer) ?: throw CasaException.Network("That doesn't look like a valid address")
         val body = buildJsonObject { put("username", username); put("password", password) }
         val req = Request.Builder()
             .url(base.toHttpUrl().newBuilder().addPathSegments("v1/users/login").build())
             .post(body.toString().toRequestBody(jsonType))
             .build()
-        val data = execute(plain, req)
-        val login = decode<LoginData>(data)
+        val text = executeText(plain, req)
+        if (envelopeCode(text) == TWO_FA_REQUIRED) {
+            val data = (json.parseToJsonElement(text) as JsonObject)["data"]
+            return TwoFactorChallenge(base, username, decode<PreAuthDto>(data).preAuthToken)
+        }
+        val login = decode<LoginData>(unwrap(text))
         session.signIn(base, login.user.username.ifBlank { username }, login.token)
+        return null
+    }
+
+    /**
+     * Finishes a two-factor sign-in with the six digits from the authenticator app, or with one of the account's
+     * recovery codes (ten letters and digits). A wrong code throws [CasaException.Server] and the same [challenge]
+     * can be tried again; once it has run out (after five minutes), [CasaException.SignInExpired].
+     */
+    suspend fun verifyTwoFactor(challenge: TwoFactorChallenge, code: String) {
+        val entered = code.filterNot(Char::isWhitespace)
+        val body = buildJsonObject {
+            put("pre_auth_token", challenge.preAuthToken)
+            put(if (entered.all(Char::isDigit)) "code" else "recovery_code", entered)
+        }
+        val req = Request.Builder()
+            .url(challenge.baseUrl.toHttpUrl().newBuilder().addPathSegments("v1/users/2fa/verify").build())
+            .post(body.toString().toRequestBody(jsonType))
+            .build()
+        val (status, text) = withContext(Dispatchers.IO) { plain.newCall(req).await().use { r -> r.code to readBody(r) } }
+        // Every other refusal of a well-formed request means the challenge is no good any more: it ran out, or
+        // two-factor sign-in was turned off in the meantime. Either way, the password has to be entered again.
+        if (status == 400) {
+            if (envelopeCode(text) != TWO_FA_CODE_INVALID) throw CasaException.SignInExpired()
+            throw CasaException.Server(status, "That code didn't work. Check it and try again.")
+        }
+        checkStatus(status, text)
+        val login = decode<LoginData>(unwrap(text))
+        session.signIn(challenge.baseUrl, login.user.username.ifBlank { challenge.username }, login.token)
     }
 
     private fun isOurServer(url: HttpUrl): Boolean =
@@ -172,16 +208,8 @@ class CasaClient(
      * The app's compose file, as the CasaOS dashboard's settings dialog loads it. CasaOS matches the
      * `Accept` header exactly, so it must be just `application/yaml`; anything else returns debug JSON.
      */
-    suspend fun appComposeYaml(id: String): String {
-        val req = request("v2", "app_management", "compose", id).header("Accept", "application/yaml").build()
-        return withContext(Dispatchers.IO) {
-            http.newCall(req).await().use { r ->
-                val text = readBody(r)
-                checkStatus(r.code, text)
-                text
-            }
-        }
-    }
+    suspend fun appComposeYaml(id: String): String =
+        executeText(http, request("v2", "app_management", "compose", id).header("Accept", "application/yaml").build())
 
     /**
      * Saves a new compose file for the app, like the dashboard's settings "Save". CasaOS checks it (and that
@@ -237,10 +265,10 @@ class CasaClient(
         execute(http, request("v1", "file", "name").put(body).build())
     }
 
-    /** Deletes files and folders (folders with everything in them). */
+    /** Deletes files and folders (folders with everything in them), for good: ReCasaOS's trash is left out. */
     suspend fun delete(paths: List<String>) {
         val body = JsonArray(paths.map(::JsonPrimitive)).toString().toRequestBody(jsonType)
-        execute(http, request("v1", "file").delete(body).build())
+        execute(http, request("v1", "batch").delete(body).build())
     }
 
     /**
@@ -316,14 +344,7 @@ class CasaClient(
      * store and hands it back to CasaOS, which checks the ports and then downloads and starts it in the background.
      */
     suspend fun installStoreApp(storeAppId: String) {
-        val get = request("v2", "app_management", "apps", storeAppId, "compose").header("Accept", "application/yaml").build()
-        val yaml = withContext(Dispatchers.IO) {
-            http.newCall(get).await().use { r ->
-                val text = readBody(r)
-                checkStatus(r.code, text)
-                text
-            }
-        }
+        val yaml = executeText(http, request("v2", "app_management", "apps", storeAppId, "compose").header("Accept", "application/yaml").build())
         val url = urlOf("v2", "app_management", "compose") { addQueryParameter("check_port_conflict", "true") }
         execute(http, Request.Builder().url(url).post(yaml.toRequestBody(yamlType)).build())
     }
@@ -336,6 +357,23 @@ class CasaClient(
 
     suspend fun version(): String? =
         (get("v1", "sys", "version", "current") as? JsonPrimitive)?.content?.trim()?.takeIf { it.isNotEmpty() }
+
+    /**
+     * What the server runs, for Settings: "CasaOS 0.4.15" or "ReCasaOS v0.4.95". ReCasaOS's version is its
+     * release, as its dashboard shows it; `/v1/sys/version/current` there is only the core service's own.
+     */
+    suspend fun versionLabel(): String? {
+        if (!isReCasaOS()) return version()?.let { "CasaOS $it" }
+        val release = try {
+            ((get("v1", "sys", "version") as? JsonObject)?.get("current_version") as? JsonPrimitive)?.content?.trim()
+        } catch (e: CasaException.Server) {
+            null
+        }
+        return "ReCasaOS" + (release?.takeIf { it.isNotEmpty() } ?: version())?.let { " $it" }.orEmpty()
+    }
+
+    /** ReCasaOS's sign-in status also says where the first account is made (`first_admin`); CasaOS's doesn't. */
+    private suspend fun isReCasaOS(): Boolean = (get("v1", "users", "status") as? JsonObject)?.containsKey("first_admin") == true
 
     suspend fun power(action: PowerAction) {
         execute(http, request("v1", "sys", "state", action.wire).put(ByteArray(0).toRequestBody(null)).build())
@@ -371,10 +409,11 @@ class CasaClient(
 
     /**
      * Headers a player that can't use [http] needs to stream [fileUrl]. Makes a cheap signed-in call first, so
-     * an expired token is refreshed before it's handed over.
+     * an expired token is refreshed before it's handed over. (The version call answers without signing in, so it
+     * would never notice an expired token.)
      */
     suspend fun authHeadersForStreaming(): Map<String, String> {
-        version()
+        get("v1", "users", "current")
         return session.accessToken?.let { mapOf("Authorization" to it) }.orEmpty()
     }
 
@@ -462,6 +501,15 @@ class CasaClient(
         }
     }
 
+    /** Runs the call and returns the body as it came, for YAML and for answers that need a look before [unwrap]. */
+    private suspend fun executeText(client: OkHttpClient, req: Request): String = withContext(Dispatchers.IO) {
+        client.newCall(req).await().use { r ->
+            val text = readBody(r)
+            checkStatus(r.code, text)
+            text
+        }
+    }
+
     /**
      * The connection can still drop after the headers arrive. Callers only expect a [CasaException], so
      * anything else from reading the body would end the app instead of showing a message.
@@ -477,8 +525,16 @@ class CasaClient(
     private fun checkStatus(code: Int, body: String?) {
         if (code in 200..299) return
         if (code == 401) throw CasaException.Unauthorized()
+        if (code == 403 && envelopeCode(body) == INSUFFICIENT_PERMISSIONS) {
+            throw CasaException.Server(code, "Your account on this server can't do this. Sign in with an administrator account.")
+        }
         throw CasaException.Server(code, messageFrom(body) ?: "Server returned $code")
     }
+
+    /** The `success` code of a JSON envelope, which tells apart answers that share an HTTP status. */
+    private fun envelopeCode(body: String?): Int? = runCatching {
+        ((json.parseToJsonElement(body ?: return null) as? JsonObject)?.get("success") as? JsonPrimitive)?.content?.toIntOrNull()
+    }.getOrNull()
 
     private fun messageFrom(body: String?): String? = runCatching {
         val root = json.parseToJsonElement(body ?: return null) as? JsonObject ?: return null
@@ -527,6 +583,9 @@ class CasaClient(
         is java.net.SocketTimeoutException -> "The server took too long to respond"
         is java.net.UnknownHostException -> "Couldn't find that server on the network"
         is java.net.ConnectException -> "Couldn't connect. Is the server on and reachable?"
+        // ReCasaOS serves HTTPS with a certificate it made itself, which Android doesn't trust.
+        is javax.net.ssl.SSLHandshakeException, is javax.net.ssl.SSLPeerUnverifiedException ->
+            "This phone doesn't trust the server's HTTPS certificate. Use its http:// address, or give the server a certificate from a trusted authority."
         else -> e.message ?: "Network error"
     }
 
@@ -535,3 +594,10 @@ class CasaClient(
 
 /** Matches the dashboard uploader's chunk size. */
 private const val UPLOAD_CHUNK = 1024 * 1024
+
+// Envelope codes from ReCasaOS, which CasaOS never sends.
+/** The password was right, and the account wants a second code: see [CasaClient.verifyTwoFactor]. */
+private const val TWO_FA_REQUIRED = 10014
+private const val TWO_FA_CODE_INVALID = 10015
+/** The account isn't an administrator, and this call is one only they may make. */
+private const val INSUFFICIENT_PERMISSIONS = 10011

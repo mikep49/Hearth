@@ -1,0 +1,6 @@
+• Home: open your chosen server apps from the new App shortcuts widget
+• ReCasaOS: sign in with an authenticator or recovery code
+• ReCasaOS servers show up in Wi-Fi discovery and are named in Settings
+• Clearer messages for non-admin accounts and untrusted HTTPS certificates
+• Fixed deleting files and folders on CasaOS and ReCasaOS
+• Fixed video playback when the sign-in session had expired

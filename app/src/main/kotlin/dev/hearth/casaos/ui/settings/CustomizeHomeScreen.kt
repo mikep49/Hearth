@@ -196,7 +196,7 @@ private val PassThrough = object : NestedScrollConnection {}
  * for when there's no other server to differ from.
  *
  * The App shortcuts widget's Choose apps button lists this server's apps that have a web page, from
- * [loadApps], to pick the ones it shows. [shortcuts] are the ones picked, null until any are, and
+ * [loadApps], to pick the ones it shows. [shortcuts] are the selected apps, with null showing all apps.
  * [onShortcuts] changes them. Each server keeps its own, whichever layout it shows.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -397,6 +397,10 @@ fun CustomizeHomeScreen(
                 onShortcuts(null)
                 offerUndo("Showing all apps") { onShortcuts(before) }
             },
+            onDeselectAll = {
+                snackbar.currentSnackbarData?.dismiss()
+                onShortcuts(emptyList())
+            },
             onDismiss = { choosingApps = false },
         )
     }
@@ -404,8 +408,7 @@ fun CustomizeHomeScreen(
 
 /**
  * The list Choose apps opens: this server's apps with a web page, from [loadApps], each ticked if the App
- * shortcuts widget shows it, with its place there. While none have been [chosen] the widget shows them all,
- * so all are ticked. [onToggle] puts an app on the widget or takes it off, and [onShowAll] goes back to all.
+ * shortcuts widget shows it, with its place there. A null [chosen] selection shows every app.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -414,6 +417,7 @@ private fun ChooseAppsSheet(
     loadApps: suspend () -> List<InstalledApp>,
     onToggle: (openable: List<InstalledApp>, id: String) -> Unit,
     onShowAll: () -> Unit,
+    onDeselectAll: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     var apps by remember { mutableStateOf<List<InstalledApp>?>(null) }
@@ -436,9 +440,15 @@ private fun ChooseAppsSheet(
             Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Row(Modifier.padding(start = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("App shortcuts", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
-                TextButton(onClick = onShowAll, enabled = chosen != null) { Text("Show all") }
+            Column {
+                Text("App shortcuts", Modifier.padding(start = 8.dp), style = MaterialTheme.typography.headlineSmall)
+                FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                    TextButton(onClick = onShowAll, enabled = chosen != null) { Text("Show all") }
+                    TextButton(
+                        onClick = onDeselectAll,
+                        enabled = chosen?.isNotEmpty() ?: !apps.isNullOrEmpty(),
+                    ) { Text("Deselect all") }
+                }
             }
             val list = apps
             when {
